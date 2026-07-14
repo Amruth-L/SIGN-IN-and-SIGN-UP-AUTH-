@@ -30,7 +30,7 @@ const seedDatabase = async () => {
         name VARCHAR(255) NOT NULL,
         email VARCHAR(255) UNIQUE,
         password VARCHAR(255),
-        email_verified BOOLEAN DEFAULT TRUE,
+        email_verified BOOLEAN DEFAULT FALSE,
         otp VARCHAR(6),
         otp_expiry TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -62,8 +62,8 @@ const seedDatabase = async () => {
     for (const user of dummyUsers) {
       try {
         await pool.query(
-          'INSERT INTO users (name, email, password) VALUES ($1, $2, $3)',
-          [user.name, user.email, hashedPassword]
+          'INSERT INTO users (name, email, password, email_verified) VALUES ($1, $2, $3, $4)',
+          [user.name, user.email, hashedPassword, true]
         );
         insertedCount++;
       } catch (err) {
