@@ -86,6 +86,7 @@ const Profile = () => {
                 <h3>{listing.title}</h3>
                 <p className="listing-price">₹{listing.price}</p>
                 <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+                  <button onClick={() => navigate(`/edit-listing/${listing.id}`)} className="btn btn-outline" style={{ padding: '0.5rem 1rem', fontSize: '0.875rem', borderColor: 'var(--primary-color)', color: 'var(--primary-color)' }}>Edit</button>
                   <button onClick={() => handleDelete(listing.id)} className="btn btn-danger" style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}>Delete</button>
                 </div>
               </div>

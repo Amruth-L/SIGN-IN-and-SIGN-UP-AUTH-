@@ -9,6 +9,7 @@ import VerifyEmail from './pages/VerifyEmail';
 import ForgotPassword from './pages/ForgotPassword';
 import Profile from './pages/Profile';
 import AddListing from './pages/AddListing';
+import EditListing from './pages/EditListing';
 
 function App() {
   const { user } = useAuth();
@@ -47,6 +48,14 @@ function App() {
           element={
             <PrivateRoute>
               <AddListing />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/edit-listing/:id" 
+          element={
+            <PrivateRoute>
+              <EditListing />
             </PrivateRoute>
           } 
         />

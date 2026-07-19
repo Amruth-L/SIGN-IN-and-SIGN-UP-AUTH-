@@ -7,6 +7,10 @@ const Home = () => {
   const { api, user } = useAuth();
   const [listings, setListings] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('All');
+
+  const categories = ['All', 'Books', 'Electronics', 'Stationery', 'Services', 'Other'];
 
   useEffect(() => {
     const fetchListings = async () => {
@@ -22,6 +26,18 @@ const Home = () => {
     fetchListings();
   }, [api]);
 
+  const filteredListings = listings.filter(listing => {
+    const matchesSearch = 
+      listing.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      listing.description.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesCategory = 
+      selectedCategory === 'All' || 
+      listing.category === selectedCategory;
+
+    return matchesSearch && matchesCategory;
+  });
+
   return (
     <div className="home-page container">
       <div className="home-header">
@@ -36,15 +52,39 @@ const Home = () => {
         )}
       </div>
 
+      <div className="search-filter-container">
+        <div className="search-bar">
+          <span className="search-icon">🔍</span>
+          <input 
+            type="text" 
+            placeholder="Search listings by title or description..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="search-input"
+          />
+        </div>
+        <div className="category-filters">
+          {categories.map(cat => (
+            <button
+              key={cat}
+              className={`filter-tab ${selectedCategory === cat ? 'active' : ''}`}
+              onClick={() => setSelectedCategory(cat)}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {loading ? (
         <div className="loading">Loading listings...</div>
-      ) : listings.length === 0 ? (
+      ) : filteredListings.length === 0 ? (
         <div className="empty-state">
           <p>No listings found. Be the first to post something!</p>
         </div>
       ) : (
         <div className="listings-grid">
-          {listings.map(listing => (
+          {filteredListings.map(listing => (
             <div key={listing.id} className="card listing-card">
               <div className="listing-img-placeholder">
                 {listing.image_url ? (
@@ -58,6 +98,28 @@ const Home = () => {
                 <h3>{listing.title}</h3>
                 <p className="listing-price">₹{listing.price}</p>
                 <p className="listing-desc">{listing.description}</p>
+                
+                <div className="listing-footer">
+                  <div className="seller-info">
+                    <span className="seller-icon">👤</span>
+                    <div>
+                      <p className="seller-name">{listing.owner_name || 'Anonymous'}</p>
+                      <p className="seller-label">Seller</p>
+                    </div>
+                  </div>
+                  {user ? (
+                    <a 
+                      href={`mailto:${listing.owner_email}?subject=Inquiry about ${encodeURIComponent(listing.title)}`} 
+                      className="btn btn-outline btn-sm contact-btn"
+                    >
+                      Contact Seller
+                    </a>
+                  ) : (
+                    <Link to="/login" className="btn btn-outline btn-sm contact-btn login-to-contact">
+                      Login to Contact
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
           ))}

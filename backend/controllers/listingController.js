@@ -23,7 +23,12 @@ exports.createListing = async (req, res) => {
 
 exports.getListings = async (req, res) => {
   try {
-    const listings = await pool.query('SELECT * FROM listings ORDER BY created_at DESC');
+    const listings = await pool.query(`
+      SELECT l.*, u.name as owner_name, u.email as owner_email 
+      FROM listings l 
+      JOIN users u ON l.owner_id = u.id 
+      ORDER BY l.created_at DESC
+    `);
     res.json(listings.rows);
   } catch (error) {
     console.error(error.message);
@@ -34,7 +39,12 @@ exports.getListings = async (req, res) => {
 exports.getListingById = async (req, res) => {
   try {
     const { id } = req.params;
-    const listing = await pool.query('SELECT * FROM listings WHERE id = $1', [id]);
+    const listing = await pool.query(`
+      SELECT l.*, u.name as owner_name, u.email as owner_email 
+      FROM listings l 
+      JOIN users u ON l.owner_id = u.id 
+      WHERE l.id = $1
+    `, [id]);
 
     if (listing.rows.length === 0) {
       return res.status(404).json({ error: 'Listing not found' });
