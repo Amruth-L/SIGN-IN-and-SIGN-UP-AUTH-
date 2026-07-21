@@ -202,6 +202,107 @@
 
   .search-bar {
     flex: 1;
-    max-width: 500px;
+    max-width: 400px;
+  }
+}
+
+/* Secondary Filters (Price & Sort) */
+.secondary-filters {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.filter-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.price-input,
+.sort-select {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  font-size: 0.875rem;
+  background-color: var(--surface-color);
+  color: var(--text-dark);
+}
+
+.price-input {
+  width: 110px;
+}
+
+.sort-select {
+  cursor: pointer;
+}
+
+/* Listing card top action buttons (Fav & Share) */
+.listing-img-placeholder {
+  position: relative;
+}
+
+.card-top-actions {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  display: flex;
+  gap: 0.5rem;
+}
+
+.fav-btn,
+.share-btn {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.fav-btn:hover,
+.share-btn:hover {
+  transform: scale(1.1);
+  background: #ffffff;
+}
+
+/* Toast notification floating bar */
+.toast-notification {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  background-color: var(--surface-color);
+  color: var(--text-dark);
+  border: 1px solid var(--primary-color);
+  box-shadow: var(--shadow-lg);
+  padding: 0.75rem 1.25rem;
+  border-radius: var(--radius-md);
+  z-index: 1000;
+  font-size: 0.9rem;
+  font-weight: 500;
+  animation: slideInUp 0.3s ease-out;
+}
+
+@keyframes slideInUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
   }
 }

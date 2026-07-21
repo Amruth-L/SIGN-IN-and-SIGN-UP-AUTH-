@@ -41,3 +41,24 @@
 .nav-btn {
   padding: 0.5rem 1rem;
 }
+
+.theme-toggle-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  font-size: 1.15rem;
+  cursor: pointer;
+  padding: 0.4rem;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  width: 36px;
+  height: 36px;
+  background-color: var(--surface-color);
+}
+
+.theme-toggle-btn:hover {
+  background-color: rgba(16, 185, 129, 0.1);
+  border-color: var(--primary-color);
+}
