@@ -13,12 +13,19 @@ const Signup = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    const emailInput = formData.email.trim().toLowerCase();
+    if (!emailInput.endsWith('@dbit.co.in')) {
+      setError('Only DBIT emails (@dbit.co.in) are allowed');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      await api.post('/signup', formData);
+      await api.post('/signup', { ...formData, email: emailInput });
       // Redirect to verification page and pass the email they just used
-      navigate('/verify-email', { state: { email: formData.email } });
+      navigate('/verify-email', { state: { email: emailInput } });
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to sign up');
     } finally {

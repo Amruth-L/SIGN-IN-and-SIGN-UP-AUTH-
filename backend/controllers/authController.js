@@ -10,12 +10,14 @@ exports.signup = async (req, res) => {
       return res.status(400).json({ error: 'Name, email, and password are required' });
     }
 
-    if (!email.endsWith('@dbit.co.in')) {
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail.endsWith('@dbit.co.in')) {
       return res.status(400).json({ error: 'Only DBIT emails (@dbit.co.in) are allowed' });
     }
 
     // Check if user already exists
-    const userCheck = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const userCheck = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
     if (userCheck.rows.length > 0) {
       return res.status(400).json({ error: 'Email already registered' });
     }
@@ -30,13 +32,13 @@ exports.signup = async (req, res) => {
 
     const newUser = await pool.query(
       'INSERT INTO users (name, email, password, otp, otp_expiry) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, created_at',
-      [name, email, hashedPassword, otp, otpExpiry]
+      [name, normalizedEmail, hashedPassword, otp, otpExpiry]
     );
 
     // Send Email
     const sendEmail = require('../utils/sendEmail');
     try {
-      await sendEmail(email, 'Your CampusMesh Verification Code', otp, name);
+      await sendEmail(normalizedEmail, 'Your CampusMesh Verification Code', otp, name);
     } catch (emailError) {
       console.error("Failed to send OTP email:", emailError);
       // We still return success but maybe warn about email failure
