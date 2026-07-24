@@ -61,7 +61,9 @@ exports.verifyEmail = async (req, res) => {
       return res.status(400).json({ error: 'Email and OTP are required' });
     }
 
-    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
     const user = userResult.rows[0];
 
     if (!user) {
@@ -83,7 +85,7 @@ exports.verifyEmail = async (req, res) => {
     // OTP is valid
     await pool.query(
       'UPDATE users SET email_verified = TRUE, otp = NULL, otp_expiry = NULL WHERE email = $1',
-      [email]
+      [normalizedEmail]
     );
 
     res.json({ message: 'Email verified successfully.' });
@@ -101,7 +103,9 @@ exports.resendOtp = async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
     const user = userResult.rows[0];
 
     if (!user) {
@@ -117,11 +121,11 @@ exports.resendOtp = async (req, res) => {
 
     await pool.query(
       'UPDATE users SET otp = $1, otp_expiry = $2 WHERE email = $3',
-      [otp, otpExpiry, email]
+      [otp, otpExpiry, normalizedEmail]
     );
 
     const sendEmail = require('../utils/sendEmail');
-    await sendEmail(email, 'Your CampusMesh Verification Code', otp, user.name);
+    await sendEmail(normalizedEmail, 'Your CampusMesh Verification Code', otp, user.name);
 
     res.json({ message: 'OTP sent to your email.' });
   } catch (error) {
@@ -138,7 +142,9 @@ exports.forgotPassword = async (req, res) => {
       return res.status(400).json({ error: 'Email is required' });
     }
 
-    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
     const user = userResult.rows[0];
 
     if (!user) {
@@ -151,11 +157,11 @@ exports.forgotPassword = async (req, res) => {
 
     await pool.query(
       'UPDATE users SET otp = $1, otp_expiry = $2 WHERE email = $3',
-      [otp, otpExpiry, email]
+      [otp, otpExpiry, normalizedEmail]
     );
 
     const sendEmail = require('../utils/sendEmail');
-    await sendEmail(email, 'Your CampusMesh Password Reset Code', otp, user.name);
+    await sendEmail(normalizedEmail, 'Your CampusMesh Password Reset Code', otp, user.name);
 
     res.json({ message: 'If that email exists, a reset code has been sent.' });
   } catch (error) {
@@ -176,7 +182,9 @@ exports.resetPassword = async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
     const user = userResult.rows[0];
 
     if (!user) {
@@ -197,7 +205,7 @@ exports.resetPassword = async (req, res) => {
     // Update password, clear OTP, and implicitly verify email if not already verified
     await pool.query(
       'UPDATE users SET password = $1, otp = NULL, otp_expiry = NULL, email_verified = TRUE WHERE email = $2',
-      [hashedPassword, email]
+      [hashedPassword, normalizedEmail]
     );
 
     res.json({ message: 'Password reset successfully. You can now log in.' });
@@ -215,7 +223,9 @@ exports.login = async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const userResult = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
     const user = userResult.rows[0];
 
     if (!user) {

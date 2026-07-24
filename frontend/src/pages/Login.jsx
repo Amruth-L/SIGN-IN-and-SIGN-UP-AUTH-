@@ -16,8 +16,10 @@ const Login = () => {
     setError('');
     setLoading(true);
 
+    const emailInput = formData.email.trim().toLowerCase();
+
     try {
-      const res = await api.post('/login', formData);
+      const res = await api.post('/login', { email: emailInput, password: formData.password });
       login(res.data.token);
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.response?.data?.error || 'Failed to login';
