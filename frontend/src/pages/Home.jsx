@@ -205,15 +205,24 @@ const Home = () => {
                     </div>
                   </div>
                   {user ? (
-                    <a 
-                      href={`mailto:${listing.owner_email}?subject=Inquiry about ${encodeURIComponent(listing.title)}`} 
-                      className="btn btn-outline btn-sm contact-btn"
-                    >
-                      Contact Seller
-                    </a>
+                    user.id === listing.owner_id ? (
+                      <span className="own-listing-badge">Your Listing</span>
+                    ) : (
+                      <div className="listing-actions">
+                        <Link to={`/rent-item/${listing.id}`} className="btn btn-primary btn-sm action-btn">
+                          Rent
+                        </Link>
+                        <Link 
+                          to={`/chat?sellerId=${listing.owner_id}&sellerName=${encodeURIComponent(listing.owner_name)}&listingTitle=${encodeURIComponent(listing.title)}`} 
+                          className="btn btn-outline btn-sm action-btn"
+                        >
+                          Chat
+                        </Link>
+                      </div>
+                    )
                   ) : (
-                    <Link to="/login" className="btn btn-outline btn-sm contact-btn login-to-contact">
-                      Login to Contact
+                    <Link to="/login" className="btn btn-outline btn-sm action-btn login-to-action">
+                      Login to Rent/Chat
                     </Link>
                   )}
                 </div>

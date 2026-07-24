@@ -10,6 +10,8 @@ router.post('/forgot-password', authController.forgotPassword);
 router.post('/reset-password', authController.resetPassword);
 router.post('/login', authController.login);
 router.get('/profile', authMiddleware, authController.getProfile);
+router.put('/profile', authMiddleware, authController.updateProfile);
+router.get('/me', authMiddleware, authController.getProfile);
 router.post('/logout', authController.logout);
 
 module.exports = router;

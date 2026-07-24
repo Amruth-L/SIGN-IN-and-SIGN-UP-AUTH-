@@ -306,3 +306,30 @@
     opacity: 1;
   }
 }
+
+.listing-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.own-listing-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--primary-color);
+  background-color: rgba(16, 185, 129, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.action-btn {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.8rem;
+}
+
+.login-to-action {
+  font-size: 0.75rem;
+  padding: 0.35rem 0.75rem;
+  background-color: rgba(16, 185, 129, 0.05);
+  border: 1px solid var(--border-color);
+}

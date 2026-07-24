@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import PrivateRoute from './components/PrivateRoute';
@@ -10,12 +10,14 @@ import ForgotPassword from './pages/ForgotPassword';
 import Profile from './pages/Profile';
 import AddListing from './pages/AddListing';
 import EditListing from './pages/EditListing';
+import RentItem from './pages/RentItem';
+import Chat from './pages/Chat';
 
 function App() {
   const { user } = useAuth();
 
   return (
-    <Router>
+    <>
       <Navbar />
       <Routes>
         <Route path="/" element={<Home />} />
@@ -39,7 +41,15 @@ function App() {
           path="/profile" 
           element={
             <PrivateRoute>
-              <Profile />
+              <Profile defaultTab="listings" />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/saved-items" 
+          element={
+            <PrivateRoute>
+              <Profile defaultTab="saved" />
             </PrivateRoute>
           } 
         />
@@ -59,8 +69,24 @@ function App() {
             </PrivateRoute>
           } 
         />
+        <Route 
+          path="/rent-item/:id" 
+          element={
+            <PrivateRoute>
+              <RentItem />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/chat" 
+          element={
+            <PrivateRoute>
+              <Chat />
+            </PrivateRoute>
+          } 
+        />
       </Routes>
-    </Router>
+    </>
   );
 }
 

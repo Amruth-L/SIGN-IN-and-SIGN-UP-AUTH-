@@ -277,3 +277,23 @@ exports.logout = (req, res) => {
     message: 'Logout successful. Delete the JWT from the client.'
   });
 };
+
+exports.updateProfile = async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Name is required' });
+    }
+    const updatedUser = await pool.query(
+      'UPDATE users SET name = $1 WHERE id = $2 RETURNING id, name, email, created_at',
+      [name, req.user.id]
+    );
+    if (updatedUser.rows.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.json(updatedUser.rows[0]);
+  } catch (error) {
+    console.error(error.message);
+    res.status(500).json({ error: 'Server Error' });
+  }
+};

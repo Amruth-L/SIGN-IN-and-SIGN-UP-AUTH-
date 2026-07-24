@@ -20,7 +20,8 @@ const Login = () => {
 
     try {
       const res = await api.post('/login', { email: emailInput, password: formData.password });
-      login(res.data.token);
+      await login(res.data.token);
+      navigate('/');
     } catch (err) {
       const errorMsg = err.response?.data?.message || err.response?.data?.error || 'Failed to login';
       setError(errorMsg);

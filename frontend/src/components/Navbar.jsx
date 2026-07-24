@@ -26,7 +26,12 @@ const Navbar = () => {
           <Link to="/" className="nav-link">Home</Link>
           {user ? (
             <>
+              <Link to="/chat" className="nav-link">Chat</Link>
               <Link to="/profile" className="nav-link">Profile</Link>
+              <div className="nav-user-badge">
+                <span className="nav-avatar">{user.name ? user.name.charAt(0).toUpperCase() : 'U'}</span>
+                <span className="nav-username">{user.name}</span>
+              </div>
               <button onClick={logout} className="btn btn-outline nav-btn">Logout</button>
             </>
           ) : (
