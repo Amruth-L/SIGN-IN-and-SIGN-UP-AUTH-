@@ -91,7 +91,7 @@ const Home = () => {
 
       <div className="home-header">
         <div>
-          <h1>CAMPUSMESH</h1>
+          <h1>Campus Marketplace</h1>
           <p className="text-muted">Find textbooks, electronics, and more from fellow students.</p>
         </div>
         {user && (
