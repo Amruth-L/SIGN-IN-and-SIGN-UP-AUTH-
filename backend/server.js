@@ -4,6 +4,7 @@ require('dotenv').config();
 
 const authRoutes = require('./routes/authRoutes');
 const listingRoutes = require('./routes/listingRoutes');
+const profileRoutes = require('./src/routes/profileRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3003;
@@ -15,6 +16,7 @@ app.use(express.json());
 // Routes
 app.use('/', authRoutes); // Auth routes (signup, login, profile, logout)
 app.use('/listings', listingRoutes); // Listing CRUD routes
+app.use('/api/profile', profileRoutes); // Profile API routes
 
 // Global Error Handler
 app.use((err, req, res, next) => {
