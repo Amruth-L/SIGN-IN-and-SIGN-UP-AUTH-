@@ -48,6 +48,14 @@ const seedDatabase = async () => {
         category VARCHAR(255) NOT NULL,
         image_url TEXT,
         owner_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        condition VARCHAR(50) DEFAULT 'Good',
+        rent_price DECIMAL(10, 2) DEFAULT 0,
+        deposit DECIMAL(10, 2) DEFAULT 0,
+        location VARCHAR(255) DEFAULT 'Library',
+        delivery_available BOOLEAN DEFAULT FALSE,
+        delivery_charge DECIMAL(10, 2) DEFAULT 0,
+        pickup_time VARCHAR(100) DEFAULT '5 min',
+        image_urls TEXT[] DEFAULT '{}',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);

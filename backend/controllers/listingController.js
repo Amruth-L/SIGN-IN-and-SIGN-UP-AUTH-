@@ -2,21 +2,85 @@ const pool = require('../config/db');
 
 exports.createListing = async (req, res) => {
   try {
-    const { title, description, price, category, image_url } = req.body;
+    const { 
+      title, 
+      description, 
+      price, 
+      category, 
+      image_url,
+      condition,
+      rent_price,
+      deposit,
+      location,
+      delivery_available,
+      delivery_charge,
+      pickup_time,
+      image_urls
+    } = req.body;
+    
     const owner_id = req.user.id;
 
-    if (!title || !description || !price || !category) {
-      return res.status(400).json({ error: 'Title, description, price, and category are required' });
+    // Validation
+    if (!title || !title.trim()) {
+      return res.status(400).json({ error: 'Product Title is required.' });
+    }
+    if (!category || !category.trim()) {
+      return res.status(400).json({ error: 'Category is required.' });
+    }
+    if (!description || !description.trim()) {
+      return res.status(400).json({ error: 'Description is required.' });
+    }
+    if (description.length > 500) {
+      return res.status(400).json({ error: 'Description cannot exceed 500 characters.' });
+    }
+    if (!image_url && (!image_urls || image_urls.length === 0)) {
+      return res.status(400).json({ error: 'At least one image is required.' });
+    }
+    if (!location || !location.trim()) {
+      return res.status(400).json({ error: 'Pickup location is required.' });
+    }
+    
+    const sellPrice = parseFloat(price) || 0;
+    const rentPrice = parseFloat(rent_price) || 0;
+    const securityDeposit = parseFloat(deposit) || 0;
+
+    if (sellPrice <= 0 && rentPrice <= 0) {
+      return res.status(400).json({ error: 'Either Selling Price or Rental Price must be provided.' });
+    }
+    if (sellPrice > 0 && securityDeposit > sellPrice) {
+      return res.status(400).json({ error: 'Security deposit cannot exceed the selling price.' });
     }
 
-    const newListing = await pool.query(
-      'INSERT INTO listings (title, description, price, category, image_url, owner_id) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [title, description, price, category, image_url, owner_id]
-    );
+    const queryText = `
+      INSERT INTO listings (
+        title, description, price, category, image_url, owner_id,
+        condition, rent_price, deposit, location, delivery_available, delivery_charge, pickup_time, image_urls
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+      RETURNING *
+    `;
+
+    const values = [
+      title.trim(),
+      description.trim(),
+      sellPrice,
+      category.trim(),
+      image_url || (image_urls && image_urls[0]) || '',
+      owner_id,
+      condition || 'Good',
+      rentPrice,
+      securityDeposit,
+      location.trim(),
+      !!delivery_available,
+      parseFloat(delivery_charge) || 0,
+      pickup_time || '5 min',
+      image_urls || []
+    ];
+
+    const newListing = await pool.query(queryText, values);
 
     res.status(201).json(newListing.rows[0]);
   } catch (error) {
-    console.error(error.message);
+    console.error('Error in createListing:', error.message || error);
     res.status(500).json({ error: 'Server Error' });
   }
 };
