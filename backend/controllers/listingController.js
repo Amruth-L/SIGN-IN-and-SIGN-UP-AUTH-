@@ -101,8 +101,18 @@ exports.getListings = async (req, res) => {
 };
 
 exports.getListingById = async (req, res) => {
+  const { id } = req.params;
+  console.log(`[Backend Debug] GET /api/listings/:id request received for ID: "${id}"`);
+
+  // Validate UUID format before querying PostgreSQL
+  const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  if (!uuidRegex.test(id)) {
+    console.warn(`[Backend Debug] Rejecting request: "${id}" is not a valid UUID.`);
+    return res.status(400).json({ error: 'Invalid listing ID format.' });
+  }
+
   try {
-    const { id } = req.params;
+    console.log(`[Backend Debug] Executing database query for listing ID: "${id}"`);
     const listing = await pool.query(`
       SELECT l.*, u.name as owner_name, u.email as owner_email 
       FROM listings l 
@@ -111,13 +121,15 @@ exports.getListingById = async (req, res) => {
     `, [id]);
 
     if (listing.rows.length === 0) {
-      return res.status(404).json({ error: 'Listing not found' });
+      console.log(`[Backend Debug] Query finished: Listing ID "${id}" not found in database.`);
+      return res.status(404).json({ error: 'Listing not found.' });
     }
 
+    console.log(`[Backend Debug] Listing found:`, listing.rows[0].title);
     res.json(listing.rows[0]);
   } catch (error) {
-    console.error(error.message);
-    res.status(500).json({ error: 'Server Error' });
+    console.error(`[Backend Debug] Database query failed:`, error.message || error);
+    res.status(500).json({ error: 'Database query execution error.' });
   }
 };
 

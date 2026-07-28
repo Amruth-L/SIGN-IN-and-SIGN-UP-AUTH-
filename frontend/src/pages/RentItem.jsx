@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { mockProducts, mockSellers } from '../data/mockData';
 import './RentItem.css';
 
 const RentItem = () => {
@@ -25,11 +26,62 @@ const RentItem = () => {
 
   useEffect(() => {
     const fetchListingDetails = async () => {
+      console.log(`[Frontend Debug] useParams() received ID: "${id}"`);
+      if (!id) {
+        setError('Listing ID is missing in request parameters.');
+        setLoading(false);
+        return;
+      }
+
+      // Check if it's a mock product
+      if (id.startsWith('mp-')) {
+        console.log(`[Frontend Debug] ID "${id}" detected as mock product. Fetching locally.`);
+        const mockProduct = mockProducts.find(p => p.id === id);
+        if (mockProduct) {
+          console.log(`[Frontend Debug] Found mock product locally:`, mockProduct);
+          // Find mock seller details
+          const mockSeller = mockSellers.find(s => s.id === mockProduct.sellerId);
+          const enrichedListing = {
+            ...mockProduct,
+            owner_name: mockSeller ? mockSeller.name : 'Student Seller',
+            owner_email: mockSeller ? mockSeller.email : 'student@campushmesh.com'
+          };
+          setListing(enrichedListing);
+        } else {
+          console.error(`[Frontend Debug] Mock product "${id}" not found in mockData.`);
+          setError('Mock listing not found.');
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Query database from backend
       try {
-        const res = await api.get(`/listings/${id}`);
+        const url = `/listings/${id}`;
+        console.log(`[Frontend Debug] Fetching database listing from backend API URL: "${url}"`);
+        const token = localStorage.getItem('token');
+        console.log(`[Frontend Debug] Authorization Header present:`, !!token);
+        
+        const res = await api.get(url);
+        console.log(`[Frontend Debug] Backend API response received:`, res.data);
         setListing(res.data);
       } catch (err) {
-        setError('Failed to load item details. It might have been removed.');
+        console.error(`[Frontend Debug] API Fetch failed:`, err);
+        if (err.response) {
+          const status = err.response.status;
+          const serverError = err.response.data?.error;
+          if (status === 400) {
+            setError(`Invalid listing ID: ${serverError || 'Format error'}`);
+          } else if (status === 404) {
+            setError(`Listing not found: ${serverError || 'The listing might have been removed'}`);
+          } else if (status === 401 || status === 403) {
+            setError(`Unauthorized: Please log in again`);
+          } else {
+            setError(`Server database error (${status}): ${serverError || 'Failed to retrieve details'}`);
+          }
+        } else {
+          setError(`Network error: Could not reach backend server.`);
+        }
       } finally {
         setLoading(false);
       }
@@ -61,8 +113,8 @@ const RentItem = () => {
     
     setTotalDays(diffDays);
     
-    // Rent price calculation: listing.price represents daily rent rate
-    const dailyPrice = parseFloat(listing.price);
+    // Rent price calculation: supports rent_price or rentPrice, falling back to price
+    const dailyPrice = parseFloat(listing.rent_price || listing.rentPrice || listing.price || 0);
     let calculatedTotal = dailyPrice * diffDays;
     
     // Apply 10% discount for rentals longer than 5 days
@@ -134,6 +186,8 @@ const RentItem = () => {
     );
   }
 
+  const dailyPrice = listing ? parseFloat(listing.rent_price || listing.rentPrice || listing.price || 0) : 0;
+
   return (
     <div className="rent-container">
       <div className="rent-card">
@@ -178,7 +232,7 @@ const RentItem = () => {
                   <span className="listing-category">{listing.category}</span>
                   <h3>{listing.title}</h3>
                   <p className="text-muted">Owner: {listing.owner_name}</p>
-                  <p className="price-tag">₹{listing.price} <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-muted)' }}>/ day</span></p>
+                  <p className="price-tag">₹{dailyPrice} <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-muted)' }}>/ day</span></p>
                 </div>
               </div>
 
@@ -214,7 +268,7 @@ const RentItem = () => {
                   <div className="rent-summary">
                     <div className="summary-row">
                       <span>Daily Rent Rate</span>
-                      <span>₹{listing.price}</span>
+                      <span>₹{dailyPrice}</span>
                     </div>
                     <div className="summary-row">
                       <span>Duration</span>
