@@ -66,21 +66,11 @@ const RentItem = () => {
         console.log(`[Frontend Debug] Backend API response received:`, res.data);
         setListing(res.data);
       } catch (err) {
-        console.error(`[Frontend Debug] API Fetch failed:`, err);
-        if (err.response) {
-          const status = err.response.status;
-          const serverError = err.response.data?.error;
-          if (status === 400) {
-            setError(`Invalid listing ID: ${serverError || 'Format error'}`);
-          } else if (status === 404) {
-            setError(`Listing not found: ${serverError || 'The listing might have been removed'}`);
-          } else if (status === 401 || status === 403) {
-            setError(`Unauthorized: Please log in again`);
-          } else {
-            setError(`Server database error (${status}): ${serverError || 'Failed to retrieve details'}`);
-          }
+        console.error(`[RentItem] API Fetch failed:`, err);
+        if (err.response?.status === 404) {
+          setError('Item no longer available.');
         } else {
-          setError(`Network error: Could not reach backend server.`);
+          setError('Unable to load this item. Please refresh.');
         }
       } finally {
         setLoading(false);
@@ -125,6 +115,40 @@ const RentItem = () => {
     setTotalPrice(Math.round(calculatedTotal));
   }, [startDate, endDate, listing]);
 
+  const [addingToCart, setAddingToCart] = useState(false);
+
+  const handleAddToCart = async () => {
+    if (!startDate || !endDate) {
+      alert('Please select both rental start and end dates.');
+      return;
+    }
+    if (new Date(endDate) < new Date(startDate)) {
+      alert('End date cannot be before start date.');
+      return;
+    }
+    if (!user) {
+      alert('Please log in to add items to your cart.');
+      navigate('/login');
+      return;
+    }
+
+    setAddingToCart(true);
+    try {
+      await api.post('/api/cart/add', {
+        item_id: id,
+        start_date: startDate,
+        end_date: endDate
+      });
+      // Notify other components (like Navbar) of cart change
+      window.dispatchEvent(new Event('cart-updated'));
+      alert('Item added to cart successfully!');
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to add item to cart.');
+    } finally {
+      setAddingToCart(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!listing || !user) return;
@@ -168,7 +192,16 @@ const RentItem = () => {
   if (loading) {
     return (
       <div className="rent-container" style={{ textAlign: 'center', padding: '5rem 0' }}>
-        <div className="loading">Loading item details for rental...</div>
+        <div style={{
+          width: '48px',
+          height: '48px',
+          border: '4px solid rgba(16, 185, 129, 0.2)',
+          borderTopColor: '#10b981',
+          borderRadius: '50%',
+          animation: 'spin 0.9s linear infinite',
+          margin: '0 auto 1rem auto'
+        }} />
+        <p style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Loading rental details...</p>
       </div>
     );
   }
@@ -176,11 +209,13 @@ const RentItem = () => {
   if (error || !listing) {
     return (
       <div className="rent-container">
-        <div className="error-message" style={{ margin: '3rem 0', textAlign: 'center' }}>
-          {error || 'Listing not found.'}
+        <div className="error-message" style={{ margin: '3rem auto', padding: '24px', textAlign: 'center', maxWidth: '480px', borderRadius: '12px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626' }}>
+          <span style={{ fontSize: '2rem', display: 'block', marginBottom: '8px' }}>⚠️</span>
+          <h3>{error || 'Unable to load this item. Please refresh.'}</h3>
+          <p style={{ fontSize: '0.9rem', marginTop: '6px', color: '#991b1b' }}>The item might have been unlisted or is currently unavailable.</p>
         </div>
         <div style={{ textAlign: 'center' }}>
-          <Link to="/" className="btn btn-primary">Back to Home</Link>
+          <Link to="/" className="btn btn-primary">Browse Other Products</Link>
         </div>
       </div>
     );
@@ -287,19 +322,37 @@ const RentItem = () => {
                   </div>
                 )}
 
-                <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
-                  <button 
-                    type="submit" 
-                    className="btn btn-primary" 
-                    style={{ flex: 1 }}
-                    disabled={submitting || totalDays <= 0}
-                  >
-                    {submitting ? 'Confirming Rental...' : 'Confirm Rental Booking'}
-                  </button>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '2rem' }}>
+                  <div style={{ display: 'flex', gap: '1rem' }}>
+                    <button 
+                      type="button" 
+                      className="btn btn-primary" 
+                      style={{ flex: 1, backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#ffffff' }}
+                      onClick={handleAddToCart}
+                      disabled={addingToCart}
+                    >
+                      {addingToCart ? 'Adding...' : '🛒 Add to Cart'}
+                    </button>
+                    <button 
+                      type="button" 
+                      className="btn btn-outline" 
+                      style={{ flex: 1, borderColor: '#22c55e', color: '#16a34a' }}
+                      onClick={() => {
+                        if (!startDate || !endDate) {
+                          alert('Please select both rental start and end dates.');
+                          return;
+                        }
+                        navigate(`/rent-summary/${id}?start_date=${startDate}&end_date=${endDate}`);
+                      }}
+                    >
+                      ⚡ Rent Now
+                    </button>
+                  </div>
                   <button 
                     type="button" 
                     onClick={() => navigate('/')} 
                     className="btn btn-outline"
+                    style={{ width: '100%' }}
                   >
                     Cancel
                   </button>

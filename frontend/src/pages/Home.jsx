@@ -117,8 +117,8 @@ const Home = () => {
     };
   });
 
-  // Combine database items and 100 pre-populated products
-  const allProducts = [...mappedDbListings, ...mockProducts];
+  // Load products directly from the backend database (pre-seeded with all mock products)
+  const allProducts = mappedDbListings;
 
   // Helper: Get distance in numeric meters for sorting
   const getDistanceInMeters = (product) => {

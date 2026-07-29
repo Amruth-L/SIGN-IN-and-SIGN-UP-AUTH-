@@ -82,11 +82,12 @@ export const AuthProvider = ({ children }) => {
     navigate('/');
   };
 
-  const updateProfile = async (name) => {
+  const updateProfile = async (profileData) => {
     try {
-      const res = await api.put('/profile', { name });
-      setUser(res.data);
-      return res.data;
+      const res = await api.put('/api/profile', profileData);
+      const updatedUser = res.data.profile;
+      setUser(updatedUser);
+      return updatedUser;
     } catch (err) {
       console.error("Failed to update profile", err);
       throw err;

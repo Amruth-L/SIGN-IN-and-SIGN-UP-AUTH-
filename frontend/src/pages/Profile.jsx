@@ -14,7 +14,18 @@ const Profile = ({ defaultTab = 'listings' }) => {
   const [listingsError, setListingsError] = useState('');
   
   // Settings Form State
-  const [nameInput, setNameInput] = useState(user?.name || '');
+  const [formData, setFormData] = useState({
+    name: user?.name || '',
+    username: user?.username || '',
+    email: user?.email || '',
+    phone_number: user?.phone_number || '',
+    avatar_url: user?.avatar_url || '',
+    bio: user?.bio || '',
+    department: user?.department || '',
+    hostel: user?.hostel || '',
+    old_password: '',
+    new_password: ''
+  });
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsSuccess, setSettingsSuccess] = useState(false);
   const [settingsError, setSettingsError] = useState('');
@@ -26,29 +37,48 @@ const Profile = ({ defaultTab = 'listings' }) => {
 
   useEffect(() => {
     if (!user) return;
-    setNameInput(user.name || '');
+    setFormData({
+      name: user.name || '',
+      username: user.username || '',
+      email: user.email || '',
+      phone_number: user.phone_number || '',
+      avatar_url: user.avatar_url || '',
+      bio: user.bio || '',
+      department: user.department || '',
+      hostel: user.hostel || '',
+      old_password: '',
+      new_password: ''
+    });
 
     const fetchProfileData = async () => {
       try {
         setLoading(true);
-        // Fetch all listings to filter my listings and saved items
-        const res = await api.get('/listings');
-        const allListings = res.data;
+        setListingsError('');
 
-        // Filter user's listings
-        const mine = allListings.filter(listing => listing.owner_id === user.id);
+        // 1. Fetch user's listings
+        const listingsRes = await api.get('/listings');
+        const mine = listingsRes.data.filter(listing => listing.owner_id === user.id);
         setMyListings(mine);
 
-        // Fetch Saved Items from localStorage
-        const savedIds = JSON.parse(localStorage.getItem('campusmesh_favorites') || '[]');
-        const saved = allListings.filter(listing => savedIds.includes(listing.id));
-        setSavedItems(saved);
+        // 2. Fetch My Rentals from Database API
+        try {
+          const rentalsRes = await api.get('/api/rentals/my-rentals');
+          setRentals(rentalsRes.data);
+        } catch (rentErr) {
+          console.error('[Profile] Failed to fetch database rentals:', rentErr);
+          setRentals([]);
+        }
 
-        // Fetch Rentals from localStorage
-        const rentedList = JSON.parse(localStorage.getItem('campusmesh_rentals') || '[]');
-        // Filter out rentals belonging to this user
-        const userRentals = rentedList.filter(rental => rental.renterId === user.id);
-        setRentals(userRentals);
+        // 3. Fetch Saved Items (Wishlist) from Database API
+        try {
+          const wishlistRes = await api.get('/api/wishlist');
+          setSavedItems(wishlistRes.data);
+        } catch (wishErr) {
+          console.error('[Profile] Failed to fetch database wishlist, using localStorage fallback:', wishErr);
+          const savedIds = JSON.parse(localStorage.getItem('campusmesh_favorites') || '[]');
+          const saved = listingsRes.data.filter(listing => savedIds.includes(listing.id));
+          setSavedItems(saved);
+        }
 
       } catch (err) {
         setListingsError('Failed to load profile data');
@@ -71,23 +101,79 @@ const Profile = ({ defaultTab = 'listings' }) => {
     }
   };
 
+  const handleRemoveSaved = async (itemId) => {
+    try {
+      await api.delete(`/api/wishlist/${itemId}`);
+      setSavedItems(prev => prev.filter(item => item.id !== itemId && item.wishlist_id !== itemId));
+    } catch (err) {
+      // LocalStorage fallback
+      const savedIds = JSON.parse(localStorage.getItem('campusmesh_favorites') || '[]');
+      const updated = savedIds.filter(id => id !== itemId);
+      localStorage.setItem('campusmesh_favorites', JSON.stringify(updated));
+      setSavedItems(prev => prev.filter(item => item.id !== itemId));
+    }
+  };
+
+  // Helper for Status Badge Label
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'BOOKING_REQUESTED':
+      case 'OWNER_PENDING':
+        return { label: 'Requested', className: 'status-requested', bg: '#eff6ff', color: '#1d4ed8' };
+      case 'DEPOSIT_PENDING':
+        return { label: 'Accepted', className: 'status-accepted', bg: '#fef3c7', color: '#b45309' };
+      case 'QR_GENERATED':
+      case 'HANDOVER':
+        return { label: 'Delivered', className: 'status-delivered', bg: '#e0e7ff', color: '#4338ca' };
+      case 'ACTIVE':
+      case 'RENTAL_PAYMENT_COMPLETED':
+        return { label: 'Active', className: 'status-active', bg: '#dcfce7', color: '#15803d' };
+      case 'OWNER_INSPECTION':
+        return { label: 'Returned', className: 'status-returned', bg: '#f3e8ff', color: '#6b21a8' };
+      case 'COMPLETED':
+      case 'DEPOSIT_REFUNDED':
+        return { label: 'Completed', className: 'status-completed', bg: '#f3f4f6', color: '#374151' };
+      case 'CANCELLED':
+        return { label: 'Cancelled', className: 'status-cancelled', bg: '#fee2e2', color: '#b91c1c' };
+      default:
+        return { label: status || 'Active', className: 'status-active', bg: '#dcfce7', color: '#15803d' };
+    }
+  };
+
   const handleSettingsSubmit = async (e) => {
     e.preventDefault();
     setSettingsSuccess(false);
     setSettingsError('');
     
-    if (!nameInput.trim()) {
-      setSettingsError('Name cannot be empty');
+    if (!formData.name.trim()) {
+      setSettingsError('Name cannot be empty.');
       return;
     }
 
     setSettingsLoading(true);
     try {
-      await updateProfile(nameInput.trim());
+      const payload = {
+        name: formData.name.trim(),
+        username: formData.username.trim(),
+        email: formData.email.trim(),
+        phone_number: formData.phone_number.trim(),
+        avatar_url: formData.avatar_url.trim(),
+        bio: formData.bio ? formData.bio.trim() : null,
+        department: formData.department.trim(),
+        hostel: formData.hostel ? formData.hostel.trim() : null,
+      };
+
+      if (formData.new_password) {
+        payload.old_password = formData.old_password;
+        payload.new_password = formData.new_password;
+      }
+
+      await updateProfile(payload);
       setSettingsSuccess(true);
+      setFormData(prev => ({ ...prev, old_password: '', new_password: '' }));
       setTimeout(() => setSettingsSuccess(false), 3000);
     } catch (err) {
-      setSettingsError(err.response?.data?.error || 'Failed to update profile settings');
+      setSettingsError(err.response?.data?.error || err.response?.data?.message || 'Failed to update profile settings.');
     } finally {
       setSettingsLoading(false);
     }
@@ -111,7 +197,11 @@ const Profile = ({ defaultTab = 'listings' }) => {
       {/* Profile Header */}
       <div className="profile-header">
         <div className="profile-avatar-large">
-          {initials}
+          {user.avatar_url ? (
+            <img src={user.avatar_url} alt={user.name} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }} />
+          ) : (
+            initials
+          )}
         </div>
         <div className="profile-info">
           <h1>{user.name}</h1>
@@ -176,7 +266,7 @@ const Profile = ({ defaultTab = 'listings' }) => {
                   <div key={listing.id} className="card listing-card">
                     <div className="listing-img-placeholder">
                       {listing.image_url ? (
-                        <img src={listing.image_url} alt={listing.title} />
+                        <img src={listing.image_url} alt={listing.title} loading="lazy" />
                       ) : (
                         <span>No Image</span>
                       )}
@@ -223,51 +313,80 @@ const Profile = ({ defaultTab = 'listings' }) => {
               </div>
             ) : (
               <div className="rentals-list">
-                {rentals.map((rental, index) => (
-                  <div key={index} className="rental-item-card">
-                    <div className="rental-img">
-                      {rental.listingImage ? (
-                        <img src={rental.listingImage} alt={rental.listingTitle} />
-                      ) : (
-                        <span>No Image</span>
-                      )}
-                    </div>
-                    <div className="rental-details">
-                      <div className="rental-meta">
-                        <div className="rental-meta-info">
-                          <h3>{rental.listingTitle}</h3>
-                          <span className="listing-category" style={{ marginTop: '0.5rem' }}>{rental.listingCategory}</span>
-                        </div>
-                        <span className="rental-status active">Active Rental</span>
+                {rentals.map((rental, index) => {
+                  const badge = getStatusBadge(rental.status);
+                  const img = rental.listing_image || rental.listingImage || 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?w=500&auto=format&fit=crop&q=60';
+                  const title = rental.listing_title || rental.listingTitle || 'Rental Item';
+                  const owner = rental.owner_name || 'Item Owner';
+
+                  return (
+                    <div key={rental.id || index} className="rental-item-card">
+                      <div className="rental-img">
+                        <img src={img} alt={title} loading="lazy" />
                       </div>
-                      
-                      <div className="rental-info-grid">
-                        <div className="rental-info-block">
-                          <span>Start Date</span>
-                          <strong>{new Date(rental.startDate).toLocaleDateString()}</strong>
+                      <div className="rental-details">
+                        <div className="rental-meta">
+                          <div className="rental-meta-info">
+                            <h3>{title}</h3>
+                            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                              Owner: <strong>{owner}</strong>
+                            </p>
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                            <span className={`rental-status ${badge.className}`} style={{ background: badge.bg, color: badge.color }}>
+                              {badge.label}
+                            </span>
+                            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: '4px' }}>
+                              Payment: {rental.payment_status || 'PAID'}
+                            </span>
+                          </div>
                         </div>
-                        <div className="rental-info-block">
-                          <span>End Date</span>
-                          <strong>{new Date(rental.endDate).toLocaleDateString()}</strong>
+                        
+                        <div className="rental-info-grid">
+                          <div className="rental-info-block">
+                            <span>Rental Dates</span>
+                            <strong>{new Date(rental.start_date || rental.startDate).toLocaleDateString()} - {new Date(rental.end_date || rental.endDate).toLocaleDateString()}</strong>
+                          </div>
+                          <div className="rental-info-block">
+                            <span>Return Date</span>
+                            <strong>{new Date(rental.end_date || rental.endDate).toLocaleDateString()}</strong>
+                          </div>
+                          <div className="rental-info-block">
+                            <span>Duration</span>
+                            <strong>{rental.rental_days || rental.totalDays || 1} Days</strong>
+                          </div>
+                          <div className="rental-info-block">
+                            <span>Booking Fee</span>
+                            <strong>₹{rental.booking_amount || rental.totalPrice || rental.rental_fee}</strong>
+                          </div>
                         </div>
-                        <div className="rental-info-block">
-                          <span>Total Days</span>
-                          <strong>{rental.totalDays} Days</strong>
-                        </div>
-                        <div className="rental-info-block">
-                          <span>Total Price Paid</span>
-                          <strong>₹{rental.totalPrice}</strong>
+
+                        <div className="rental-actions" style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                          <button 
+                            onClick={() => navigate(`/rent-details/${rental.id}`)}
+                            className="btn btn-primary"
+                            style={{ padding: '0.5rem 1.25rem', fontSize: '0.875rem' }}
+                          >
+                            Track Order
+                          </button>
+                          <button 
+                            onClick={() => alert(`Review feature for ${title} coming soon!`)}
+                            className="btn btn-outline"
+                            style={{ padding: '0.5rem 1.25rem', fontSize: '0.875rem' }}
+                          >
+                            Leave Review
+                          </button>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
-        {/* Saved Items Tab */}
+        {/* Saved Items Tab (ISSUE 5 ALIGNMENT FIX) */}
         {activeTab === 'saved' && (
           <div>
             {loading ? (
@@ -280,27 +399,68 @@ const Profile = ({ defaultTab = 'listings' }) => {
                 </button>
               </div>
             ) : (
-              <div className="listings-grid">
+              <div className="saved-items-grid" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 {savedItems.map(listing => (
-                  <div key={listing.id} className="card listing-card">
-                    <div className="listing-img-placeholder">
+                  <div key={listing.id} className="saved-item-card" style={{
+                    display: 'flex',
+                    background: 'var(--surface-color)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: 'var(--radius-lg)',
+                    overflow: 'hidden',
+                    boxShadow: 'var(--shadow-sm)',
+                    transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                    alignItems: 'center',
+                    padding: '16px',
+                    gap: '20px'
+                  }}>
+                    {/* Image Left */}
+                    <div style={{ width: '140px', height: '140px', minWidth: '140px', borderRadius: 'var(--radius-md)', overflow: 'hidden', background: '#f3f4f6' }}>
                       {listing.image_url ? (
-                        <img src={listing.image_url} alt={listing.title} />
+                        <img src={listing.image_url} alt={listing.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} loading="lazy" />
                       ) : (
-                        <span>No Image</span>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#9ca3af', fontSize: '0.85rem' }}>No Image</div>
                       )}
                     </div>
-                    <div className="listing-content">
-                      <span className="listing-category">{listing.category}</span>
-                      <h3>{listing.title}</h3>
-                      <p className="listing-price">₹{listing.price}</p>
-                      <button 
-                        onClick={() => navigate('/')} 
-                        className="btn btn-primary" 
-                        style={{ width: '100%', marginTop: '1rem', padding: '0.5rem 1rem', fontSize: '0.875rem' }}
-                      >
-                        View Details
-                      </button>
+
+                    {/* Details Right */}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', height: '100%' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                          <span className="listing-category" style={{ fontSize: '0.75rem', background: 'rgba(16,185,129,0.1)', color: '#10b981', padding: '2px 8px', borderRadius: '99px', fontWeight: 600 }}>
+                            {listing.category}
+                          </span>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>📍 {listing.location || 'Campus'}</span>
+                        </div>
+                        <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--text-dark)', margin: '4px 0' }}>{listing.title}</h3>
+                        <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '0 0 8px 0', lineClamp: 2, WebkitLineClamp: 2, display: '-webkit-box', WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {listing.description}
+                        </p>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px', paddingTop: '8px', borderTop: '1px solid var(--border-color)' }}>
+                        <div>
+                          <span style={{ fontSize: '1.1rem', fontWeight: 800, color: '#10b981' }}>₹{listing.rent_price || listing.price}</span>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}> / day</span>
+                        </div>
+
+                        {/* Buttons Bottom */}
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button 
+                            onClick={() => navigate(`/rent/${listing.id}`)} 
+                            className="btn btn-primary" 
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                          >
+                            Rent Now
+                          </button>
+                          <button 
+                            onClick={() => handleRemoveSaved(listing.id)} 
+                            className="btn btn-outline" 
+                            style={{ padding: '0.5rem 1rem', fontSize: '0.85rem', color: '#ef4444', borderColor: '#fecaca' }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -327,34 +487,132 @@ const Profile = ({ defaultTab = 'listings' }) => {
                 </div>
               )}
               
-              <form onSubmit={handleSettingsSubmit}>
+              <form onSubmit={handleSettingsSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="form-group">
+                    <label className="form-label">Full Name</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      value={formData.name}
+                      onChange={(e) => setFormData({...formData, name: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Username</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      value={formData.username}
+                      onChange={(e) => setFormData({...formData, username: e.target.value})}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="form-group">
+                    <label className="form-label">DBIT Email</label>
+                    <input 
+                      type="email" 
+                      className="form-input" 
+                      value={formData.email}
+                      onChange={(e) => setFormData({...formData, email: e.target.value})}
+                      required
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Phone Number</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      value={formData.phone_number}
+                      onChange={(e) => setFormData({...formData, phone_number: e.target.value})}
+                    />
+                  </div>
+                </div>
+
                 <div className="form-group">
-                  <label className="form-label">Full Name</label>
+                  <label className="form-label">Profile Avatar URL</label>
                   <input 
                     type="text" 
                     className="form-input" 
-                    value={nameInput}
-                    onChange={(e) => setNameInput(e.target.value)}
-                    required
-                  />
-                </div>
-                
-                <div className="form-group">
-                  <label className="form-label">Email Address (Read-Only)</label>
-                  <input 
-                    type="email" 
-                    className="form-input" 
-                    value={user.email} 
-                    disabled 
-                    style={{ backgroundColor: 'rgba(0,0,0,0.05)', cursor: 'not-allowed' }}
+                    placeholder="https://api.dicebear.com/..."
+                    value={formData.avatar_url}
+                    onChange={(e) => setFormData({...formData, avatar_url: e.target.value})}
                   />
                 </div>
 
-                <div className="form-group" style={{ marginTop: '2rem' }}>
+                <div className="form-group">
+                  <label className="form-label">Short Bio</label>
+                  <textarea 
+                    className="form-input" 
+                    style={{ height: '80px', resize: 'vertical' }}
+                    value={formData.bio || ''}
+                    onChange={(e) => setFormData({...formData, bio: e.target.value})}
+                    maxLength={300}
+                    placeholder="Tell other students about yourself..."
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="form-group">
+                    <label className="form-label">Department</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      placeholder="e.g. Computer Science"
+                      value={formData.department}
+                      onChange={(e) => setFormData({...formData, department: e.target.value})}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Hostel Block / Location</label>
+                    <input 
+                      type="text" 
+                      className="form-input" 
+                      placeholder="e.g. Boys Hostel A"
+                      value={formData.hostel}
+                      onChange={(e) => setFormData({...formData, hostel: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <hr style={{ border: 'none', borderTop: '1px solid #e5e7eb', margin: '1rem 0' }} />
+                
+                <h4 style={{ color: '#1f2937', fontWeight: 600, margin: '0 0 0.5rem 0' }}>Change Password</h4>
+                <p style={{ color: '#6b7280', fontSize: '0.85rem', margin: '0 0 1rem 0' }}>Leave these blank if you do not want to change your password.</p>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div className="form-group">
+                    <label className="form-label">Current Password</label>
+                    <input 
+                      type="password" 
+                      className="form-input" 
+                      placeholder="••••••••"
+                      value={formData.old_password}
+                      onChange={(e) => setFormData({...formData, old_password: e.target.value})}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">New Password</label>
+                    <input 
+                      type="password" 
+                      className="form-input" 
+                      placeholder="••••••••"
+                      value={formData.new_password}
+                      onChange={(e) => setFormData({...formData, new_password: e.target.value})}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginTop: '1.5rem' }}>
                   <button 
                     type="submit" 
                     className="btn btn-primary" 
                     disabled={settingsLoading}
+                    style={{ backgroundColor: '#22c55e', borderColor: '#22c55e' }}
                   >
                     {settingsLoading ? 'Saving...' : 'Save Settings'}
                   </button>

@@ -12,6 +12,16 @@ import AddListing from './pages/AddListing';
 import EditListing from './pages/EditListing';
 import RentItem from './pages/RentItem';
 import Chat from './pages/Chat';
+import RentSummary from './pages/RentSummary';
+import RentDetails from './pages/RentDetails';
+import OwnerDashboard from './pages/OwnerDashboard';
+import RentalReturn from './pages/RentalReturn';
+import RentalPayment from './pages/RentalPayment';
+import DepositPayment from './pages/DepositPayment';
+import PaymentSuccess from './pages/PaymentSuccess';
+import PaymentFailed from './pages/PaymentFailed';
+import Cart from './pages/Cart';
+import Checkout from './pages/Checkout';
 
 function App() {
   const { user } = useAuth();
@@ -42,6 +52,22 @@ function App() {
           element={
             <PrivateRoute>
               <Profile defaultTab="listings" />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/cart" 
+          element={
+            <PrivateRoute>
+              <Cart />
+            </PrivateRoute>
+          } 
+        />
+        <Route 
+          path="/checkout" 
+          element={
+            <PrivateRoute>
+              <Checkout />
             </PrivateRoute>
           } 
         />
@@ -84,6 +110,70 @@ function App() {
               <Chat />
             </PrivateRoute>
           } 
+        />
+        <Route
+          path="/rent-summary/:id"
+          element={
+            <PrivateRoute>
+              <RentSummary />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/rent-details/:rentalId"
+          element={
+            <PrivateRoute>
+              <RentDetails />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/owner-dashboard"
+          element={
+            <PrivateRoute>
+              <OwnerDashboard />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/rental-return/:rentalId"
+          element={
+            <PrivateRoute>
+              <RentalReturn />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/rental-payment/:id"
+          element={
+            <PrivateRoute>
+              <RentalPayment />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/deposit-payment/:id"
+          element={
+            <PrivateRoute>
+              <DepositPayment />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/payment-success"
+          element={
+            <PrivateRoute>
+              <PaymentSuccess />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/payment-failed"
+          element={
+            <PrivateRoute>
+              <PaymentFailed />
+            </PrivateRoute>
+          }
         />
       </Routes>
     </>

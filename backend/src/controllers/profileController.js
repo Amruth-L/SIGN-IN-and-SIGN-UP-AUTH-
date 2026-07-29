@@ -1,73 +1,29 @@
-const profileService = require('../services/profileService');
+const pool = require('../../config/db');
+const bcrypt = require('bcrypt');
 
-/**
- * Helper to validate profile input fields.
- * Supports both full validation (creation) and partial validation (updates).
- */
-const validateProfile = (data, isUpdate = false) => {
-  const errors = [];
-  const { full_name, phone, department, semester, bio } = data;
-
-  if (isUpdate) {
-    if (full_name !== undefined && (!full_name || typeof full_name !== 'string' || !full_name.trim())) {
-      errors.push('full_name is required and cannot be empty.');
-    }
-    if (phone !== undefined && (!phone || typeof phone !== 'string' || !phone.trim())) {
-      errors.push('phone is required and cannot be empty.');
-    }
-    if (department !== undefined && (!department || typeof department !== 'string' || !department.trim())) {
-      errors.push('department is required and cannot be empty.');
-    }
-    if (semester !== undefined && (semester === null || semester === '' || isNaN(Number(semester)) || !Number.isInteger(Number(semester)))) {
-      errors.push('semester must be an integer.');
-    }
-    if (bio !== undefined && bio !== null && bio.length > 300) {
-      errors.push('bio cannot exceed 300 characters.');
-    }
-  } else {
-    if (!full_name || typeof full_name !== 'string' || !full_name.trim()) {
-      errors.push('full_name is required.');
-    }
-    if (!phone || typeof phone !== 'string' || !phone.trim()) {
-      errors.push('phone is required.');
-    }
-    if (!department || typeof department !== 'string' || !department.trim()) {
-      errors.push('department is required.');
-    }
-    if (semester === undefined || semester === null || semester === '' || isNaN(Number(semester)) || !Number.isInteger(Number(semester))) {
-      errors.push('semester is required and must be an integer.');
-    }
-    if (bio && bio.length > 300) {
-      errors.push('bio cannot exceed 300 characters.');
-    }
-  }
-
-  return errors;
-};
-
-/**
- * Controller class to handle Profile requests.
- */
 class ProfileController {
   /**
    * GET /api/profile
-   * Fetch active user's profile details.
+   * Fetch active user's details.
    */
   async getProfile(req, res) {
     try {
       const userId = req.user.id;
-      const profile = await profileService.getProfileByUserId(userId);
+      const userRes = await pool.query(
+        'SELECT id, name, username, email, phone_number, avatar_url, bio, department, hostel, created_at FROM users WHERE id = $1',
+        [userId]
+      );
 
-      if (!profile) {
+      if (userRes.rows.length === 0) {
         return res.status(404).json({
           success: false,
-          message: 'Profile not found.'
+          message: 'User not found.'
         });
       }
 
       return res.status(200).json({
         success: true,
-        profile
+        profile: userRes.rows[0]
       });
     } catch (error) {
       console.error('Error in getProfile:', error.message || error);
@@ -79,121 +35,142 @@ class ProfileController {
   }
 
   /**
-   * POST /api/profile
-   * Create a profile for the authenticated user.
-   */
-  async createProfile(req, res) {
-    try {
-      const userId = req.user.id;
-
-      // 1. Check if profile already exists (limit: 1 profile per user)
-      const existingProfile = await profileService.getProfileByUserId(userId);
-      if (existingProfile) {
-        return res.status(409).json({
-          success: false,
-          message: 'Profile already exists for this user.'
-        });
-      }
-
-      // 2. Validate request body
-      const validationErrors = validateProfile(req.body, false);
-      if (validationErrors.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Validation failed.',
-          errors: validationErrors
-        });
-      }
-
-      // 3. Destructure and prepare insert payload
-      const { full_name, phone, department, semester, hostel, bio, avatar_url } = req.body;
-      const profilePayload = {
-        user_id: userId,
-        full_name: full_name.trim(),
-        phone: phone.trim(),
-        department: department.trim(),
-        semester: parseInt(semester, 10),
-        hostel: hostel ? hostel.trim() : null,
-        bio: bio ? bio.trim() : null,
-        avatar_url: avatar_url ? avatar_url.trim() : null,
-        mesh_score: 100, // Default mesh score
-        verified: false  // Default verified status
-      };
-
-      // 4. Save to database via service
-      const newProfile = await profileService.createProfile(profilePayload);
-
-      return res.status(201).json({
-        success: true,
-        message: 'Profile created successfully.',
-        profile: newProfile
-      });
-    } catch (error) {
-      console.error('Error in createProfile:', error.message || error);
-      return res.status(500).json({
-        success: false,
-        message: 'Internal Server Error'
-      });
-    }
-  }
-
-  /**
    * PUT /api/profile
-   * Update the authenticated user's profile.
+   * Update the authenticated user's details.
    */
   async updateProfile(req, res) {
     try {
       const userId = req.user.id;
+      const { name, username, email, phone_number, avatar_url, bio, department, hostel, old_password, new_password } = req.body;
 
-      // 1. Ensure profile exists first
-      const existingProfile = await profileService.getProfileByUserId(userId);
-      if (!existingProfile) {
-        return res.status(404).json({
-          success: false,
-          message: 'Profile not found. Create a profile first.'
-        });
+      // 1. Fetch current user from database
+      const userRes = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+      if (userRes.rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'User not found.' });
       }
+      const currentUser = userRes.rows[0];
 
-      // 2. Validate fields if they are supplied (partial update validation)
-      const validationErrors = validateProfile(req.body, true);
-      if (validationErrors.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Validation failed.',
-          errors: validationErrors
-        });
-      }
+      const updateFields = [];
+      const queryValues = [];
+      let valIdx = 1;
 
-      // 3. Extract and filter fields that can be updated
-      const updatableFields = ['full_name', 'phone', 'department', 'semester', 'hostel', 'bio', 'avatar_url'];
-      const updatePayload = {};
-
-      updatableFields.forEach(field => {
-        if (req.body[field] !== undefined) {
-          if (field === 'semester') {
-            updatePayload[field] = parseInt(req.body[field], 10);
-          } else {
-            updatePayload[field] = typeof req.body[field] === 'string' ? req.body[field].trim() : req.body[field];
+      // 2. Validate and handle Username update
+      if (username !== undefined) {
+        const trimmedUsername = username.trim().toLowerCase();
+        if (trimmedUsername !== currentUser.username) {
+          const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+          if (!usernameRegex.test(trimmedUsername)) {
+            return res.status(400).json({ success: false, message: 'Username must be 3-20 characters (alphanumeric/underscores).' });
           }
+          // Check uniqueness
+          const uniqCheck = await pool.query('SELECT id FROM users WHERE username = $1', [trimmedUsername]);
+          if (uniqCheck.rows.length > 0) {
+            return res.status(409).json({ success: false, message: 'Username is already taken.' });
+          }
+          updateFields.push(`username = $${valIdx++}`);
+          queryValues.push(trimmedUsername);
         }
-      });
+      }
 
-      // If no valid fields are provided to update, skip service call
-      if (Object.keys(updatePayload).length === 0) {
+      // 3. Validate and handle Email update
+      if (email !== undefined) {
+        const normalizedEmail = email.trim().toLowerCase();
+        if (normalizedEmail !== currentUser.email) {
+          if (!normalizedEmail.endsWith('@dbit.co.in')) {
+            return res.status(400).json({ success: false, message: 'Only DBIT emails (@dbit.co.in) are allowed.' });
+          }
+          // Check uniqueness
+          const uniqCheck = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
+          if (uniqCheck.rows.length > 0) {
+            return res.status(409).json({ success: false, message: 'Email is already registered.' });
+          }
+          updateFields.push(`email = $${valIdx++}`);
+          queryValues.push(normalizedEmail);
+        }
+      }
+
+      // 4. Handle Password Update (requires old password check)
+      if (new_password) {
+        if (!old_password) {
+          return res.status(400).json({ success: false, message: 'Current password is required to set a new password.' });
+        }
+        // Verify current password
+        const isMatch = await bcrypt.compare(old_password, currentUser.password);
+        if (!isMatch) {
+          return res.status(400).json({ success: false, message: 'Incorrect current password.' });
+        }
+        // Validate strength
+        if (new_password.length < 6) {
+          return res.status(400).json({ success: false, message: 'New password must be at least 6 characters.' });
+        }
+        // Hash and push
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(new_password, salt);
+        updateFields.push(`password = $${valIdx++}`);
+        queryValues.push(hashedPassword);
+      }
+
+      // 5. Build other fields
+      if (name !== undefined) {
+        updateFields.push(`name = $${valIdx++}`);
+        queryValues.push(name.trim());
+      }
+      if (phone_number !== undefined) {
+        updateFields.push(`phone_number = $${valIdx++}`);
+        queryValues.push(phone_number.trim());
+      }
+      if (avatar_url !== undefined) {
+        updateFields.push(`avatar_url = $${valIdx++}`);
+        queryValues.push(avatar_url ? avatar_url.trim() : null);
+      }
+      if (bio !== undefined) {
+        if (bio && bio.length > 300) {
+          return res.status(400).json({ success: false, message: 'Bio cannot exceed 300 characters.' });
+        }
+        updateFields.push(`bio = $${valIdx++}`);
+        queryValues.push(bio ? bio.trim() : null);
+      }
+      if (department !== undefined) {
+        updateFields.push(`department = $${valIdx++}`);
+        queryValues.push(department.trim());
+      }
+      if (hostel !== undefined) {
+        updateFields.push(`hostel = $${valIdx++}`);
+        queryValues.push(hostel ? hostel.trim() : null);
+      }
+
+      if (updateFields.length === 0) {
         return res.status(200).json({
           success: true,
           message: 'No changes provided.',
-          profile: existingProfile
+          profile: {
+            id: currentUser.id,
+            name: currentUser.name,
+            username: currentUser.username,
+            email: currentUser.email,
+            phone_number: currentUser.phone_number,
+            avatar_url: currentUser.avatar_url,
+            bio: currentUser.bio,
+            department: currentUser.department,
+            hostel: currentUser.hostel,
+            created_at: currentUser.created_at
+          }
         });
       }
 
-      // 4. Call service to perform update
-      const updatedProfile = await profileService.updateProfile(userId, updatePayload);
+      // 6. Run update query
+      queryValues.push(userId);
+      const updateQuery = `
+        UPDATE users SET ${updateFields.join(', ')}
+        WHERE id = $${valIdx}
+        RETURNING id, name, username, email, phone_number, avatar_url, bio, department, hostel, created_at
+      `;
+      const updateRes = await pool.query(updateQuery, queryValues);
 
       return res.status(200).json({
         success: true,
         message: 'Profile updated successfully.',
-        profile: updatedProfile
+        profile: updateRes.rows[0]
       });
     } catch (error) {
       console.error('Error in updateProfile:', error.message || error);

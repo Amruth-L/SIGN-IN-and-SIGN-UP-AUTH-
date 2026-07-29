@@ -5,6 +5,11 @@ require('dotenv').config();
 const authRoutes = require('./routes/authRoutes');
 const listingRoutes = require('./routes/listingRoutes');
 const profileRoutes = require('./src/routes/profileRoutes');
+const rentalRoutes = require('./routes/rentalRoutes');
+const paymentRoutes = require('./routes/payment.routes');
+const cartRoutes = require('./routes/cartRoutes');
+const pricingRoutes = require('./routes/pricingRoutes');
+const wishlistRoutes = require('./routes/wishlistRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3003;
@@ -17,6 +22,11 @@ app.use(express.json());
 app.use('/', authRoutes); // Auth routes (signup, login, profile, logout)
 app.use('/listings', listingRoutes); // Listing CRUD routes
 app.use('/api/profile', profileRoutes); // Profile API routes
+app.use('/api/rentals', rentalRoutes); // Rental booking & status routes
+app.use('/api/payment', paymentRoutes); // Payment & refund routes
+app.use('/api/cart', cartRoutes); // Shopping cart routes
+app.use('/api/pricing', pricingRoutes); // Dynamic pricing engine routes
+app.use('/api/wishlist', wishlistRoutes); // Wishlist / Saved items routes
 
 // Global Error Handler
 app.use((err, req, res, next) => {
