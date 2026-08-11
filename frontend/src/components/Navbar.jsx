@@ -42,13 +42,16 @@ const Navbar = () => {
   return (
     <nav className="navbar">
       <div className="container navbar-container">
-        <Link to="/" className="navbar-logo">
+        <Link to={user ? "/marketplace" : "/"} className="navbar-logo">
           Campus<span>Mesh</span>
         </Link>
         <div className="navbar-links">
-          <Link to="/" className="nav-link">Home</Link>
           {user ? (
             <>
+              <Link to="/marketplace" className="nav-link">Marketplace</Link>
+              <Link to="/my-rentals" className="nav-link">My Rentals</Link>
+              <Link to="/my-listings" className="nav-link">My Listings</Link>
+              <Link to="/saved-items" className="nav-link">Saved Items</Link>
               <Link to="/cart" className="nav-link" style={{ display: 'flex', alignItems: 'center', position: 'relative' }}>
                 🛒 Cart
                 {cartCount > 0 && (
@@ -68,14 +71,11 @@ const Navbar = () => {
               </Link>
               <Link to="/chat" className="nav-link">Chat</Link>
               <Link to="/profile" className="nav-link">Profile</Link>
-              <div className="nav-user-badge">
-                <span className="nav-avatar">{user.name ? user.name.charAt(0).toUpperCase() : 'U'}</span>
-                <span className="nav-username">{user.name}</span>
-              </div>
               <button onClick={logout} className="btn btn-outline nav-btn">Logout</button>
             </>
           ) : (
             <>
+              <Link to="/" className="nav-link">Home</Link>
               <Link to="/login" className="nav-link">Login</Link>
               <Link to="/signup" className="btn btn-primary nav-btn">Sign Up</Link>
             </>

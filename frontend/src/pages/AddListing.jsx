@@ -1,7 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import './AddListing.css';
+
+const DRAFT_STORAGE_KEY = 'campusmesh_listing_draft';
 
 const AddListing = () => {
   const { api, user } = useAuth();
@@ -38,6 +40,24 @@ const AddListing = () => {
   const [publishing, setPublishing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
+
+  // Restore a locally saved draft when the create-listing page is opened again.
+  useEffect(() => {
+    try {
+      const savedDraft = localStorage.getItem(DRAFT_STORAGE_KEY);
+      if (!savedDraft) return;
+
+      const draft = JSON.parse(savedDraft);
+      if (draft.formData) {
+        setFormData((current) => ({ ...current, ...draft.formData }));
+      }
+      if (Array.isArray(draft.images)) setImages(draft.images);
+      if (Number.isInteger(draft.coverIndex)) setCoverIndex(draft.coverIndex);
+    } catch (draftError) {
+      console.warn('Unable to restore listing draft:', draftError);
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
+    }
+  }, []);
 
   // Dropdown options
   const categories = [
@@ -197,27 +217,8 @@ const AddListing = () => {
     }
 
     setPublishing(true);
-    setUploadProgress(0);
-    setUploadStatus('Preparing files...');
-
-    // Simulate image uploading progress
-    const progressInterval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(progressInterval);
-          return 100;
-        }
-        const nextProgress = prev + 15;
-        if (nextProgress >= 40 && nextProgress < 70) {
-          setUploadStatus('Compressing images...');
-        } else if (nextProgress >= 70 && nextProgress < 95) {
-          setUploadStatus('Uploading to cloud storage...');
-        } else if (nextProgress >= 95) {
-          setUploadStatus('Saving listing database records...');
-        }
-        return Math.min(nextProgress, 100);
-      });
-    }, 200);
+    setUploadProgress(25);
+    setUploadStatus('Saving listing and images...');
 
     // Prepare API request payload
     const payload = {
@@ -237,22 +238,47 @@ const AddListing = () => {
     };
 
     try {
-      // Wait for simulated upload animation to finish
-      await new Promise(resolve => setTimeout(resolve, 1800));
-
       await api.post('/listings', payload);
       
-      clearInterval(progressInterval);
       setUploadProgress(100);
       setUploadStatus('Published successfully!');
+      localStorage.removeItem(DRAFT_STORAGE_KEY);
       
       alert('Your listing has been published successfully.');
       navigate('/profile'); // Redirects to My Listings tab in Profile page
     } catch (err) {
-      clearInterval(progressInterval);
       setPublishing(false);
       setError(err.response?.data?.error || 'Failed to publish listing. Please try again.');
       window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const handleSaveDraft = () => {
+    const draft = {
+      formData,
+      images,
+      coverIndex,
+      savedAt: new Date().toISOString()
+    };
+
+    try {
+      localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+      alert('Draft saved successfully. You can continue it later.');
+    } catch (storageError) {
+      // Large base64 images can exceed the browser's localStorage quota. Keep
+      // the form fields so the draft is still useful, even if images cannot be
+      // stored locally.
+      try {
+        localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify({
+          formData,
+          coverIndex,
+          savedAt: new Date().toISOString()
+        }));
+        alert('Draft details saved. The images were too large to save locally, so please select them again later.');
+      } catch (fallbackError) {
+        console.error('Unable to save listing draft:', storageError, fallbackError);
+        setError('Unable to save the draft in this browser. Please try again or use smaller images.');
+      }
     }
   };
 
@@ -646,17 +672,14 @@ const AddListing = () => {
         <div className="action-buttons-footer">
           <button 
             type="button" 
-            onClick={() => navigate('/')} 
+            onClick={() => navigate('/marketplace')} 
             className="btn btn-outline btn-footer"
           >
             Cancel
           </button>
           <button 
             type="button" 
-            onClick={() => {
-              alert('Draft saved successfully. You can complete it later.');
-              navigate('/profile');
-            }} 
+            onClick={handleSaveDraft}
             className="btn btn-outline btn-footer"
           >
             Save Draft

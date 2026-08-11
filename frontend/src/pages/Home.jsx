@@ -1,16 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { Link, useNavigate } from 'react-router-dom';
-import { mockProducts, mockSellers } from '../data/mockData';
 import './Home.css';
 
-const Home = () => {
+const Home = ({ marketplaceOnly = false }) => {
   const { api, user } = useAuth();
   const navigate = useNavigate();
 
   const [dbListings, setDbListings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState('');
+  const [savingFavorites, setSavingFavorites] = useState({});
 
   // Search & Filter States
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,6 +51,11 @@ const Home = () => {
 
   // Fetch listings from backend
   useEffect(() => {
+    if (!marketplaceOnly) {
+      setLoading(false);
+      return;
+    }
+
     const fetchListings = async () => {
       try {
         const res = await api.get('/listings');
@@ -62,21 +67,71 @@ const Home = () => {
       }
     };
     fetchListings();
-  }, [api]);
+  }, [api, marketplaceOnly]);
 
   // Sync favorites to localStorage
   useEffect(() => {
     localStorage.setItem('campusmesh_favorites', JSON.stringify(favorites));
   }, [favorites]);
 
-  const toggleFavorite = (id) => {
-    setFavorites(prev => {
-      const isFav = prev.includes(id);
-      const updated = isFav ? prev.filter(favId => favId !== id) : [...prev, id];
-      setToastMessage(isFav ? 'Removed from saved items' : 'Saved to your favorites ❤️');
-      setTimeout(() => setToastMessage(''), 2500);
-      return updated;
-    });
+  // Keep the home-page heart and Profile > Saved Items backed by the same
+  // database source for authenticated users. Unauthenticated users still get
+  // a local-only save until they log in.
+  useEffect(() => {
+    if (!user) return;
+
+    let active = true;
+    api.get('/api/wishlist')
+      .then((res) => {
+        if (!active) return;
+        const savedIds = res.data.map((item) => item.id);
+        setFavorites(savedIds);
+        localStorage.setItem('campusmesh_favorites', JSON.stringify(savedIds));
+      })
+      .catch((err) => {
+        console.error('Error fetching saved items:', err);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user, api]);
+
+  const showToast = (message) => {
+    setToastMessage(message);
+    setTimeout(() => setToastMessage(''), 2500);
+  };
+
+  const toggleFavorite = async (id) => {
+    const isFav = favorites.includes(id);
+
+    if (!user) {
+      setFavorites(prev => isFav ? prev.filter(favId => favId !== id) : [...prev, id]);
+      showToast(isFav ? 'Removed from saved items' : 'Saved to your favorites ❤️');
+      return;
+    }
+
+    if (savingFavorites[id]) return;
+    setSavingFavorites(prev => ({ ...prev, [id]: true }));
+
+    try {
+      const res = await api.post('/api/wishlist/toggle', { item_id: id });
+      const saved = res.data.saved;
+      setFavorites(prev => saved
+        ? (prev.includes(id) ? prev : [...prev, id])
+        : prev.filter(favId => favId !== id)
+      );
+      showToast(saved ? 'Saved to your favorites ❤️' : 'Removed from saved items');
+    } catch (err) {
+      console.error('Error saving item:', err);
+      showToast(err.response?.data?.error || 'Unable to save this item. Please try again.');
+    } finally {
+      setSavingFavorites(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
   };
 
   const handleShare = (listing) => {
@@ -89,28 +144,22 @@ const Home = () => {
   };
 
   // Convert raw DB listings to match product format
-  const mappedDbListings = dbListings.map((listing, index) => {
-    // Generate realistic details for user-submitted listings
-    const seed = index + 1;
-    const distanceMeters = (seed * 85) % 950 + 50; 
-    
-    // Assign a mock seller
-    const mockSeller = mockSellers[index % mockSellers.length];
-
+  const mappedDbListings = dbListings.map((listing) => {
     return {
       id: listing.id,
       title: listing.title,
       description: listing.description,
       category: listing.category,
       price: parseFloat(listing.price),
-      rentPrice: Math.round(parseFloat(listing.price) * 0.03) || 10,
-      deposit: Math.round(parseFloat(listing.price) * 0.25) || 100,
-      condition: ['Like New', 'Good', 'Fair', 'New'][seed % 4],
-      sellerId: mockSeller.id,
-      location: ['Library', 'AI Block', 'Boys Hostel A', 'Girls Hostel', 'Main Gate', 'Sports Complex'][seed % 6],
-      distance: distanceMeters,
-      pickupTime: `${Math.ceil(distanceMeters / 75)} min`,
-      deliveryAvailable: seed % 2 === 0,
+      rentPrice: parseFloat(listing.rent_price) || 0,
+      deposit: parseFloat(listing.deposit) || 0,
+      condition: listing.condition || 'Not specified',
+      sellerId: listing.owner_id,
+      seller: { name: listing.owner_name || 'Verified student', rating: null, meshScore: null },
+      location: listing.location || 'Campus pickup',
+      distance: null,
+      pickupTime: listing.pickup_time || 'To be arranged',
+      deliveryAvailable: !!listing.delivery_available,
       image_url: listing.image_url || 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?w=500&auto=format&fit=crop&q=60',
       isDbListing: true,
       owner_id: listing.owner_id
@@ -134,11 +183,7 @@ const Home = () => {
   };
 
   // Helper: Retrieve seller details
-  const getSeller = (product) => {
-    // If db listing has custom owner info, use it, else draw from mockSellers
-    const seller = mockSellers.find(s => s.id === product.sellerId);
-    return seller || { name: 'Student Seller', rating: 4.6, meshScore: 92 };
-  };
+  const getSeller = (product) => product.seller || { name: 'Verified student', rating: null, meshScore: null };
 
   // Filter and Sort Listings
   const filteredAndSortedListings = allProducts
@@ -174,11 +219,11 @@ const Home = () => {
       }
 
       if (sortBy === 'rating_desc') {
-        return getSeller(b).rating - getSeller(a).rating;
+        return (getSeller(b).rating || 0) - (getSeller(a).rating || 0);
       }
 
       if (sortBy === 'mesh_desc') {
-        return getSeller(b).meshScore - getSeller(a).meshScore;
+        return (getSeller(b).meshScore || 0) - (getSeller(a).meshScore || 0);
       }
 
       // Default: newest first
@@ -207,6 +252,7 @@ const Home = () => {
   // Helper to format distance display beautifully
   const formatDistance = (product) => {
     const dist = product.distance;
+    if (typeof dist !== 'number') return 'Campus pickup';
     // On campus locations
     const onCampus = ['Library', 'AI Block', 'Boys Hostel A', 'Girls Hostel', 'Main Gate', 'Sports Complex', 'Computer Science Block', 'Parking Area'].includes(product.location);
     
@@ -219,6 +265,32 @@ const Home = () => {
     }
   };
 
+  const scrollToMarketplace = () => {
+    if (!marketplaceOnly) {
+      navigate('/marketplace');
+      return;
+    }
+    document.getElementById('marketplace')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const workflow = [
+    ['01', 'Sign up', 'Create your account using your campus identity.'],
+    ['02', 'Find an item', 'Browse items listed by other students.'],
+    ['03', 'Choose', 'Choose whether you want to Rent or Borrow.'],
+    ['04', 'Select dates', 'Choose how long you need the item.'],
+    ['05', 'Send request', 'Send a request to the student who owns the item.'],
+    ['06', 'Owner accepts', 'The owner reviews and accepts your request.'],
+    ['07', 'Payment', 'For rentals, pay the rental fee, platform fee and applicable delivery fee.'],
+    ['08', 'Security deposit', 'If required, pay the refundable security deposit before receiving the item.'],
+    ['09', 'Handover', 'Complete the secure handover and receive the item.'],
+    ['10', 'Use', 'Use the item during your selected rental period.'],
+    ['11', 'Return', 'Return the item when the rental period ends.'],
+    ['12', 'Refund', 'Your security deposit is refunded after the item is returned safely.']
+  ];
+
+  const borrowerJourney = ['Search', 'Select item', 'Choose Rent / Borrow', 'Select dates', 'Send request', 'Owner accepts', 'Payment', 'Receive item', 'Use item', 'Return item'];
+  const ownerJourney = ['List item', 'Upload photos', 'Add condition', 'Set Rent / Borrow option', 'Set security deposit', 'Choose pickup location', 'Receive request', 'Accept request', 'Handover item', 'Receive rental earnings'];
+
   return (
     <div className="home-page container">
       {toastMessage && (
@@ -227,20 +299,112 @@ const Home = () => {
         </div>
       )}
 
-      {/* Hero Header */}
-      <div className="home-header">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
-          <div>
-            <h1>Campus Marketplace</h1>
-            <p>Find textbooks, electronics, and more from fellow students.</p>
+      {!marketplaceOnly && <>
+      <section className="campus-hero">
+        <div className="hero-copy">
+          <span className="eyebrow">A verified student community</span>
+          <h1>Rent. Borrow. Share. <span>Campus.</span></h1>
+          <p>CampusMesh connects verified students with the things they need — without having to buy everything themselves.</p>
+          <div className="hero-actions">
+            <a href="#how-it-works" className="btn btn-primary">Explore CampusMesh</a>
+            <Link to="/signup" className="btn btn-outline">Sign Up</Link>
           </div>
-          {user && (
-            <Link to="/add-listing" className="btn btn-primary" style={{ padding: '0.65rem 1.25rem' }}>
-              + Add Listing
-            </Link>
-          )}
+          <div className="hero-proof"><span>✓ Verified students</span><span>✓ Safer handovers</span><span>✓ Refundable deposits</span></div>
         </div>
-      </div>
+        <div className="sharing-illustration" aria-label="Students sharing books, a calculator, laptop, sports and lab equipment">
+          <div className="illustration-orbit orbit-one">⌗</div>
+          <div className="illustration-orbit orbit-two">⚗</div>
+          <div className="illustration-orbit orbit-three">⚽</div>
+          <div className="student student-one"><span>👩🏽‍🎓</span><small>Books</small></div>
+          <div className="student student-two"><span>👨🏽‍🎓</span><small>Laptop</small></div>
+          <div className="shared-kit"><span>🧮</span><span>💻</span><span>📚</span></div>
+          <div className="share-line" />
+          <p>Useful things, shared nearby.</p>
+        </div>
+      </section>
+
+      <section className="info-section what-section">
+        <div className="section-heading centered-heading">
+          <span className="eyebrow">Made for campus life</span>
+          <h2>What is CampusMesh?</h2>
+          <p>CampusMesh is a student-only peer-to-peer marketplace where students can rent, borrow and share useful items with other verified students.</p>
+        </div>
+        <div className="purpose-grid">
+          {[
+            ['₹', 'Rent', 'Need something for a few days? Rent it from another student instead of buying it.'],
+            ['↗', 'Borrow', 'Only need something temporarily? Borrow it from a student who is willing to share.'],
+            ['✦', 'List', "Have something you don't use every day? List it and let another student use it."]
+          ].map(([icon, title, copy]) => <article className="purpose-card" key={title}><span className="purpose-icon">{icon}</span><h3>{title}</h3><p>{copy}</p></article>)}
+        </div>
+      </section>
+
+      <section className="info-section workflow-section" id="how-it-works">
+        <div className="section-heading centered-heading">
+          <span className="eyebrow">One clear journey</span>
+          <h2>How CampusMesh Works</h2>
+          <p>From finding an item to returning it — everything happens in a few simple steps.</p>
+        </div>
+        <div className="workflow-track">
+          {workflow.map(([number, title, copy]) => <article className="workflow-step" key={number}><span className="workflow-number">{number}</span><h3>{title}</h3><p>{copy}</p></article>)}
+        </div>
+      </section>
+
+      <section className="info-section journey-grid">
+        <article className="journey-card borrower-card">
+          <div><span className="eyebrow">Borrower journey</span><h2>Need Something?</h2><p>Find what you need, request it from a fellow student, and return it when you’re done.</p></div>
+          <ol className="compact-timeline">{borrowerJourney.map((step, index) => <li key={step}><span>{String(index + 1).padStart(2, '0')}</span>{step}</li>)}</ol>
+          <button className="btn btn-primary" onClick={scrollToMarketplace}>Find Something You Need</button>
+        </article>
+        <article className="journey-card owner-card">
+          <div><span className="eyebrow">Owner journey</span><h2>Have Something Another Student Might Need?</h2><p>Turn unused items into useful income — or simply help another student out.</p></div>
+          <ol className="compact-timeline">{ownerJourney.map((step, index) => <li key={step}><span>{String(index + 1).padStart(2, '0')}</span>{step}</li>)}</ol>
+          <Link to={user ? "/create-listing" : "/login"} className="btn btn-primary">List an Item</Link>
+        </article>
+      </section>
+
+      <section className="info-section" id="rent-borrow">
+        <div className="section-heading centered-heading"><span className="eyebrow">Choose what works</span><h2>Rent or Borrow — You Choose</h2></div>
+        <div className="comparison-grid">
+          <article className="comparison-card"><span className="comparison-label">Rent</span><h3>Use it for the time you need</h3><p>Pay a small amount to use an item for the time you need.</p><div className="comparison-example"><strong>Scientific Calculator</strong><b>₹10/day</b></div><p><strong>Payment:</strong> Rental fee + platform fee + delivery fee</p><button className="btn btn-primary" onClick={scrollToMarketplace}>Rent Now</button></article>
+          <article className="comparison-card borrow"><span className="comparison-label">Borrow</span><h3>Use it for free</h3><p>Use an item for free when another student is willing to share it.</p><div className="comparison-example"><strong>Scientific Calculator</strong><b>Free Borrow</b></div><p><strong>Remember:</strong> Security deposits may apply even when the rental fee is ₹0.</p><button className="btn btn-outline" onClick={scrollToMarketplace}>Borrow</button></article>
+        </div>
+      </section>
+
+      <section className="info-section payment-section">
+        <div className="section-heading centered-heading"><span className="eyebrow">No hidden surprises</span><h2>Simple and Transparent Payments</h2><p>Rental fee + platform fee + delivery fee = booking payment.</p></div>
+        <div className="payment-stages"><article><span>Step 1</span><h3>Booking payment</h3><p>Rental fee + delivery fee + platform fee</p><i>↓</i><strong>Owner accepts</strong></article><article><span>Step 2</span><h3>Security deposit</h3><p>Refundable security deposit</p><i>↓</i><strong>Item handover → rental ends → item returned → refund</strong></article></div>
+        <p className="deposit-note">Your security deposit is separate from the rental fee and is refundable when the item is returned safely.</p>
+      </section>
+
+      <section className="info-section money-section">
+        <div className="section-heading"><span className="eyebrow">Clear for everyone</span><h2>Where Does Your Money Go?</h2><p>Every part of the payment has a simple destination.</p></div>
+        <div className="money-flow">
+          {[['Rental fee', '₹20', 'Item owner', '₹20'], ['Delivery fee', '₹5', 'Student courier', '₹5'], ['Platform fee', '₹1.25', 'CampusMesh', '₹1.25'], ['Security deposit', '₹200', 'Held separately', 'Refunded after successful return']].map(([label, amount, destination, result]) => <div className="money-item" key={label}><span>{label}</span><b>{amount}</b><i>↓</i><strong>{destination}</strong><small>{result}</small></div>)}
+        </div>
+      </section>
+
+      <section className="info-section handover-section" id="safety">
+        <div className="section-heading centered-heading"><span className="eyebrow">Confidence at every exchange</span><h2>Every Handover Matters</h2><p>When students exchange valuable items, both sides need confidence.</p></div>
+        <div className="handover-flow"><div>Owner</div><span>↓</span><strong>▣<small>QR verification</small></strong><span>↓</span><div>Item handover</div><span>↓</span><div>Borrower</div></div>
+        <div className="return-flow">Return <span>↓</span> QR verification <span>↓</span> Owner</div>
+        <div className="trust-points"><span>✓ Item condition photos</span><span>✓ QR verification</span><span>✓ Rental history</span><span>✓ Ratings</span><span>✓ Dispute support</span></div>
+      </section>
+
+      <section className="info-section community-section" id="about">
+        <div className="section-heading centered-heading"><span className="eyebrow">A safer campus marketplace</span><h2>Built for a Trusted Campus Community</h2></div>
+        <div className="community-points">{['Verified student accounts', 'Student ratings', 'Rental history', 'Secure payments', 'Refundable deposits', 'Verified handovers', 'Dispute support'].map(point => <span key={point}>✓ {point}</span>)}</div>
+      </section>
+
+      <section className="info-section popular-section">
+        <div className="section-heading"><span className="eyebrow">Start exploring</span><h2>Popular Categories</h2></div>
+        <div className="popular-categories">{['Books', 'Calculators', 'Electronics', 'Lab Equipment', 'Sports Equipment', 'Stationery', 'Tools', 'Clothing', 'Hostel Essentials', 'Study Materials'].map(category => <button key={category} onClick={scrollToMarketplace}>{category}<span>→</span></button>)}</div>
+      </section>
+
+      </>}
+
+      {marketplaceOnly && <>
+      <section className="marketplace-section" id="marketplace">
+        <div className="home-header"><span className="eyebrow">From verified student listings</span><h2>Things Students Are Sharing</h2><p>Browse real listings from the CampusMesh marketplace.</p></div>
 
       {/* Filters Card Panel */}
       <div className="search-filter-container">
@@ -393,12 +557,16 @@ const Home = () => {
                     {/* Price and Deposit metrics */}
                     <div className="prices-matrix">
                       <div className="price-item">
-                        <span>Buy Price</span>
-                        <strong>₹{prod.price}</strong>
+                        <span>Borrow</span>
+                        <strong className="borrow-available">Available on request</strong>
                       </div>
                       <div className="price-item">
                         <span>Rent Price</span>
                         <strong className="rent-rate">₹{prod.rentPrice}/day</strong>
+                      </div>
+                      <div className="price-item">
+                        <span>Security Deposit</span>
+                        <strong>₹{prod.deposit}</strong>
                       </div>
                     </div>
 
@@ -422,14 +590,12 @@ const Home = () => {
                       </div>
                       <div className="seller-details-mini">
                         <span className="seller-name-mini">{seller.name}</span>
-                        <span className="seller-rating-mini">⭐ {seller.rating}</span>
+                        <span className="seller-rating-mini">{seller.rating ? `⭐ ${seller.rating}` : '✓ Verified student'}</span>
                       </div>
-                      <span className="seller-mesh-score" title="Campus Trust Score">
-                        🛡️ Mesh: {seller.meshScore}
-                      </span>
+                      {seller.meshScore && <span className="seller-mesh-score" title="Campus Trust Score">🛡️ Mesh: {seller.meshScore}</span>}
                     </div>
 
-                    {/* Rent & Chat buttons */}
+                    {/* Existing rental and student-to-student request actions */}
                     <div className="card-action-buttons">
                       {user ? (
                         prod.isDbListing && prod.owner_id === user.id ? (
@@ -438,20 +604,20 @@ const Home = () => {
                           </div>
                         ) : (
                           <>
-                            <Link to={`/rent-item/${prod.id}`} className="btn btn-primary btn-card">
+                            <Link to={`/item/${prod.id}`} className="btn btn-primary btn-card">
                               Rent Now
                             </Link>
                             <Link 
                               to={`/chat?sellerId=${prod.sellerId}&sellerName=${encodeURIComponent(seller.name)}&listingTitle=${encodeURIComponent(prod.title)}`} 
                               className="btn btn-outline btn-card"
                             >
-                              Chat Seller
+                              Borrow
                             </Link>
                           </>
                         )
                       ) : (
                         <button onClick={() => navigate('/login')} className="btn btn-outline btn-card" style={{ gridColumn: 'span 2' }}>
-                          Login to Rent/Chat
+                          Login to Rent / Borrow
                         </button>
                       )}
                     </div>
@@ -505,6 +671,20 @@ const Home = () => {
           )}
         </>
       )}
+      </section>
+      </>}
+
+      {!marketplaceOnly && <>
+      <section className="final-cta">
+        <div><span className="eyebrow">Ready when you are</span><h2>Ready to Rent, Borrow or Share?</h2><p>Join your campus community and make useful things easier to access.</p><Link to="/signup" className="btn btn-primary">Sign Up</Link></div>
+        <div><span className="eyebrow">Already a member?</span><h2>Use CampusMesh today.</h2><p>Log in to browse listings, manage rentals, and share your useful things.</p><Link to="/login" className="btn btn-outline">Login</Link></div>
+      </section>
+
+      <footer className="campus-footer">
+        <div><Link to="/" className="footer-logo">Campus<span>Mesh</span></Link><p>Rent less. Share more. Save together.</p></div>
+        <div className="footer-links"><Link to="/marketplace">Marketplace</Link><a href="#how-it-works">How It Works</a><Link to="/signup">Create Account</Link><a href="#safety">Safety</a><a href="mailto:support@campusmesh.local">Help</a><a href="#privacy">Privacy</a><a href="#terms">Terms</a></div>
+      </footer>
+      </>}
     </div>
   );
 };

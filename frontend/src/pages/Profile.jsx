@@ -307,7 +307,7 @@ const Profile = ({ defaultTab = 'listings' }) => {
             ) : rentals.length === 0 ? (
               <div className="empty-state">
                 <p>You haven't rented any items yet.</p>
-                <button className="btn btn-outline" style={{ marginTop: '1rem' }} onClick={() => navigate('/')}>
+                <button className="btn btn-outline" style={{ marginTop: '1rem' }} onClick={() => navigate('/marketplace')}>
                   Browse Marketplace
                 </button>
               </div>
@@ -394,7 +394,7 @@ const Profile = ({ defaultTab = 'listings' }) => {
             ) : savedItems.length === 0 ? (
               <div className="empty-state">
                 <p>You haven't saved any listings yet.</p>
-                <button className="btn btn-outline" style={{ marginTop: '1rem' }} onClick={() => navigate('/')}>
+                <button className="btn btn-outline" style={{ marginTop: '1rem' }} onClick={() => navigate('/marketplace')}>
                   Browse Items
                 </button>
               </div>

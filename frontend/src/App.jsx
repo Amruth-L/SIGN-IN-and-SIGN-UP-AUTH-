@@ -3,6 +3,7 @@ import { useAuth } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import PrivateRoute from './components/PrivateRoute';
 import Home from './pages/Home';
+import Marketplace from './pages/Marketplace';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import VerifyEmail from './pages/VerifyEmail';
@@ -55,6 +56,30 @@ function App() {
             </PrivateRoute>
           } 
         />
+        <Route
+          path="/marketplace"
+          element={
+            <PrivateRoute>
+              <Marketplace />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/my-rentals"
+          element={
+            <PrivateRoute>
+              <Profile defaultTab="rentals" />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/my-listings"
+          element={
+            <PrivateRoute>
+              <Profile defaultTab="listings" />
+            </PrivateRoute>
+          }
+        />
         <Route 
           path="/cart" 
           element={
@@ -87,6 +112,14 @@ function App() {
             </PrivateRoute>
           } 
         />
+        <Route
+          path="/create-listing"
+          element={
+            <PrivateRoute>
+              <AddListing />
+            </PrivateRoute>
+          }
+        />
         <Route 
           path="/edit-listing/:id" 
           element={
@@ -102,6 +135,14 @@ function App() {
               <RentItem />
             </PrivateRoute>
           } 
+        />
+        <Route
+          path="/item/:id"
+          element={
+            <PrivateRoute>
+              <RentItem />
+            </PrivateRoute>
+          }
         />
         <Route 
           path="/chat" 
