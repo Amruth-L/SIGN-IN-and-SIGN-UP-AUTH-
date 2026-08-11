@@ -273,17 +273,6 @@ const Home = ({ marketplaceOnly = false }) => {
     document.getElementById('marketplace')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
-  const exploreCategory = (category) => {
-    if (categories.includes(category)) {
-      setSelectedCategory(category);
-      setSearchQuery('');
-    } else {
-      setSelectedCategory('All');
-      setSearchQuery(category);
-    }
-    setTimeout(scrollToMarketplace, 0);
-  };
-
   const workflow = [
     ['01', 'Sign up', 'Create your account using your campus identity.'],
     ['02', 'Find an item', 'Browse items listed by other students.'],
@@ -367,30 +356,30 @@ const Home = ({ marketplaceOnly = false }) => {
           <button className="btn btn-primary" onClick={scrollToMarketplace}>Find Something You Need</button>
         </article>
         <article className="journey-card owner-card">
-          <div><span className="eyebrow">Owner journey</span><h2>Have Something Useful?</h2><p>Turn unused items into useful income — or simply help another student out.</p></div>
+          <div><span className="eyebrow">Owner journey</span><h2>Have Something Another Student Might Need?</h2><p>Turn unused items into useful income — or simply help another student out.</p></div>
           <ol className="compact-timeline">{ownerJourney.map((step, index) => <li key={step}><span>{String(index + 1).padStart(2, '0')}</span>{step}</li>)}</ol>
-          <Link to="/add-listing" className="btn btn-primary">List Your Item</Link>
+          <Link to={user ? "/create-listing" : "/login"} className="btn btn-primary">List an Item</Link>
         </article>
       </section>
 
       <section className="info-section" id="rent-borrow">
-        <div className="section-heading centered-heading"><span className="eyebrow">Choose what works</span><h2>Rent vs Borrow</h2></div>
+        <div className="section-heading centered-heading"><span className="eyebrow">Choose what works</span><h2>Rent or Borrow — You Choose</h2></div>
         <div className="comparison-grid">
-          <article className="comparison-card"><span className="comparison-label">Rent</span><h3>For a few days or weeks</h3><p>Use when you need something such as a scientific calculator for longer.</p><div className="comparison-example"><strong>Scientific Calculator</strong><b>₹10/day</b></div><p><strong>Payment:</strong> Rental fee + platform fee + delivery fee</p><p><strong>Security deposit:</strong> Refundable</p><button className="btn btn-primary" onClick={scrollToMarketplace}>Rent Now</button></article>
-          <article className="comparison-card borrow"><span className="comparison-label">Borrow</span><h3>For a temporary need</h3><p>Use when another student is willing to share an item for free.</p><div className="comparison-example"><strong>Scientific Calculator</strong><b>FREE</b></div><p><strong>Payment:</strong> ₹0 rental fee</p><p><strong>Possible:</strong> Refundable security deposit</p><button className="btn btn-outline" onClick={scrollToMarketplace}>Borrow</button></article>
+          <article className="comparison-card"><span className="comparison-label">Rent</span><h3>Use it for the time you need</h3><p>Pay a small amount to use an item for the time you need.</p><div className="comparison-example"><strong>Scientific Calculator</strong><b>₹10/day</b></div><p><strong>Payment:</strong> Rental fee + platform fee + delivery fee</p><button className="btn btn-primary" onClick={scrollToMarketplace}>Rent Now</button></article>
+          <article className="comparison-card borrow"><span className="comparison-label">Borrow</span><h3>Use it for free</h3><p>Use an item for free when another student is willing to share it.</p><div className="comparison-example"><strong>Scientific Calculator</strong><b>Free Borrow</b></div><p><strong>Remember:</strong> Security deposits may apply even when the rental fee is ₹0.</p><button className="btn btn-outline" onClick={scrollToMarketplace}>Borrow</button></article>
         </div>
       </section>
 
       <section className="info-section payment-section">
-        <div className="section-heading centered-heading"><span className="eyebrow">No hidden surprises</span><h2>Simple &amp; Transparent Payments</h2><p>Two straightforward stages keep the rental clear for both students.</p></div>
+        <div className="section-heading centered-heading"><span className="eyebrow">No hidden surprises</span><h2>Simple and Transparent Payments</h2><p>Rental fee + platform fee + delivery fee = booking payment.</p></div>
         <div className="payment-stages"><article><span>Step 1</span><h3>Booking payment</h3><p>Rental fee + delivery fee + platform fee</p><i>↓</i><strong>Owner accepts</strong></article><article><span>Step 2</span><h3>Security deposit</h3><p>Refundable security deposit</p><i>↓</i><strong>Item handover → rental ends → item returned → refund</strong></article></div>
         <p className="deposit-note">Your security deposit is separate from the rental fee and is refundable when the item is returned safely.</p>
       </section>
 
       <section className="info-section money-section">
-        <div className="section-heading"><span className="eyebrow">Clear for everyone</span><h2>What Happens to the Money?</h2><p>Every part of the payment has a simple destination.</p></div>
+        <div className="section-heading"><span className="eyebrow">Clear for everyone</span><h2>Where Does Your Money Go?</h2><p>Every part of the payment has a simple destination.</p></div>
         <div className="money-flow">
-          {[['Rental fee', '₹20', 'Owner', '₹20'], ['Delivery fee', '₹2', 'Student Courier', '₹2'], ['Platform fee', '₹1.25', 'CampusMesh', '₹1.25'], ['Security deposit', '₹300', 'Held separately', 'Refunded after successful return']].map(([label, amount, destination, result]) => <div className="money-item" key={label}><span>{label}</span><b>{amount}</b><i>↓</i><strong>{destination}</strong><small>{result}</small></div>)}
+          {[['Rental fee', '₹20', 'Item owner', '₹20'], ['Delivery fee', '₹5', 'Student courier', '₹5'], ['Platform fee', '₹1.25', 'CampusMesh', '₹1.25'], ['Security deposit', '₹200', 'Held separately', 'Refunded after successful return']].map(([label, amount, destination, result]) => <div className="money-item" key={label}><span>{label}</span><b>{amount}</b><i>↓</i><strong>{destination}</strong><small>{result}</small></div>)}
         </div>
       </section>
 
@@ -402,13 +391,13 @@ const Home = ({ marketplaceOnly = false }) => {
       </section>
 
       <section className="info-section community-section" id="about">
-        <div className="section-heading centered-heading"><span className="eyebrow">A safer campus marketplace</span><h2>Built for Students, by Students</h2></div>
+        <div className="section-heading centered-heading"><span className="eyebrow">A safer campus marketplace</span><h2>Built for a Trusted Campus Community</h2></div>
         <div className="community-points">{['Verified student accounts', 'Student ratings', 'Rental history', 'Secure payments', 'Refundable deposits', 'Verified handovers', 'Dispute support'].map(point => <span key={point}>✓ {point}</span>)}</div>
       </section>
 
       <section className="info-section popular-section">
         <div className="section-heading"><span className="eyebrow">Start exploring</span><h2>Popular Categories</h2></div>
-        <div className="popular-categories">{['Books', 'Calculators', 'Electronics', 'Lab Equipment', 'Sports', 'Stationery', 'Tools', 'Clothing', 'Study Materials', 'Hostel Essentials'].map(category => <button key={category} onClick={() => exploreCategory(category)}>{category}<span>→</span></button>)}</div>
+        <div className="popular-categories">{['Books', 'Calculators', 'Electronics', 'Lab Equipment', 'Sports Equipment', 'Stationery', 'Tools', 'Clothing', 'Hostel Essentials', 'Study Materials'].map(category => <button key={category} onClick={scrollToMarketplace}>{category}<span>→</span></button>)}</div>
       </section>
 
       </>}
@@ -687,8 +676,8 @@ const Home = ({ marketplaceOnly = false }) => {
 
       {!marketplaceOnly && <>
       <section className="final-cta">
-        <div><span className="eyebrow">Ready when you are</span><h2>Ready to share more and spend less?</h2><p>Create your verified student account to start using CampusMesh.</p><Link to="/signup" className="btn btn-primary">Create Account</Link></div>
-        <div><span className="eyebrow">Learn the flow</span><h2>Everything stays on campus.</h2><p>Understand how renting, borrowing, payments and handovers work.</p><a href="#how-it-works" className="btn btn-outline">Explore CampusMesh</a></div>
+        <div><span className="eyebrow">Ready when you are</span><h2>Ready to Rent, Borrow or Share?</h2><p>Join your campus community and make useful things easier to access.</p><Link to="/signup" className="btn btn-primary">Sign Up</Link></div>
+        <div><span className="eyebrow">Already a member?</span><h2>Use CampusMesh today.</h2><p>Log in to browse listings, manage rentals, and share your useful things.</p><Link to="/login" className="btn btn-outline">Login</Link></div>
       </section>
 
       <footer className="campus-footer">
