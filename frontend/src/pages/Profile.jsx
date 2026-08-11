@@ -73,10 +73,12 @@ const Profile = ({ defaultTab = 'listings' }) => {
         try {
           const wishlistRes = await api.get('/api/wishlist');
           setSavedItems(wishlistRes.data);
+          const savedIds = wishlistRes.data.map(item => item.id);
+          localStorage.setItem('campusmesh_favorites', JSON.stringify(savedIds));
         } catch (wishErr) {
           console.error('[Profile] Failed to fetch database wishlist, using localStorage fallback:', wishErr);
           const savedIds = JSON.parse(localStorage.getItem('campusmesh_favorites') || '[]');
-          const saved = listingsRes.data.filter(listing => savedIds.includes(listing.id));
+          const saved = (listingsRes?.data || []).filter(listing => savedIds.includes(listing.id));
           setSavedItems(saved);
         }
 
@@ -106,11 +108,12 @@ const Profile = ({ defaultTab = 'listings' }) => {
       await api.delete(`/api/wishlist/${itemId}`);
       setSavedItems(prev => prev.filter(item => item.id !== itemId && item.wishlist_id !== itemId));
     } catch (err) {
-      // LocalStorage fallback
+      console.error('Error removing saved item:', err);
+      setSavedItems(prev => prev.filter(item => item.id !== itemId && item.wishlist_id !== itemId));
+    } finally {
       const savedIds = JSON.parse(localStorage.getItem('campusmesh_favorites') || '[]');
       const updated = savedIds.filter(id => id !== itemId);
       localStorage.setItem('campusmesh_favorites', JSON.stringify(updated));
-      setSavedItems(prev => prev.filter(item => item.id !== itemId));
     }
   };
 

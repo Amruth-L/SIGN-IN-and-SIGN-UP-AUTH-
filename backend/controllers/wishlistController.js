@@ -29,10 +29,10 @@ exports.getWishlist = async (req, res) => {
 // POST /api/wishlist/toggle - Toggle save item
 exports.toggleWishlist = async (req, res) => {
   const user_id = req.user.id;
-  const { item_id } = req.body;
+  const item_id = parseInt(req.body.item_id, 10);
 
-  if (!item_id) {
-    return res.status(400).json({ error: 'item_id is required.' });
+  if (!item_id || isNaN(item_id)) {
+    return res.status(400).json({ error: 'item_id is required and must be a valid number.' });
   }
 
   try {
@@ -57,7 +57,11 @@ exports.toggleWishlist = async (req, res) => {
 // DELETE /api/wishlist/:itemId - Remove item from wishlist
 exports.removeFromWishlist = async (req, res) => {
   const user_id = req.user.id;
-  const { itemId } = req.params;
+  const itemId = parseInt(req.params.itemId, 10);
+
+  if (!itemId || isNaN(itemId)) {
+    return res.status(400).json({ error: 'itemId must be a valid number.' });
+  }
 
   try {
     await pool.query('DELETE FROM wishlist WHERE user_id = $1 AND item_id = $2', [user_id, itemId]);

@@ -20,6 +20,10 @@ const Home = ({ marketplaceOnly = false }) => {
   const [selectedCondition, setSelectedCondition] = useState('All');
   const [sortBy, setSortBy] = useState('newest');
 
+  // Modes: Delivery Mode & Rental Mode
+  const [deliveryModeOnly, setDeliveryModeOnly] = useState(false);
+  const [rentalModeOnly, setRentalModeOnly] = useState(false);
+
   // Favorites (using localStorage)
   const [favorites, setFavorites] = useState(() => {
     try {
@@ -106,7 +110,11 @@ const Home = ({ marketplaceOnly = false }) => {
     const isFav = favorites.includes(id);
 
     if (!user) {
-      setFavorites(prev => isFav ? prev.filter(favId => favId !== id) : [...prev, id]);
+      setFavorites(prev => {
+        const updated = isFav ? prev.filter(favId => favId !== id) : [...prev, id];
+        localStorage.setItem('campusmesh_favorites', JSON.stringify(updated));
+        return updated;
+      });
       showToast(isFav ? 'Removed from saved items' : 'Saved to your favorites ❤️');
       return;
     }
@@ -117,10 +125,13 @@ const Home = ({ marketplaceOnly = false }) => {
     try {
       const res = await api.post('/api/wishlist/toggle', { item_id: id });
       const saved = res.data.saved;
-      setFavorites(prev => saved
-        ? (prev.includes(id) ? prev : [...prev, id])
-        : prev.filter(favId => favId !== id)
-      );
+      setFavorites(prev => {
+        const updated = saved
+          ? (prev.includes(id) ? prev : [...prev, id])
+          : prev.filter(favId => favId !== id);
+        localStorage.setItem('campusmesh_favorites', JSON.stringify(updated));
+        return updated;
+      });
       showToast(saved ? 'Saved to your favorites ❤️' : 'Removed from saved items');
     } catch (err) {
       console.error('Error saving item:', err);
@@ -208,6 +219,12 @@ const Home = ({ marketplaceOnly = false }) => {
       // 4. Condition Filter
       if (selectedCondition !== 'All' && product.condition !== selectedCondition) return false;
 
+      // 5. Delivery Mode Filter
+      if (deliveryModeOnly && !product.deliveryAvailable) return false;
+
+      // 6. Rental Mode Filter
+      if (rentalModeOnly && (!product.rentPrice || product.rentPrice <= 0)) return false;
+
       return true;
     })
     .sort((a, b) => {
@@ -226,14 +243,19 @@ const Home = ({ marketplaceOnly = false }) => {
         return (getSeller(b).meshScore || 0) - (getSeller(a).meshScore || 0);
       }
 
-      // Default: newest first
-      return b.id.localeCompare(a.id);
+      // Default: newest first (handles numeric and string IDs safely)
+      const numA = Number(a.id);
+      const numB = Number(b.id);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numB - numA;
+      }
+      return String(b.id || '').localeCompare(String(a.id || ''));
     });
 
   // Reset pagination when filter changes
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedCategory, searchQuery, minPrice, maxPrice, selectedCondition, sortBy]);
+  }, [selectedCategory, searchQuery, minPrice, maxPrice, selectedCondition, sortBy, deliveryModeOnly, rentalModeOnly]);
 
   // Paginated Slicing
   const totalItems = filteredAndSortedListings.length;
@@ -408,6 +430,44 @@ const Home = ({ marketplaceOnly = false }) => {
 
       {/* Filters Card Panel */}
       <div className="search-filter-container">
+
+        {/* Delivery Mode & Rental Mode Toggle Buttons */}
+        <div className="mode-toggle-bar">
+          <span className="mode-toggle-label">Browse Modes:</span>
+          
+          <button 
+            type="button"
+            className={`mode-toggle-btn ${deliveryModeOnly ? 'active' : ''}`}
+            onClick={() => setDeliveryModeOnly(prev => !prev)}
+            title="Filter listings with campus delivery"
+          >
+            <span className="mode-icon">🚚</span>
+            <span>Delivery Mode</span>
+            {deliveryModeOnly && <span className="mode-status-badge">ON</span>}
+          </button>
+
+          <button 
+            type="button"
+            className={`mode-toggle-btn ${rentalModeOnly ? 'active' : ''}`}
+            onClick={() => setRentalModeOnly(prev => !prev)}
+            title="Filter listings available for rent"
+          >
+            <span className="mode-icon">🔄</span>
+            <span>Rental Mode</span>
+            {rentalModeOnly && <span className="mode-status-badge">ON</span>}
+          </button>
+
+          {(deliveryModeOnly || rentalModeOnly) && (
+            <button 
+              type="button"
+              className="mode-clear-btn"
+              onClick={() => { setDeliveryModeOnly(false); setRentalModeOnly(false); }}
+            >
+              Reset Modes ✕
+            </button>
+          )}
+        </div>
+
         {/* Search, Sort, Price & Condition Filters */}
         <div className="filter-row-top">
           {/* Search bar */}
