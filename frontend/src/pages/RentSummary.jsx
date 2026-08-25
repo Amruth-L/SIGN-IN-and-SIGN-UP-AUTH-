@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { Calendar, AlertTriangle, Lock, CheckCircle2, ClipboardList, MapPin } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { mockProducts, mockSellers } from '../data/mockData';
 import { openRazorpayCheckout } from '../utils/RazorpayService';
@@ -24,14 +25,19 @@ const addDays = (dateStr, days) => {
 export default function RentSummary() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
+
+  const queryParams = new URLSearchParams(location.search);
+  const paramStart = queryParams.get('start_date');
+  const paramEnd = queryParams.get('end_date');
 
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  const [startDate, setStartDate] = useState(today());
-  const [endDate, setEndDate] = useState(addDays(today(), 1));
+  const [startDate, setStartDate] = useState(paramStart || today());
+  const [endDate, setEndDate] = useState(paramEnd || addDays(today(), 1));
   const [submitting, setSubmitting] = useState(false);
   const [breakdown, setBreakdown] = useState(null);
 
@@ -298,8 +304,8 @@ export default function RentSummary() {
 
   if (error && !listing) {
     return (
-      <div className="rs-error-page">
-        <span>⚠️</span>
+      <div className="rs-error-page" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
+        <AlertTriangle size={32} style={{ color: '#ef4444', display: 'block', margin: '0 auto 12px auto' }} />
         <p>{error}</p>
         <button onClick={() => navigate(-1)} className="rs-back-btn">Go Back</button>
       </div>
@@ -331,7 +337,9 @@ export default function RentSummary() {
                 <h2 className="rs-item-title">{listing.title}</h2>
                 <div className="rs-item-meta">
                   <span className="rs-condition">{listing.condition}</span>
-                  <span className="rs-location">📍 {listing.location}</span>
+                  <span className="rs-location" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                    <MapPin size={12} strokeWidth={2} /> {listing.location}
+                  </span>
                 </div>
                 <div className="rs-owner-info">
                   Owner: <strong>{listing.owner_name}</strong>
@@ -341,7 +349,9 @@ export default function RentSummary() {
 
             {/* Date Selection */}
             <div className="rs-date-section">
-              <h3>📅 Select Rental Period</h3>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Calendar size={16} strokeWidth={2} /> Select Rental Period
+              </h3>
               <form onSubmit={handleBook} className="rs-date-form">
                 <div className="rs-date-row">
                   <div className="rs-date-field">
@@ -374,11 +384,11 @@ export default function RentSummary() {
                   </div>
                 </div>
                 {breakdown && (
-                  <div className="rs-duration-badge">
-                    🗓 {breakdown.days} Day{breakdown.days > 1 ? 's' : ''} Rental
+                  <div className="rs-duration-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Calendar size={12} strokeWidth={2} /> {breakdown.days} Day{breakdown.days > 1 ? 's' : ''} Rental
                   </div>
                 )}
-                {error && <div className="rs-error-msg">⚠️ {error}</div>}
+                {error && <div className="rs-error-msg" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> {error}</div>}
                 
                 <button
                   type="submit"
@@ -395,7 +405,9 @@ export default function RentSummary() {
           <div className="rs-right">
             {/* Booking Summary Card */}
             <div className="rs-breakdown-card">
-              <h3 className="rs-breakdown-title">💳 Booking Summary</h3>
+              <h3 className="rs-breakdown-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <ClipboardList size={16} strokeWidth={2} /> Booking Summary
+              </h3>
 
               {breakdown ? (
                 <div className="rs-breakdown-rows">
@@ -435,15 +447,22 @@ export default function RentSummary() {
             {/* Security Deposit Card */}
             {breakdown && (
               <div className="rs-deposit-card">
-                <h3 className="rs-deposit-title">🔒 Security Deposit</h3>
+                <h3 className="rs-deposit-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Lock size={15} strokeWidth={2} /> Security Deposit
+                </h3>
                 <div className="rs-deposit-amount">{formatCurrency(breakdown.depositAmount)}</div>
                 <p className="rs-deposit-note">Collected only after owner accepts booking.</p>
-                <p className="rs-refund-note">✅ This amount is fully refundable after the owner confirms the item has been returned in good condition.</p>
+                <p className="rs-refund-note" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CheckCircle2 size={14} style={{ color: '#22c55e', flexShrink: 0 }} />
+                  <span>This amount is fully refundable after the owner confirms the item has been returned in good condition.</span>
+                </p>
               </div>
             )}
 
             <div className="rs-policy-box">
-              <h4>📋 Rental Policy</h4>
+              <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.5rem' }}>
+                <ClipboardList size={14} strokeWidth={2} /> Rental Policy
+              </h4>
               <ul>
                 <li>Owner must accept your booking request</li>
                 <li>Security deposit due within 30 mins of acceptance</li>

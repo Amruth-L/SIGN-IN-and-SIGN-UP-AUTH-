@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { AlertCircle, CheckCircle2, Calendar, ShoppingBag, CreditCard } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { mockProducts, mockSellers } from '../data/mockData';
 import './RentItem.css';
@@ -210,7 +211,7 @@ const RentItem = () => {
     return (
       <div className="rent-container">
         <div className="error-message" style={{ margin: '3rem auto', padding: '24px', textAlign: 'center', maxWidth: '480px', borderRadius: '12px', background: '#fef2f2', border: '1px solid #fecaca', color: '#dc2626' }}>
-          <span style={{ fontSize: '2rem', display: 'block', marginBottom: '8px' }}>⚠️</span>
+          <AlertCircle size={32} style={{ display: 'block', margin: '0 auto 8px auto', color: '#ef4444' }} />
           <h3>{error || 'Unable to load this item. Please refresh.'}</h3>
           <p style={{ fontSize: '0.9rem', marginTop: '6px', color: '#991b1b' }}>The item might have been unlisted or is currently unavailable.</p>
         </div>
@@ -227,8 +228,8 @@ const RentItem = () => {
     <div className="rent-container">
       <div className="rent-card">
         {rentSuccess ? (
-          <div className="rent-success-view">
-            <span className="success-icon">🎉</span>
+          <div className="rent-success-view" style={{ textAlign: 'center', padding: '2rem 1rem' }}>
+            <CheckCircle2 size={48} style={{ color: '#22c55e', display: 'block', margin: '0 auto 12px auto' }} />
             <h2>Rental Confirmed!</h2>
             <p className="text-muted" style={{ marginTop: '0.5rem' }}>
               You have successfully rented <strong>{listing.title}</strong>.
@@ -327,16 +328,17 @@ const RentItem = () => {
                     <button 
                       type="button" 
                       className="btn btn-primary" 
-                      style={{ flex: 1, backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#ffffff' }}
+                      style={{ flex: 1, backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#ffffff', gap: '6px' }}
                       onClick={handleAddToCart}
                       disabled={addingToCart}
                     >
-                      {addingToCart ? 'Adding...' : '🛒 Add to Cart'}
+                      <ShoppingBag size={15} strokeWidth={2} />
+                      {addingToCart ? 'Adding...' : 'Add to Cart'}
                     </button>
                     <button 
                       type="button" 
                       className="btn btn-outline" 
-                      style={{ flex: 1, borderColor: '#22c55e', color: '#16a34a' }}
+                      style={{ flex: 1, borderColor: '#22c55e', color: '#16a34a', gap: '6px' }}
                       onClick={() => {
                         if (!startDate || !endDate) {
                           alert('Please select both rental start and end dates.');
@@ -345,7 +347,8 @@ const RentItem = () => {
                         navigate(`/rent-summary/${id}?start_date=${startDate}&end_date=${endDate}`);
                       }}
                     >
-                      ⚡ Rent Now
+                      <CreditCard size={15} strokeWidth={2} />
+                      Rent Now
                     </button>
                   </div>
                   <button 
