@@ -254,12 +254,28 @@ const Profile = ({ defaultTab = 'listings' }) => {
           <div>
             {listingsError && <div className="error-message">{listingsError}</div>}
             
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
+              <div>
+                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0, color: 'var(--text-dark)' }}>My Listed Items</h2>
+                <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>Manage items you are selling or renting out</p>
+              </div>
+              {myListings.length > 0 && (
+                <button 
+                  className="btn btn-primary" 
+                  onClick={() => navigate('/create-listing')}
+                  style={{ padding: '0.5rem 1rem', fontSize: '0.875rem' }}
+                >
+                  + List New Item
+                </button>
+              )}
+            </div>
+
             {loading ? (
               <div className="loading">Loading your listings...</div>
             ) : myListings.length === 0 ? (
               <div className="empty-state">
                 <p>You haven't posted any listings yet.</p>
-                <button className="btn btn-outline" style={{ marginTop: '1rem' }} onClick={() => navigate('/add-listing')}>
+                <button className="btn btn-primary" style={{ marginTop: '1rem' }} onClick={() => navigate('/create-listing')}>
                   Create a Listing
                 </button>
               </div>
@@ -449,7 +465,7 @@ const Profile = ({ defaultTab = 'listings' }) => {
                         {/* Buttons Bottom */}
                         <div style={{ display: 'flex', gap: '10px' }}>
                           <button 
-                            onClick={() => navigate(`/rent/${listing.id}`)} 
+                            onClick={() => navigate(`/item/${listing.id}`)} 
                             className="btn btn-primary" 
                             style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
                           >

@@ -21,6 +21,7 @@ import {
   Laptop,
   Layers,
   ChevronRight,
+  Plus,
 } from 'lucide-react';
 import { MarketplaceSkeleton } from '../components/ui/Skeleton';
 import './Home.css';
@@ -264,7 +265,7 @@ const Home = ({ marketplaceOnly = false }) => {
                 <button className="btn btn-primary" onClick={scrollToMarketplace}>
                   Explore Marketplace <ArrowRight size={15} strokeWidth={2} />
                 </button>
-                <Link to="/signup" className="btn btn-outline">List an Item</Link>
+                <Link to={user ? "/create-listing" : "/login"} className="btn btn-outline">List an Item</Link>
               </div>
               <div className="hero-proof">
                 <span><ShieldCheck size={13} strokeWidth={2} /> Verified students</span>
@@ -507,10 +508,20 @@ const Home = ({ marketplaceOnly = false }) => {
           ════════════════════════════════════════ */}
       {marketplaceOnly && (
         <section className="marketplace-section container" id="marketplace">
-          <div className="home-header">
-            <span className="eyebrow">From verified student listings</span>
-            <h2>Things Students Are Sharing</h2>
-            <p>Browse real listings from the CampusMesh marketplace.</p>
+          <div className="home-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem' }}>
+            <div>
+              <span className="eyebrow">From verified student listings</span>
+              <h2>Things Students Are Sharing</h2>
+              <p>Browse real listings from the CampusMesh marketplace.</p>
+            </div>
+            <Link
+              to="/create-listing"
+              className="btn btn-primary"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+            >
+              <Plus size={16} strokeWidth={2.5} />
+              List an Item
+            </Link>
           </div>
 
           {/* Filters */}

@@ -144,6 +144,14 @@ function App() {
             </PrivateRoute>
           }
         />
+        <Route
+          path="/rent/:id"
+          element={
+            <PrivateRoute>
+              <RentItem />
+            </PrivateRoute>
+          }
+        />
         <Route 
           path="/chat" 
           element={

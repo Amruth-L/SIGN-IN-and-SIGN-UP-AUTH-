@@ -4,13 +4,10 @@ import {
   ShoppingBag,
   Heart,
   MessageCircle,
-  User,
-  Bell,
   Sun,
   Moon,
   Menu,
   X,
-  Package,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './Navbar.css';
@@ -80,10 +77,6 @@ const Navbar = () => {
             <>
               <Link to="/marketplace"  className={navLinkClass('/marketplace')}>Marketplace</Link>
               <Link to="/my-rentals"   className={navLinkClass('/my-rentals')}>My Rentals</Link>
-              <Link to="/my-listings"  className={navLinkClass('/my-listings')}>
-                <Package size={14} strokeWidth={1.75} />
-                Listings
-              </Link>
               <Link to="/saved-items"  className={navLinkClass('/saved-items')}>
                 <Heart size={14} strokeWidth={1.75} />
                 Saved
@@ -166,7 +159,6 @@ const Navbar = () => {
             <>
               <Link to="/marketplace" className="mobile-nav-link">Marketplace</Link>
               <Link to="/my-rentals"  className="mobile-nav-link">My Rentals</Link>
-              <Link to="/my-listings" className="mobile-nav-link">My Listings</Link>
               <Link to="/saved-items" className="mobile-nav-link">Saved Items</Link>
               <Link to="/cart"        className="mobile-nav-link">Cart {cartCount > 0 && `(${cartCount})`}</Link>
               <Link to="/chat"        className="mobile-nav-link">Chat</Link>

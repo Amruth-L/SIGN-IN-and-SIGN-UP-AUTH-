@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { AlertCircle, CheckCircle2, Calendar, ShoppingBag, CreditCard } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Calendar, ShoppingBag, CreditCard, Heart } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { mockProducts, mockSellers } from '../data/mockData';
 import './RentItem.css';
@@ -13,6 +13,8 @@ const RentItem = () => {
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isSaved, setIsSaved] = useState(false);
+  const [savingFav, setSavingFav] = useState(false);
   
   // Date Fields
   const [startDate, setStartDate] = useState('');
@@ -71,7 +73,7 @@ const RentItem = () => {
         if (err.response?.status === 404) {
           setError('Item no longer available.');
         } else {
-          setError('Unable to load this item. Please refresh.');
+          setError(err.response?.data?.error || 'Failed to load listing details.');
         }
       } finally {
         setLoading(false);
@@ -79,6 +81,52 @@ const RentItem = () => {
     };
     fetchListingDetails();
   }, [id, api]);
+
+  // Check saved/wishlist status
+  useEffect(() => {
+    if (!id) return;
+    try {
+      const savedIds = JSON.parse(localStorage.getItem('campusmesh_favorites') || '[]');
+      setIsSaved(savedIds.includes(id));
+    } catch {
+      // ignore
+    }
+
+    if (user) {
+      api.get('/api/wishlist')
+        .then(res => {
+          const isItemSaved = res.data.some(item => item.id === id);
+          setIsSaved(isItemSaved);
+        })
+        .catch(() => {});
+    }
+  }, [id, user, api]);
+
+  const handleToggleWishlist = async () => {
+    if (!user) {
+      alert('Please log in to save items.');
+      navigate('/login');
+      return;
+    }
+    if (savingFav) return;
+    setSavingFav(true);
+
+    try {
+      const res = await api.post('/api/wishlist/toggle', { item_id: id });
+      const saved = res.data.saved;
+      setIsSaved(saved);
+
+      const savedIds = JSON.parse(localStorage.getItem('campusmesh_favorites') || '[]');
+      const updated = saved
+        ? (savedIds.includes(id) ? savedIds : [...savedIds, id])
+        : savedIds.filter(fId => fId !== id);
+      localStorage.setItem('campusmesh_favorites', JSON.stringify(updated));
+    } catch (err) {
+      alert(err.response?.data?.error || 'Unable to update saved item.');
+    } finally {
+      setSavingFav(false);
+    }
+  };
 
   // Calculate days & price when dates change
   useEffect(() => {
@@ -265,8 +313,27 @@ const RentItem = () => {
                   )}
                 </div>
                 <div className="preview-info">
-                  <span className="listing-category">{listing.category}</span>
-                  <h3>{listing.title}</h3>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span className="listing-category">{listing.category}</span>
+                    <button
+                      type="button"
+                      onClick={handleToggleWishlist}
+                      className={`btn btn-sm ${isSaved ? 'btn-danger' : 'btn-outline'}`}
+                      style={{
+                        padding: '4px 10px',
+                        fontSize: '0.8rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '5px',
+                        borderRadius: '99px'
+                      }}
+                      title={isSaved ? 'Remove from Saved' : 'Save Item'}
+                    >
+                      <Heart size={13} strokeWidth={2} fill={isSaved ? 'currentColor' : 'none'} />
+                      {isSaved ? 'Saved' : 'Save'}
+                    </button>
+                  </div>
+                  <h3 style={{ marginTop: '6px' }}>{listing.title}</h3>
                   <p className="text-muted">Owner: {listing.owner_name}</p>
                   <p className="price-tag">₹{dailyPrice} <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-muted)' }}>/ day</span></p>
                 </div>

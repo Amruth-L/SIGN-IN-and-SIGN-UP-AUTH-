@@ -1,5 +1,23 @@
 const pool = require('../config/db');
 
+// Ensure wishlist table exists on module load
+const ensureWishlistTable = async () => {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS wishlist (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        item_id UUID REFERENCES listings(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, item_id)
+      );
+    `);
+  } catch (err) {
+    console.error('[WishlistController] Error ensuring wishlist table:', err.message);
+  }
+};
+ensureWishlistTable();
+
 // GET /api/wishlist - Fetch user's wishlist items with listing and owner details
 exports.getWishlist = async (req, res) => {
   const user_id = req.user.id;
@@ -29,24 +47,30 @@ exports.getWishlist = async (req, res) => {
 // POST /api/wishlist/toggle - Toggle save item
 exports.toggleWishlist = async (req, res) => {
   const user_id = req.user.id;
-  const item_id = parseInt(req.body.item_id, 10);
+  const item_id = req.body.item_id ? String(req.body.item_id).trim() : null;
 
-  if (!item_id || isNaN(item_id)) {
-    return res.status(400).json({ error: 'item_id is required and must be a valid number.' });
+  if (!item_id) {
+    return res.status(400).json({ error: 'item_id is required.' });
   }
 
   try {
+    // Check if item exists in listings
+    const listingCheck = await pool.query('SELECT id FROM listings WHERE id = $1', [item_id]);
+    if (listingCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Listing not found.' });
+    }
+
     // Check if already in wishlist
     const checkRes = await pool.query('SELECT id FROM wishlist WHERE user_id = $1 AND item_id = $2', [user_id, item_id]);
     
     if (checkRes.rows.length > 0) {
       // Remove from wishlist
       await pool.query('DELETE FROM wishlist WHERE user_id = $1 AND item_id = $2', [user_id, item_id]);
-      return res.json({ message: 'Item removed from wishlist.', saved: false });
+      return res.json({ message: 'Item removed from wishlist.', saved: false, item_id });
     } else {
       // Add to wishlist
       await pool.query('INSERT INTO wishlist (user_id, item_id) VALUES ($1, $2)', [user_id, item_id]);
-      return res.status(201).json({ message: 'Item saved to wishlist.', saved: true });
+      return res.status(201).json({ message: 'Item saved to wishlist.', saved: true, item_id });
     }
   } catch (error) {
     console.error('[WishlistController] toggleWishlist error:', error.message);
@@ -57,14 +81,14 @@ exports.toggleWishlist = async (req, res) => {
 // DELETE /api/wishlist/:itemId - Remove item from wishlist
 exports.removeFromWishlist = async (req, res) => {
   const user_id = req.user.id;
-  const itemId = parseInt(req.params.itemId, 10);
+  const itemId = req.params.itemId ? String(req.params.itemId).trim() : null;
 
-  if (!itemId || isNaN(itemId)) {
-    return res.status(400).json({ error: 'itemId must be a valid number.' });
+  if (!itemId) {
+    return res.status(400).json({ error: 'itemId is required.' });
   }
 
   try {
-    await pool.query('DELETE FROM wishlist WHERE user_id = $1 AND item_id = $2', [user_id, itemId]);
+    await pool.query('DELETE FROM wishlist WHERE user_id = $1 AND (item_id = $2 OR id = $2)', [user_id, itemId]);
     res.json({ message: 'Item removed from wishlist.', saved: false });
   } catch (error) {
     console.error('[WishlistController] removeFromWishlist error:', error.message);
