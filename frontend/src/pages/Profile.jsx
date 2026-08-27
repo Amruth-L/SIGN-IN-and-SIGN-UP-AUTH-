@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { Star, X, CheckCircle2 } from 'lucide-react';
 import './Profile.css';
 
 const Profile = ({ defaultTab = 'listings' }) => {
@@ -12,6 +13,98 @@ const Profile = ({ defaultTab = 'listings' }) => {
   const [rentals, setRentals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [listingsError, setListingsError] = useState('');
+  
+  // Review Modal State
+  const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [selectedRentalForReview, setSelectedRentalForReview] = useState(null);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [hoverRating, setHoverRating] = useState(0);
+  const [reviewComment, setReviewComment] = useState('');
+  const [selectedTags, setSelectedTags] = useState([]);
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewSuccessMsg, setReviewSuccessMsg] = useState('');
+  const [submittedReviews, setSubmittedReviews] = useState({});
+
+  const reviewComplimentTags = [
+    'Item as described',
+    'Great condition',
+    'Friendly owner',
+    'Smooth handover',
+    'Fast response',
+    'Highly recommended'
+  ];
+
+  const ratingDescriptions = {
+    1: 'Disappointing',
+    2: 'Below Average',
+    3: 'Good & Functional',
+    4: 'Very Good Experience',
+    5: 'Outstanding / Perfect'
+  };
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('campusmesh_rental_reviews') || '{}');
+      setSubmittedReviews(saved);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleOpenReviewModal = (rental) => {
+    const rentalKey = rental.id || rental.listing_id || rental.listingId || `rent-${rental.startDate || rental.start_date}`;
+    setSelectedRentalForReview(rental);
+    const existing = submittedReviews[rentalKey];
+    if (existing) {
+      setReviewRating(existing.rating || 5);
+      setReviewComment(existing.comment || '');
+      setSelectedTags(existing.tags || []);
+    } else {
+      setReviewRating(5);
+      setReviewComment('');
+      setSelectedTags([]);
+    }
+    setReviewSuccessMsg('');
+    setReviewModalOpen(true);
+  };
+
+  const handleToggleTag = (tag) => {
+    setSelectedTags(prev => 
+      prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag]
+    );
+  };
+
+  const handleSubmitReview = (e) => {
+    e.preventDefault();
+    if (!selectedRentalForReview) return;
+    setSubmittingReview(true);
+
+    const rentalKey = selectedRentalForReview.id || selectedRentalForReview.listing_id || selectedRentalForReview.listingId || `rent-${selectedRentalForReview.startDate || selectedRentalForReview.start_date}`;
+    const reviewData = {
+      rentalKey,
+      listingTitle: selectedRentalForReview.listing_title || selectedRentalForReview.listingTitle || 'Rental Item',
+      ownerName: selectedRentalForReview.owner_name || 'Owner',
+      rating: reviewRating,
+      comment: reviewComment,
+      tags: selectedTags,
+      reviewedAt: new Date().toISOString()
+    };
+
+    setTimeout(() => {
+      const updated = {
+        ...submittedReviews,
+        [rentalKey]: reviewData
+      };
+      setSubmittedReviews(updated);
+      localStorage.setItem('campusmesh_rental_reviews', JSON.stringify(updated));
+      setSubmittingReview(false);
+      setReviewSuccessMsg('Review submitted successfully!');
+      setTimeout(() => {
+        setReviewModalOpen(false);
+        setReviewSuccessMsg('');
+      }, 1200);
+    }, 500);
+  };
   
   // Settings Form State
   const [formData, setFormData] = useState({
@@ -388,13 +481,28 @@ const Profile = ({ defaultTab = 'listings' }) => {
                           >
                             Track Order
                           </button>
-                          <button 
-                            onClick={() => alert(`Review feature for ${title} coming soon!`)}
-                            className="btn btn-outline"
-                            style={{ padding: '0.5rem 1.25rem', fontSize: '0.875rem' }}
-                          >
-                            Leave Review
-                          </button>
+                          {(() => {
+                            const rentalKey = rental.id || rental.listing_id || rental.listingId || `rent-${rental.startDate || rental.start_date}`;
+                            const isReviewed = !!submittedReviews[rentalKey];
+                            return (
+                              <button 
+                                onClick={() => handleOpenReviewModal(rental)}
+                                className="btn btn-outline"
+                                style={{ 
+                                  padding: '0.5rem 1.25rem', 
+                                  fontSize: '0.875rem',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '6px',
+                                  borderColor: isReviewed ? '#eab308' : '#22c55e',
+                                  color: isReviewed ? '#ca8a04' : '#16a34a'
+                                }}
+                              >
+                                <Star size={14} fill={isReviewed ? '#eab308' : 'none'} color={isReviewed ? '#eab308' : 'currentColor'} />
+                                {isReviewed ? `Reviewed (${submittedReviews[rentalKey].rating}★)` : 'Leave Review'}
+                              </button>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -642,6 +750,132 @@ const Profile = ({ defaultTab = 'listings' }) => {
         )}
 
       </div>
+
+      {/* Review Modal */}
+      {reviewModalOpen && selectedRentalForReview && (
+        <div className="review-modal-backdrop" onClick={() => !submittingReview && setReviewModalOpen(false)}>
+          <div className="review-modal-card" onClick={e => e.stopPropagation()}>
+            <div className="review-modal-header">
+              <h3>Leave a Review</h3>
+              <button 
+                className="review-modal-close-btn" 
+                onClick={() => setReviewModalOpen(false)}
+                disabled={submittingReview}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="review-modal-body">
+              {/* Item Info */}
+              <div className="review-item-preview">
+                <img 
+                  src={selectedRentalForReview.listing_image || selectedRentalForReview.listingImage || 'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?w=500&auto=format&fit=crop&q=60'} 
+                  alt={selectedRentalForReview.listing_title || selectedRentalForReview.listingTitle} 
+                />
+                <div>
+                  <h4 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 600, color: 'var(--text-dark)' }}>
+                    {selectedRentalForReview.listing_title || selectedRentalForReview.listingTitle || 'Rental Item'}
+                  </h4>
+                  <p style={{ margin: '2px 0 0 0', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    Owner: {selectedRentalForReview.owner_name || 'Item Owner'}
+                  </p>
+                </div>
+              </div>
+
+              {reviewSuccessMsg ? (
+                <div style={{ textAlign: 'center', padding: '1.5rem 0' }}>
+                  <CheckCircle2 size={48} style={{ color: '#22c55e', margin: '0 auto 10px auto' }} />
+                  <h4 style={{ margin: 0, color: 'var(--text-dark)' }}>{reviewSuccessMsg}</h4>
+                </div>
+              ) : (
+                <form onSubmit={handleSubmitReview}>
+                  {/* Star Rating */}
+                  <div className="review-stars-container">
+                    <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                      Rate your overall rental experience
+                    </span>
+                    <div className="review-stars-row">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <button
+                          key={star}
+                          type="button"
+                          className="review-star-btn"
+                          onMouseEnter={() => setHoverRating(star)}
+                          onMouseLeave={() => setHoverRating(0)}
+                          onClick={() => setReviewRating(star)}
+                        >
+                          <Star 
+                            size={28} 
+                            fill={(hoverRating || reviewRating) >= star ? '#f59e0b' : 'none'} 
+                            color={(hoverRating || reviewRating) >= star ? '#f59e0b' : 'var(--text-muted)'} 
+                          />
+                        </button>
+                      ))}
+                    </div>
+                    <span className="review-rating-label">
+                      {ratingDescriptions[hoverRating || reviewRating]}
+                    </span>
+                  </div>
+
+                  {/* Compliment Chips */}
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                      Highlight positive aspects
+                    </label>
+                    <div className="review-tags-grid">
+                      {reviewComplimentTags.map(tag => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => handleToggleTag(tag)}
+                          className={`review-tag-chip ${selectedTags.includes(tag) ? 'active' : ''}`}
+                        >
+                          {selectedTags.includes(tag) ? '✓ ' : '+ '}{tag}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Feedback Comments */}
+                  <div style={{ marginTop: '1rem' }}>
+                    <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
+                      Detailed Feedback (Optional)
+                    </label>
+                    <textarea
+                      className="review-textarea"
+                      placeholder="How was the item quality? Was the owner helpful with pickup and return?"
+                      value={reviewComment}
+                      onChange={(e) => setReviewComment(e.target.value)}
+                      rows={3}
+                    />
+                  </div>
+
+                  {/* Actions */}
+                  <div className="review-modal-actions">
+                    <button
+                      type="button"
+                      className="btn btn-outline"
+                      onClick={() => setReviewModalOpen(false)}
+                      disabled={submittingReview}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn btn-primary"
+                      style={{ backgroundColor: '#22c55e', borderColor: '#22c55e', color: '#fff' }}
+                      disabled={submittingReview}
+                    >
+                      {submittingReview ? 'Submitting...' : 'Submit Review'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
