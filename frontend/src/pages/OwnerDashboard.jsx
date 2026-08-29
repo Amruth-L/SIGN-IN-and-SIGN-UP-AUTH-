@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import './OwnerDashboard.css';
@@ -30,6 +30,7 @@ export default function OwnerDashboard() {
   const [error, setError] = useState('');
   const [responding, setResponding] = useState({});
   const [filterStatus, setFilterStatus] = useState('ALL');
+  const [deliveryStatuses, setDeliveryStatuses] = useState({});
 
   const fetchRequests = async () => {
     const token = localStorage.getItem('token');
@@ -52,6 +53,28 @@ export default function OwnerDashboard() {
     const interval = setInterval(fetchRequests, 20000);
     return () => clearInterval(interval);
   }, []);
+
+  // Fetch delivery statuses for all rentals that have delivery_fee > 0
+  const fetchDeliveryStatuses = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    for (const rental of requests) {
+      if (parseFloat(rental.delivery_fee) > 0) {
+        try {
+          const res = await fetch(`${API_BASE}/api/delivery/rental/${rental.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setDeliveryStatuses(prev => ({ ...prev, [rental.id]: data }));
+          }
+        } catch {}
+      }
+    }
+  }, [requests]);
+
+  useEffect(() => {
+    if (requests.length > 0) fetchDeliveryStatuses();
+  }, [requests]);
 
   const handleRespond = async (rental_id, response) => {
     setResponding((prev) => ({ ...prev, [rental_id]: response }));
@@ -234,6 +257,44 @@ export default function OwnerDashboard() {
                   >
                     View Full Details →
                   </button>
+
+                  {/* Delivery Status & Seller Pickup Token */}
+                  {deliveryStatuses[rental.id] && deliveryStatuses[rental.id].has_delivery && (() => {
+                    const ds = deliveryStatuses[rental.id];
+                    return (
+                      <div style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '8px', padding: '0.75rem', marginTop: '0.5rem' }}>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.5rem' }}>
+                          🚚 Delivery
+                          <span style={{ marginLeft: 'auto', fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: '12px', background: ds.status === 'DELIVERED' ? '#dcfce7' : '#ede9fe', color: ds.status === 'DELIVERED' ? '#16a34a' : '#7c3aed' }}>
+                            {{
+                              AVAILABLE: 'Waiting for Courier',
+                              ACCEPTED: 'Courier Assigned',
+                              ARRIVING_FOR_PICKUP: 'Courier Coming',
+                              PICKED_UP: 'Item Picked Up',
+                              IN_TRANSIT: 'In Transit',
+                              ARRIVED: 'Courier Arrived',
+                              DELIVERED: 'Delivered',
+                            }[ds.status] || ds.status}
+                          </span>
+                        </div>
+                        {ds.courier_name && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>
+                            Courier: <strong style={{ color: 'var(--color-text)' }}>{ds.courier_name}</strong>
+                          </div>
+                        )}
+                        {/* Seller's Pickup Token */}
+                        {ds.pickup_token && ['ACCEPTED','ARRIVING_FOR_PICKUP'].includes(ds.status) && (
+                          <div style={{ background: 'linear-gradient(135deg, #1a1040, #2d1b69)', borderRadius: '8px', padding: '1rem', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.35rem' }}>Your Pickup Token</div>
+                            <div style={{ fontSize: '1.5rem', fontWeight: 900, fontFamily: 'Courier New, monospace', letterSpacing: '0.25em', color: '#fff', userSelect: 'all' }}>
+                              {ds.pickup_token}
+                            </div>
+                            <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.5)', marginTop: '0.35rem' }}>Show this token to the courier when they arrive for pickup</div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}

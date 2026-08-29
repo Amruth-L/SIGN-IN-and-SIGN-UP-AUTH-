@@ -79,6 +79,7 @@ export default function RentDetails() {
   const [depositSeconds, setDepositSeconds] = useState(null);
   const [payingDeposit, setPayingDeposit] = useState(false);
   const [justBooked] = useState(location.state?.justBooked);
+  const [deliveryInfo, setDeliveryInfo] = useState(null);
 
   const fetchStatus = async () => {
     const token = localStorage.getItem('token');
@@ -129,6 +130,26 @@ export default function RentDetails() {
   };
 
   useEffect(() => { fetchStatus(); }, [rentalId]);
+
+  // Fetch delivery status for this rental
+  const fetchDeliveryStatus = async () => {
+    const token = localStorage.getItem('token');
+    try {
+      const res = await fetch(`${API_BASE}/api/delivery/rental/${rentalId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setDeliveryInfo(data);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    fetchDeliveryStatus();
+    const interval = setInterval(fetchDeliveryStatus, 15000);
+    return () => clearInterval(interval);
+  }, [rentalId]);
 
   // Poll every 15s when waiting for owner
   useEffect(() => {
@@ -321,6 +342,51 @@ export default function RentDetails() {
                 <p className="rd-qr-subtitle">Show this QR to the owner during item pickup/delivery</p>
                 <canvas ref={canvasRef} className="rd-qr-canvas" />
                 <p className="rd-qr-hash">Hash: {rental.qr_code_hash?.slice(0, 20)}…</p>
+              </div>
+            )}
+
+            {/* Delivery Courier Status */}
+            {deliveryInfo && deliveryInfo.has_delivery && (
+              <div className="rd-delivery-section" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '1rem', marginTop: '1rem' }}>
+                <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  🚚 Delivery Status
+                </h4>
+                {deliveryInfo.status === 'AVAILABLE' && (
+                  <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>Waiting for a courier to accept your delivery request...</p>
+                )}
+                {deliveryInfo.status !== 'AVAILABLE' && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                    <div>
+                      <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>Status</div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 700, color: deliveryInfo.status === 'DELIVERED' ? '#22c55e' : '#6366f1' }}>
+                        {{
+                          ACCEPTED: '✅ Courier Assigned',
+                          ARRIVING_FOR_PICKUP: '🚶 Heading to Seller',
+                          PICKED_UP: '📋 Item Picked Up',
+                          IN_TRANSIT: '🚚 On the Way',
+                          ARRIVED: '📍 Courier Arrived',
+                          DELIVERED: '🎉 Delivered!',
+                        }[deliveryInfo.status] || deliveryInfo.status}
+                      </div>
+                    </div>
+                    {deliveryInfo.courier_name && (
+                      <div>
+                        <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>Courier</div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{deliveryInfo.courier_name}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {/* Customer's Delivery Token — shown when courier needs to verify delivery */}
+                {isBorrower && deliveryInfo.delivery_token && ['PICKED_UP','IN_TRANSIT','ARRIVED'].includes(deliveryInfo.status) && (
+                  <div style={{ background: 'linear-gradient(135deg, #1a1040, #2d1b69)', borderRadius: 'var(--radius-md)', padding: '1.25rem', textAlign: 'center', marginTop: '0.75rem' }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.4rem' }}>Your Delivery Token</div>
+                    <div style={{ fontSize: '1.75rem', fontWeight: 900, fontFamily: 'Courier New, monospace', letterSpacing: '0.25em', color: '#fff', userSelect: 'all' }}>
+                      {deliveryInfo.delivery_token}
+                    </div>
+                    <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', marginTop: '0.4rem' }}>Show this token to the courier when they deliver your item</div>
+                  </div>
+                )}
               </div>
             )}
 

@@ -23,6 +23,7 @@ import PaymentSuccess from './pages/PaymentSuccess';
 import PaymentFailed from './pages/PaymentFailed';
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
+import DeliveryDashboard from './pages/DeliveryDashboard';
 
 function App() {
   const { user } = useAuth();
@@ -221,6 +222,14 @@ function App() {
           element={
             <PrivateRoute>
               <PaymentFailed />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/delivery"
+          element={
+            <PrivateRoute>
+              <DeliveryDashboard />
             </PrivateRoute>
           }
         />

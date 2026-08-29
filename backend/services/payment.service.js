@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const razorpay = require('../config/razorpay');
 const crypto = require('crypto');
+const { createDeliveryRequest } = require('../controllers/deliveryController');
 require('dotenv').config();
 
 // Helper to check if Razorpay is running in real or simulation mode
@@ -307,6 +308,29 @@ class PaymentService {
             updated_at = NOW()
           WHERE id = $1
         `, [bookingId]);
+      }
+
+      // Auto-create delivery request if delivery_fee > 0
+      if (parseFloat(booking.delivery_fee) > 0 && isRentalPaid) {
+        try {
+          // Fetch listing location for pickup
+          const listingRes = await client.query('SELECT location FROM listings WHERE id = $1', [booking.listing_id]);
+          const pickupLocation = listingRes.rows.length > 0 ? listingRes.rows[0].location : 'Campus';
+          
+          await createDeliveryRequest(client, {
+            rental_id: bookingId,
+            listing_id: booking.listing_id,
+            customer_id: booking.borrower_id,
+            seller_id: booking.owner_id,
+            pickup_location: pickupLocation,
+            drop_location: 'Campus',
+            delivery_fee: booking.delivery_fee,
+            distance: 1.0,
+            estimated_time: '10 mins'
+          });
+        } catch (delErr) {
+          console.error('[PaymentService] Failed to create delivery request:', delErr.message);
+        }
       }
 
       console.log(`[PaymentService] Security deposit verified for booking ${bookingId}. Status → QR_GENERATED (Item pickup enabled)`);

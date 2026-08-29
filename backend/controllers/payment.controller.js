@@ -2,6 +2,7 @@ const paymentService = require('../services/payment.service');
 const pool = require('../config/db');
 const razorpay = require('../config/razorpay');
 const crypto = require('crypto');
+const { createDeliveryRequest } = require('./deliveryController');
 
 const isSimulationMode = () => {
   const key_id = process.env.RAZORPAY_KEY_ID;
@@ -336,9 +337,30 @@ exports.verifyCheckout = async (req, res) => {
         [userId, item.listing_id]
       );
 
-      // Fetch listing title for display
-      const listingRes = await client.query('SELECT title FROM listings WHERE id = $1', [item.listing_id]);
+      // Fetch listing title and location for display and delivery
+      const listingRes = await client.query('SELECT title, location FROM listings WHERE id = $1', [item.listing_id]);
       const listingTitle = listingRes.rows.length > 0 ? listingRes.rows[0].title : 'Item';
+      const listingLocation = listingRes.rows.length > 0 ? listingRes.rows[0].location : 'Campus';
+
+      // Auto-create delivery request if delivery_fee > 0
+      if (parseFloat(item.delivery_fee) > 0) {
+        try {
+          await createDeliveryRequest(client, {
+            rental_id: rentalId,
+            listing_id: item.listing_id,
+            customer_id: userId,
+            seller_id: item.owner_id,
+            pickup_location: listingLocation,
+            drop_location: 'Campus',  // Customer location not tracked yet, defaults to Campus
+            delivery_fee: item.delivery_fee,
+            distance: 1.0,
+            estimated_time: '10 mins'
+          });
+        } catch (delErr) {
+          console.error('[PaymentController] Failed to create delivery request:', delErr.message);
+          // Non-blocking: delivery request failure shouldn't block checkout
+        }
+      }
 
       createdRentals.push({
         rental_id: rentalId,

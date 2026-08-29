@@ -19,6 +19,7 @@ const seedDatabase = async () => {
     console.log('Starting database setup...');
 
     // Drop existing tables in reverse dependency order
+    await pool.query('DROP TABLE IF EXISTS delivery_requests CASCADE');
     await pool.query('DROP TABLE IF EXISTS refunds CASCADE');
     await pool.query('DROP TABLE IF EXISTS payments CASCADE');
     await pool.query('DROP TABLE IF EXISTS pending_orders CASCADE');
@@ -193,6 +194,34 @@ const seedDatabase = async () => {
       );
     `);
     console.log('wishlist table ready.');
+
+    // 10. Create delivery_requests Table
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS delivery_requests (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        rental_id UUID REFERENCES rentals(id) ON DELETE CASCADE,
+        listing_id UUID REFERENCES listings(id) ON DELETE SET NULL,
+        customer_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        seller_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        courier_id UUID REFERENCES users(id) ON DELETE SET NULL,
+        pickup_location VARCHAR(255) NOT NULL,
+        drop_location VARCHAR(255) NOT NULL DEFAULT 'Campus',
+        distance DECIMAL(5,2) DEFAULT 1.0,
+        estimated_time VARCHAR(100) DEFAULT '10 mins',
+        delivery_fee DECIMAL(10,2) NOT NULL DEFAULT 0,
+        courier_earning DECIMAL(10,2) NOT NULL DEFAULT 0,
+        status VARCHAR(50) DEFAULT 'AVAILABLE',
+        pickup_token VARCHAR(255),
+        delivery_token VARCHAR(255),
+        declined_by UUID[] DEFAULT '{}',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        accepted_at TIMESTAMP,
+        picked_up_at TIMESTAMP,
+        delivered_at TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('delivery_requests table ready.');
 
     // Seed system_config defaults
     await pool.query(`

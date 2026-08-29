@@ -10,6 +10,7 @@ const paymentRoutes = require('./routes/payment.routes');
 const cartRoutes = require('./routes/cartRoutes');
 const pricingRoutes = require('./routes/pricingRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
+const deliveryRoutes = require('./routes/deliveryRoutes');
 
 const app = express();
 const PORT = process.env.PORT || 3003;
@@ -30,6 +31,7 @@ app.use('/api/payment', paymentRoutes); // Payment & refund routes
 app.use('/api/cart', cartRoutes); // Shopping cart routes
 app.use('/api/pricing', pricingRoutes); // Dynamic pricing engine routes
 app.use('/api/wishlist', wishlistRoutes); // Wishlist / Saved items routes
+app.use('/api/delivery', deliveryRoutes); // Delivery / Courier routes
 
 // Global Error Handler
 app.use((err, req, res, next) => {

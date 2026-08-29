@@ -4,6 +4,7 @@ import {
   ShoppingBag,
   Heart,
   MessageCircle,
+  Truck,
   Sun,
   Moon,
   Menu,
@@ -85,6 +86,10 @@ const Navbar = () => {
                 <MessageCircle size={14} strokeWidth={1.75} />
                 Chat
               </Link>
+              <Link to="/delivery" className={navLinkClass('/delivery')}>
+                <Truck size={14} strokeWidth={1.75} />
+                Delivery
+              </Link>
               <Link to="/cart" className={navLinkClass('/cart')} aria-label={`Cart${cartCount > 0 ? `, ${cartCount} items` : ''}`} style={{ position: 'relative' }}>
                 <ShoppingBag size={14} strokeWidth={1.75} />
                 Cart
@@ -162,6 +167,7 @@ const Navbar = () => {
               <Link to="/saved-items" className="mobile-nav-link">Saved Items</Link>
               <Link to="/cart"        className="mobile-nav-link">Cart {cartCount > 0 && `(${cartCount})`}</Link>
               <Link to="/chat"        className="mobile-nav-link">Chat</Link>
+              <Link to="/delivery"    className="mobile-nav-link">🚚 Delivery</Link>
               <Link to="/profile"     className="mobile-nav-link">Profile</Link>
               <button onClick={logout} className="btn btn-outline btn-block" style={{ marginTop: '0.75rem' }}>Logout</button>
             </>
