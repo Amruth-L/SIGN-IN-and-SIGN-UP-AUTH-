@@ -300,7 +300,7 @@ exports.login = async (req, res) => {
 exports.getProfile = async (req, res) => {
   try {
     const userResult = await pool.query(
-      'SELECT id, name, username, email, phone_number, avatar_url, bio, department, hostel, created_at FROM users WHERE id = $1',
+      'SELECT id, name, username, email, phone_number, avatar_url, bio, department, hostel, active_mode, delivery_available, created_at FROM users WHERE id = $1',
       [req.user.id]
     );
     
@@ -313,6 +313,19 @@ exports.getProfile = async (req, res) => {
     console.error(error.message);
     res.status(500).json({ error: 'Server Error' });
   }
+};
+
+exports.setMode = async (req, res) => {
+  const mode = String(req.body.mode || '').toUpperCase();
+  if (!['RENT', 'DELIVERY'].includes(mode)) return res.status(400).json({ error: 'Mode must be RENT or DELIVERY.' });
+  const { rows } = await pool.query('UPDATE users SET active_mode = $1 WHERE id = $2 RETURNING id, active_mode, delivery_available', [mode, req.user.id]);
+  res.json(rows[0]);
+};
+
+exports.setDeliveryAvailability = async (req, res) => {
+  const available = Boolean(req.body.available);
+  const { rows } = await pool.query('UPDATE users SET delivery_available = $1, active_mode = \'DELIVERY\' WHERE id = $2 RETURNING id, active_mode, delivery_available', [available, req.user.id]);
+  res.json(rows[0]);
 };
 
 exports.logout = (req, res) => {

@@ -12,6 +12,8 @@ router.post('/login', authController.login);
 router.get('/profile', authMiddleware, authController.getProfile);
 router.put('/profile', authMiddleware, authController.updateProfile);
 router.get('/me', authMiddleware, authController.getProfile);
+router.put('/mode', authMiddleware, authController.setMode);
+router.put('/delivery-availability', authMiddleware, authController.setDeliveryAvailability);
 router.post('/logout', authController.logout);
 
 module.exports = router;

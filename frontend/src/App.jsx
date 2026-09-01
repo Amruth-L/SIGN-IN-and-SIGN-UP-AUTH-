@@ -24,6 +24,8 @@ import PaymentFailed from './pages/PaymentFailed';
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import DeliveryDashboard from './pages/DeliveryDashboard';
+import ChooseMode from './pages/ChooseMode';
+import DeliveryTracking from './pages/DeliveryTracking';
 
 function App() {
   const { user } = useAuth();
@@ -32,11 +34,12 @@ function App() {
     <>
       <Navbar />
       <Routes>
-        <Route path="/" element={<Home />} />
+        <Route path="/" element={user ? <Navigate to="/choose-mode" replace /> : <Home />} />
         <Route 
           path="/login" 
-          element={user ? <Navigate to="/" replace /> : <Login />} 
+          element={user ? <Navigate to="/choose-mode" replace /> : <Login />} 
         />
+        <Route path="/choose-mode" element={<PrivateRoute><ChooseMode /></PrivateRoute>} />
         <Route 
           path="/signup" 
           element={user ? <Navigate to="/" replace /> : <Signup />} 
@@ -65,6 +68,7 @@ function App() {
             </PrivateRoute>
           }
         />
+        <Route path="/delivery/:id/track" element={<PrivateRoute><DeliveryTracking /></PrivateRoute>} />
         <Route
           path="/my-rentals"
           element={

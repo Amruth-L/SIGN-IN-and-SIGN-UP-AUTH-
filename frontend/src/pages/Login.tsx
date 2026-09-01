@@ -55,7 +55,7 @@ const Login: React.FC = () => {
       }
 
       setLoadingState('success');
-      navigate('/marketplace');
+      navigate('/choose-mode');
     } catch (err: unknown) {
       const msg = getApiError(err, 'Invalid email or password.');
       setError(msg);

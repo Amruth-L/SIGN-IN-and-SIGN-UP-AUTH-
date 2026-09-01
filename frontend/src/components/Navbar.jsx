@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   ShoppingBag,
   Heart,
@@ -16,6 +16,7 @@ import './Navbar.css';
 const Navbar = () => {
   const { user, logout, api } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [cartCount, setCartCount] = useState(0);
@@ -58,6 +59,7 @@ const Navbar = () => {
     if (!name) return 'U';
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
+  const switchMode = () => navigate('/choose-mode');
 
   return (
     <nav className="navbar" role="navigation" aria-label="Main navigation">
@@ -90,6 +92,9 @@ const Navbar = () => {
                 <Truck size={14} strokeWidth={1.75} />
                 Delivery
               </Link>
+              <button className="nav-link" onClick={switchMode}>
+                {user.active_mode === 'DELIVERY' ? 'Switch to Rent' : 'Switch to Delivery'}
+              </button>
               <Link to="/cart" className={navLinkClass('/cart')} aria-label={`Cart${cartCount > 0 ? `, ${cartCount} items` : ''}`} style={{ position: 'relative' }}>
                 <ShoppingBag size={14} strokeWidth={1.75} />
                 Cart
@@ -168,6 +173,7 @@ const Navbar = () => {
               <Link to="/cart"        className="mobile-nav-link">Cart {cartCount > 0 && `(${cartCount})`}</Link>
               <Link to="/chat"        className="mobile-nav-link">Chat</Link>
               <Link to="/delivery"    className="mobile-nav-link">🚚 Delivery</Link>
+              <button onClick={switchMode} className="mobile-nav-link">Switch Mode</button>
               <Link to="/profile"     className="mobile-nav-link">Profile</Link>
               <button onClick={logout} className="btn btn-outline btn-block" style={{ marginTop: '0.75rem' }}>Logout</button>
             </>

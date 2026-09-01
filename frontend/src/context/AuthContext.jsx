@@ -94,8 +94,20 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const setMode = async (mode) => {
+    const res = await api.put('/mode', { mode });
+    setUser(prev => ({ ...prev, ...res.data }));
+    return res.data;
+  };
+
+  const setDeliveryAvailability = async (available) => {
+    const res = await api.put('/delivery-availability', { available });
+    setUser(prev => ({ ...prev, ...res.data }));
+    return res.data;
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, isAuthenticated, login, logout, updateProfile, api }}>
+    <AuthContext.Provider value={{ user, token, loading, isAuthenticated, login, logout, updateProfile, setMode, setDeliveryAvailability, api }}>
       {children}
     </AuthContext.Provider>
   );

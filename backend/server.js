@@ -11,8 +11,15 @@ const cartRoutes = require('./routes/cartRoutes');
 const pricingRoutes = require('./routes/pricingRoutes');
 const wishlistRoutes = require('./routes/wishlistRoutes');
 const deliveryRoutes = require('./routes/deliveryRoutes');
+const campusRoutes = require('./routes/campusRoutes');
+const http = require('http');
+const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
+const { ensureCampusSchema } = require('./services/campusService');
+const realtime = require('./services/realtime');
 
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3003;
 
 // Middleware
@@ -32,6 +39,7 @@ app.use('/api/cart', cartRoutes); // Shopping cart routes
 app.use('/api/pricing', pricingRoutes); // Dynamic pricing engine routes
 app.use('/api/wishlist', wishlistRoutes); // Wishlist / Saved items routes
 app.use('/api/delivery', deliveryRoutes); // Delivery / Courier routes
+app.use('/api/campus', campusRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {
@@ -45,6 +53,21 @@ app.use((err, req, res, next) => {
 });
 
 // Start Server
-app.listen(PORT, () => {
+const io = new Server(server, { cors: { origin: '*' } });
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token;
+    socket.user = jwt.verify(token, process.env.JWT_SECRET);
+    next();
+  } catch { next(new Error('Unauthorized')); }
+});
+io.on('connection', socket => {
+  socket.on('delivery:join', id => socket.join(`delivery:${id}`));
+  socket.on('delivery:leave', id => socket.leave(`delivery:${id}`));
+});
+realtime.setIO(io);
+ensureCampusSchema().catch(err => console.error('[Campus schema]', err.message));
+
+server.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
