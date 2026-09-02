@@ -13,46 +13,31 @@ export default function PaymentSummary({
   showDepositOnly = false
 }) {
   return (
-    <div className="rs-breakdown-card" style={{
-      background: 'var(--surface-color)',
-      border: '1px solid var(--border-color)',
-      borderRadius: '16px',
-      padding: '24px',
-      boxShadow: 'var(--shadow-sm)'
-    }}>
-      <h3 className="rs-breakdown-title" style={{
-        fontSize: '1.1rem',
-        fontWeight: '700',
-        color: 'var(--text-dark)',
-        marginBottom: '20px',
-        borderBottom: '1px solid var(--border-color)',
-        paddingBottom: '12px'
-      }}>
+    <div className="rounded-2xl border border-ink/10 bg-white p-6 shadow-sm transition-shadow hover:shadow-md">
+      <h3 className="mb-5 border-b border-ink/10 pb-3 text-lg font-bold text-ink">
         {showDepositOnly ? '🔒 Security Deposit breakdown' : '💳 Payment Breakdown'}
       </h3>
 
       {!showDepositOnly ? (
-        <div className="rs-breakdown-rows" style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          <div className="rs-row" style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.95rem' }}>
+        <div className="flex flex-col gap-3 text-sm text-ink/60">
+          <div className="flex items-center justify-between gap-4">
             <span>Daily Rent</span>
-            <span style={{ fontWeight: '500', color: 'var(--text-dark)' }}>{formatCurrency(dailyPrice)} × {days} day{days > 1 ? 's' : ''}</span>
+            <span className="font-semibold text-ink">{formatCurrency(dailyPrice)} × {days} day{days > 1 ? 's' : ''}</span>
           </div>
-          <div className="rs-row" style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.95rem' }}>
+          <div className="flex items-center justify-between gap-4">
             <span>Rental Fee</span>
-            <span style={{ fontWeight: '600', color: 'var(--primary-color)' }}>{formatCurrency(rentalFee)}</span>
+            <span className="font-semibold text-mesh-700">{formatCurrency(rentalFee)}</span>
           </div>
-          <div className="rs-row" style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.95rem' }}>
+          <div className="flex items-center justify-between gap-4">
             <span>Delivery Fee</span>
-            <span style={{ fontWeight: '500', color: 'var(--text-dark)' }}>{deliveryFee > 0 ? formatCurrency(deliveryFee) : 'Free (Pickup)'}</span>
+            <span className="font-semibold text-ink">{deliveryFee > 0 ? formatCurrency(deliveryFee) : 'Free (Pickup)'}</span>
           </div>
-          <div className="rs-row" style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '0.95rem' }}>
+          <div className="flex items-center justify-between gap-4">
             <span>Platform Fee</span>
-            <span style={{ fontWeight: '500', color: 'var(--text-dark)' }}>{formatCurrency(platformFee)}</span>
+            <span className="font-semibold text-ink">{formatCurrency(platformFee)}</span>
           </div>
-          
-          <hr className="rs-divider" style={{ border: 'none', borderTop: '1px solid var(--border-color)', margin: '8px 0' }} />
-          
-          <div className="rs-row rs-row-total" style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '1.1rem', color: 'var(--text-dark)' }}>
+          <hr className="my-2 border-0 border-t border-ink/10" />
+          <div className="flex items-center justify-between gap-4 pt-2 text-lg font-extrabold text-ink">
             <span>Total Booking Amount</span>
             <span>{formatCurrency(totalAmount)}</span>
           </div>
@@ -60,46 +45,17 @@ export default function PaymentSummary({
       ) : null}
 
       {depositAmount > 0 && (
-        <div className="rs-deposit-info" style={{
-          marginTop: showDepositOnly ? '0px' : '24px',
-          background: 'rgba(16, 185, 129, 0.05)',
-          border: '1px solid rgba(16, 185, 129, 0.2)',
-          borderRadius: '12px',
-          padding: '18px'
-        }}>
-          <div className="rs-deposit-badge" style={{
-            fontSize: '0.78rem',
-            fontWeight: '700',
-            color: 'var(--primary-color)',
-            textTransform: 'uppercase',
-            letterSpacing: '1px',
-            marginBottom: '8px'
-          }}>
+        <div className={`${showDepositOnly ? '' : 'mt-6'} rounded-xl border border-mesh-200 bg-mesh-50 p-4`}>
+          <div className="mb-2 text-xs font-bold uppercase tracking-widest text-mesh-700">
             🔒 Security Deposit (Refundable)
           </div>
-          <div className="rs-deposit-amount" style={{
-            fontSize: '1.6rem',
-            fontWeight: '800',
-            color: 'var(--text-dark)',
-            marginBottom: '10px'
-          }}>
+          <div className="mb-3 text-2xl font-extrabold text-ink">
             {formatCurrency(depositAmount)}
           </div>
-          <p className="rs-deposit-note" style={{
-            fontSize: '0.82rem',
-            color: 'var(--text-muted)',
-            lineHeight: '1.5',
-            margin: '0 0 8px'
-          }}>
+          <p className="mb-2 text-sm leading-6 text-ink/60">
             This is collected {showDepositOnly ? 'now' : 'only after the owner accepts your request'} and is held securely.
           </p>
-          <p className="rs-refund-note" style={{
-            fontSize: '0.82rem',
-            color: '#059669',
-            lineHeight: '1.5',
-            margin: '0',
-            fontWeight: '500'
-          }}>
+          <p className="m-0 text-sm font-semibold leading-6 text-mesh-700">
             ✅ 100% fully refundable upon undamaged return of the item.
           </p>
         </div>

@@ -4,7 +4,6 @@ import { Calendar, AlertTriangle, Lock, CheckCircle2, ClipboardList, MapPin } fr
 import { useAuth } from '../context/AuthContext';
 import { mockProducts, mockSellers } from '../data/mockData';
 import { openRazorpayCheckout } from '../utils/RazorpayService';
-import './RentSummary.css';
 
 const API_BASE = 'http://localhost:3003';
 
@@ -31,6 +30,7 @@ export default function RentSummary() {
   const queryParams = new URLSearchParams(location.search);
   const paramStart = queryParams.get('start_date');
   const paramEnd = queryParams.get('end_date');
+  const rentalConfiguration = location.state || {};
 
   const [listing, setListing] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -69,7 +69,7 @@ export default function RentSummary() {
           });
         } else {
           const token = localStorage.getItem('token');
-          const res = await fetch(`${API_BASE}/api/listings/${id}`, {
+          const res = await fetch(`${API_BASE}/listings/${id}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!res.ok) throw new Error('Failed to load listing');
@@ -113,7 +113,7 @@ export default function RentSummary() {
             listing_id: isMock ? null : listing.id,
             daily_rent: listing.rent_price || listing.rentPrice || 0,
             rental_days: days,
-            delivery_type: (listing.delivery_available || listing.deliveryAvailable) ? 'STANDARD' : 'SELF_PICKUP',
+            delivery_type: rentalConfiguration.delivery_requested ? 'STANDARD' : 'SELF_PICKUP',
             owner_location: listing.location || '',
             item_value: listing.price || 0,
             custom_deposit: listing.deposit
@@ -164,7 +164,13 @@ export default function RentSummary() {
         const res = await fetch(`${API_BASE}/api/rentals/book`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ listing_id: id, start_date: startDate, end_date: endDate }),
+          body: JSON.stringify({
+            listing_id: id,
+            start_date: startDate,
+            end_date: endDate,
+            delivery_requested: Boolean(rentalConfiguration.delivery_requested),
+            drop_location_id: rentalConfiguration.drop_location_id || null,
+          }),
         });
         const data = await res.json();
         console.log('[Frontend Debug] Booking creation response:', data);
@@ -232,9 +238,9 @@ export default function RentSummary() {
           try {
             if (isMock) {
               console.log('[Frontend Debug] Mock item detected, navigating directly to success page');
-              navigate('/payment-success', {
+              navigate('/', {
                 state: {
-                  message: 'Rental charges paid successfully! Booking request submitted to owner.',
+                  message: 'Rental charges text-mesh-700 successfully! Booking request submitted to owner.',
                   actionText: 'Track Rental Status',
                   nextPath: `/rent-details/${rentalId}`
                 }
@@ -260,16 +266,16 @@ export default function RentSummary() {
             console.log('[Frontend Debug] Verification response:', verifyData);
             if (!verifyRes.ok) throw new Error(verifyData.error || 'Signature verification failed.');
             
-            navigate('/payment-success', {
+            navigate('/', {
               state: {
-                message: 'Rental charges paid successfully! Booking request submitted to owner.',
+                message: 'Rental charges text-mesh-700 successfully! Booking request submitted to owner.',
                 actionText: 'Track Rental Status',
                 nextPath: `/rent-details/${rentalId}`
               }
             });
           } catch (vErr) {
             console.error('[Frontend Debug] Verification failed:', vErr);
-            navigate('/payment-failed', {
+            navigate('/', {
               state: { error: vErr.message, retryPath: `/rent-summary/${id}` }
             });
           }
@@ -295,8 +301,8 @@ export default function RentSummary() {
 
   if (loading) {
     return (
-      <div className="rs-loading">
-        <div className="rs-spinner" />
+      <div className="flex flex-col items-center justify-center [min-height:80vh] [gap:20px] [color:var(--primary-color,_#10b981)] [font-size:1.1rem]">
+        <div className="[width:48px] [height:48px] [border:4px_solid_rgba(16,_185,_129,_0.2)] [border-top-color:var(--primary-color,_#10b981)] [border-radius:50%] animate-spin" />
         <p>Loading item details...</p>
       </div>
     );
@@ -304,10 +310,10 @@ export default function RentSummary() {
 
   if (error && !listing) {
     return (
-      <div className="rs-error-page" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-        <AlertTriangle size={32} style={{ color: '#ef4444', display: 'block', margin: '0 auto 12px auto' }} />
+      <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4 px-4 py-12 text-center text-lg text-red-600">
+        <AlertTriangle size={32} className="mx-auto mb-3 block text-red-600" />
         <p>{error}</p>
-        <button onClick={() => navigate(-1)} className="rs-back-btn">Go Back</button>
+        <button onClick={() => navigate(-1)} className="[background-color:var(--surface-color,_#ffffff)] [border:1px_solid_var(--border-color,_#e5e7eb)] [color:var(--text-dark,_#1f2937)] [padding:8px_20px] [border-radius:99px] cursor-pointer [font-size:0.9rem] font-medium [transition:all_0.2s_ease] [margin-bottom:16px] [box-shadow:var(--shadow-sm)] inline-flex items-center [gap:6px] hover:[background-color:#f3f4f6] hover:[border-color:#d1d5db] hover:[transform:translateX(-2px)]">Go Back</button>
       </div>
     );
   }
@@ -315,46 +321,46 @@ export default function RentSummary() {
   const isBtnDisabled = !breakdown || submitting || breakdown.bookingAmount <= 0;
 
   return (
-    <div className="rs-page">
-      <div className="rs-container">
+    <div className="space-y-4">
+      <div className="[max-width:1100px] [margin:0_auto]">
         {/* Header */}
-        <div className="rs-header">
-          <button className="rs-back-btn" onClick={() => navigate(-1)}>← Back</button>
-          <h1 className="rs-title">Booking Summary</h1>
-          <p className="rs-subtitle">Review your rental before confirming payment</p>
+        <div className="[margin-bottom:32px]">
+          <button className="[background-color:var(--surface-color,_#ffffff)] [border:1px_solid_var(--border-color,_#e5e7eb)] [color:var(--text-dark,_#1f2937)] [padding:8px_20px] [border-radius:99px] cursor-pointer [font-size:0.9rem] font-medium [transition:all_0.2s_ease] [margin-bottom:16px] [box-shadow:var(--shadow-sm)] inline-flex items-center [gap:6px] hover:[background-color:#f3f4f6] hover:[border-color:#d1d5db] hover:[transform:translateX(-2px)]" onClick={() => navigate(-1)}>← Back</button>
+          <h1 className="[font-size:2.25rem] font-extrabold [color:var(--text-dark,_#1f2937)] [letter-spacing:-0.025em] [background:linear-gradient(135deg,_var(--text-dark,_#1f2937)_40%,_var(--primary-color,_#10b981)_100%)] [-webkit-background-clip:text] [-webkit-text-fill-color:transparent] [background-clip:text] [margin:0_0_6px]">Booking Summary</h1>
+          <p className="[color:var(--text-muted,_#6b7280)] [font-size:0.95rem] m-0">Review your rental before confirming payment</p>
         </div>
 
-        <div className="rs-layout">
+        <div className="grid [grid-template-columns:1fr_420px] [gap:32px] [align-items:start] [grid-template-columns:1fr]">
           {/* Left Column — Item Details & Date Picker */}
-          <div className="rs-left">
+          <div className="space-y-4">
             {/* Item Card */}
-            <div className="rs-item-card">
+            <div className="hover:[box-shadow:var(--shadow-md)]">
               {listing.image_url && (
-                <img src={listing.image_url} alt={listing.title} className="rs-item-img" />
+                <img src={listing.image_url} alt={listing.title} className="[width:140px] [height:110px] [border-radius:12px] object-cover shrink-0 [border:1px_solid_var(--border-color,_#e5e7eb)]" />
               )}
-              <div className="rs-item-info">
-                <span className="rs-category-badge">{listing.category}</span>
-                <h2 className="rs-item-title">{listing.title}</h2>
-                <div className="rs-item-meta">
-                  <span className="rs-condition">{listing.condition}</span>
-                  <span className="rs-location" style={{ display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+              <div className="flex flex-col [gap:8px] justify-center">
+                <span className="[background-color:rgba(16,_185,_129,_0.08)] [color:var(--primary-color,_#10b981)] [font-size:0.75rem] font-bold [padding:3px_10px] [border-radius:99px] [align-self:flex-start] uppercase [letter-spacing:0.05em] [border:1px_solid_rgba(16,_185,_129,_0.15)]">{listing.category}</span>
+                <h2 className="[font-size:1.25rem] font-bold [color:var(--text-dark,_#1f2937)] m-0 [line-height:1.3]">{listing.title}</h2>
+                <div className="flex [gap:12px] items-center">
+                  <span className="[font-size:0.8rem] [background-color:rgba(16,_185,_129,_0.08)] [color:var(--primary-color,_#10b981)] [padding:3px_10px] [border-radius:99px] font-semibold [border:1px_solid_rgba(16,_185,_129,_0.15)]">{listing.condition}</span>
+                  <span className="inline-flex items-center gap-1 text-sm font-medium text-ink/50">
                     <MapPin size={12} strokeWidth={2} /> {listing.location}
                   </span>
                 </div>
-                <div className="rs-owner-info">
+                <div className="[font-size:0.9rem] [color:var(--text-muted,_#6b7280)] [margin-top:4px]">
                   Owner: <strong>{listing.owner_name}</strong>
                 </div>
               </div>
             </div>
 
             {/* Date Selection */}
-            <div className="rs-date-section">
-              <h3 style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div className="space-y-4">
+              <h3 className="flex items-center gap-1.5">
                 <Calendar size={16} strokeWidth={2} /> Select Rental Period
               </h3>
-              <form onSubmit={handleBook} className="rs-date-form">
-                <div className="rs-date-row">
-                  <div className="rs-date-field">
+              <form onSubmit={handleBook} className="flex flex-col [gap:20px]">
+                <div className="grid [grid-template-columns:1fr_1fr] [gap:20px]">
+                  <div className="flex flex-col [gap:6px]">
                     <label htmlFor="start-date">Start Date</label>
                     <input
                       id="start-date"
@@ -372,7 +378,7 @@ export default function RentSummary() {
                       }}
                     />
                   </div>
-                  <div className="rs-date-field">
+                  <div className="flex flex-col [gap:6px]">
                     <label htmlFor="end-date">End Date</label>
                     <input
                       id="end-date"
@@ -384,15 +390,15 @@ export default function RentSummary() {
                   </div>
                 </div>
                 {breakdown && (
-                  <div className="rs-duration-badge" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                  <div className="inline-flex items-center gap-1 rounded-xl border border-dashed border-mesh-300 bg-mesh-50 px-4 py-3 text-center text-sm font-semibold text-mesh-700">
                     <Calendar size={12} strokeWidth={2} /> {breakdown.days} Day{breakdown.days > 1 ? 's' : ''} Rental
                   </div>
                 )}
-                {error && <div className="rs-error-msg" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><AlertTriangle size={12} /> {error}</div>}
+                {error && <div className="flex items-center gap-1 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600"><AlertTriangle size={12} /> {error}</div>}
                 
                 <button
                   type="submit"
-                  className="rs-pay-btn"
+                  className="disabled:[background-color:#d1d5db] disabled:[color:#9ca3af] disabled:[cursor:not-allowed] disabled:[transform:none] disabled:[box-shadow:none]"
                   disabled={isBtnDisabled}
                 >
                   {submitting ? 'Processing…' : `Pay ${breakdown ? formatCurrency(breakdown.bookingAmount) : '₹0.00'} Now`}
@@ -402,43 +408,43 @@ export default function RentSummary() {
           </div>
 
           {/* Right Column — Breakdown & Security Deposit */}
-          <div className="rs-right">
+          <div className="space-y-4">
             {/* Booking Summary Card */}
-            <div className="rs-breakdown-card">
-              <h3 className="rs-breakdown-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <div className="[background-color:var(--surface-color,_#ffffff)] [border:1px_solid_var(--border-color,_#e5e7eb)] [border-radius:16px] [padding:28px] [box-shadow:var(--shadow-sm)] [transition:box-shadow_0.2s_ease] hover:[box-shadow:var(--shadow-md)]">
+              <h3 className="mb-5 flex items-center gap-1.5 border-b border-ink/10 pb-3 text-lg font-bold text-ink">
                 <ClipboardList size={16} strokeWidth={2} /> Booking Summary
               </h3>
 
               {breakdown ? (
-                <div className="rs-breakdown-rows">
-                  <div className="rs-row">
+                <div className="flex flex-col [gap:14px]">
+                  <div className="flex justify-between items-center [font-size:0.95rem] [color:var(--text-muted,_#6b7280)]">
                     <span>Daily Rent</span>
                     <span>{formatCurrency(listing.rent_price || listing.rentPrice)}</span>
                   </div>
-                  <div className="rs-row">
+                  <div className="flex justify-between items-center [font-size:0.95rem] [color:var(--text-muted,_#6b7280)]">
                     <span>Rental Days</span>
                     <span>{breakdown.days} day{breakdown.days > 1 ? 's' : ''}</span>
                   </div>
-                  <div className="rs-row rs-row-value">
+                  <div className="flex justify-between items-center [font-size:0.95rem] [color:var(--text-muted,_#6b7280)] [color:var(--text-dark,_#1f2937)] font-semibold">
                     <span>Rental Fee</span>
                     <span>{formatCurrency(breakdown.rentalFee)}</span>
                   </div>
-                  <div className="rs-row">
+                  <div className="flex justify-between items-center [font-size:0.95rem] [color:var(--text-muted,_#6b7280)]">
                     <span>Delivery Fee</span>
                     <span>{(listing.delivery_available || listing.deliveryAvailable) ? formatCurrency(breakdown.deliveryFee) : 'Free (Pickup)'}</span>
                   </div>
-                  <div className="rs-row">
+                  <div className="flex justify-between items-center [font-size:0.95rem] [color:var(--text-muted,_#6b7280)]">
                     <span>Platform Fee</span>
                     <span>{formatCurrency(breakdown.platformFee)}</span>
                   </div>
-                  <div className="rs-divider" />
-                  <div className="rs-row rs-row-total">
+                  <div className="border-0 [border-top:1px_solid_var(--border-color,_#e5e7eb)] [margin:6px_0]" />
+                  <div className="flex justify-between items-center [font-size:0.95rem] [color:var(--text-muted,_#6b7280)] [color:var(--text-dark,_#1f2937)] [font-size:1.15rem] font-extrabold [padding-top:8px]">
                     <span>Booking Total</span>
                     <span>{formatCurrency(breakdown.bookingAmount)}</span>
                   </div>
                 </div>
               ) : (
-                <div className="rs-breakdown-empty">
+                <div className="text-center [color:var(--text-muted,_#6b7280)] [padding:24px_0] [font-size:0.95rem]">
                   <p>Select valid rental dates to see the breakdown</p>
                 </div>
               )}
@@ -446,27 +452,27 @@ export default function RentSummary() {
 
             {/* Security Deposit Card */}
             {breakdown && (
-              <div className="rs-deposit-card">
-                <h3 className="rs-deposit-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div className="space-y-4">
+                <h3 className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-ink/50">
                   <Lock size={15} strokeWidth={2} /> Security Deposit
                 </h3>
-                <div className="rs-deposit-amount">{formatCurrency(breakdown.depositAmount)}</div>
-                <p className="rs-deposit-note">Collected only after owner accepts booking.</p>
-                <p className="rs-refund-note" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <CheckCircle2 size={14} style={{ color: '#22c55e', flexShrink: 0 }} />
-                  <span>This amount is fully refundable after the owner confirms the item has been returned in good condition.</span>
+                <div className="[font-size:1.75rem] font-extrabold [color:var(--text-dark,_#1f2937)] [margin-bottom:12px]">{formatCurrency(breakdown.depositAmount)}</div>
+                <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-sm font-medium leading-6 text-amber-700">Collected only after owner accepts booking.</p>
+                <p className="m-0 flex items-center gap-1.5 rounded-lg border border-mesh-100 bg-mesh-50 px-3 py-2 text-sm font-medium leading-6 text-mesh-700">
+                  <CheckCircle2 size={14} className="shrink-0 text-green-500" />
+                  <span>Refunded after return approval.</span>
                 </p>
               </div>
             )}
 
-            <div className="rs-policy-box">
-              <h4 style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '0.5rem' }}>
+            <div className="[background-color:#f9fafb] [border:1px_solid_var(--border-color,_#e5e7eb)] [border-radius:12px] [padding:18px]">
+              <h4 className="mb-2 flex items-center gap-1.5">
                 <ClipboardList size={14} strokeWidth={2} /> Rental Policy
               </h4>
               <ul>
                 <li>Owner must accept your booking request</li>
-                <li>Security deposit due within 30 mins of acceptance</li>
-                <li>A secure QR code will be generated for item handover</li>
+                <li>Deposit due within 30 minutes</li>
+                <li>QR required at handover</li>
                 <li>Deposit refunded upon undamaged return</li>
               </ul>
             </div>

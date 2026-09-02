@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import './AddListing.css';
 
 const DRAFT_STORAGE_KEY = 'campusmesh_listing_draft';
 
@@ -30,12 +29,12 @@ const AddListing = () => {
   // Images state (holds base64 strings or ObjectUrls)
   const [images, setImages] = useState([]);
   const [coverIndex, setCoverIndex] = useState(0);
-  
+
   // UI & Error States
   const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState('');
   const [formValidationErrors, setFormValidationErrors] = useState([]);
-  
+
   // Loading & Upload Progress States
   const [publishing, setPublishing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -75,7 +74,7 @@ const AddListing = () => {
 
   const conditions = ['Brand New', 'Like New', 'Excellent', 'Good', 'Fair'];
   const availabilities = ['Available Now', 'Available Tomorrow', 'Available This Weekend', 'Custom Date'];
-  
+
   const locations = [
     { name: 'Central Library', icon: '📚' },
     { name: 'AI & DS Block', icon: '🏫' },
@@ -93,7 +92,7 @@ const AddListing = () => {
   const handleFiles = (files) => {
     setError('');
     const newImages = [...images];
-    
+
     if (newImages.length + files.length > 5) {
       setError('You can upload a maximum of 5 images.');
       return;
@@ -139,7 +138,7 @@ const AddListing = () => {
     e.preventDefault();
     e.stopPropagation();
     setDragActive(false);
-    
+
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       handleFiles(e.dataTransfer.files);
     }
@@ -154,7 +153,7 @@ const AddListing = () => {
   const handleDeleteImage = (index) => {
     const updated = images.filter((_, idx) => idx !== index);
     setImages(updated);
-    
+
     // Adjust cover index if deleted image was cover
     if (coverIndex === index) {
       setCoverIndex(0);
@@ -170,7 +169,7 @@ const AddListing = () => {
   // Form Validation
   const validateForm = () => {
     const errors = [];
-    
+
     if (!formData.title.trim()) {
       errors.push('Product Title is required.');
     }
@@ -189,7 +188,7 @@ const AddListing = () => {
     if (!formData.location) {
       errors.push('Pickup location is required.');
     }
-    
+
     const sellPrice = parseFloat(formData.price) || 0;
     const rentPrice = parseFloat(formData.rentPrice) || 0;
     const deposit = parseFloat(formData.deposit) || 0;
@@ -209,7 +208,7 @@ const AddListing = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    
+
     if (!validateForm()) {
       // Scroll to top to see validation errors
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -239,13 +238,13 @@ const AddListing = () => {
 
     try {
       await api.post('/listings', payload);
-      
+
       setUploadProgress(100);
       setUploadStatus('Published successfully!');
       localStorage.removeItem(DRAFT_STORAGE_KEY);
-      
+
       alert('Your listing has been published successfully.');
-      navigate('/profile'); // Redirects to My Listings tab in Profile page
+      navigate('/account/listings');
     } catch (err) {
       setPublishing(false);
       setError(err.response?.data?.error || 'Failed to publish listing. Please try again.');
@@ -290,19 +289,19 @@ const AddListing = () => {
   const sellerInitials = user?.name ? user.name.charAt(0).toUpperCase() : 'U';
 
   return (
-    <div className="create-listing-container">
-      
+    <main className="min-h-screen bg-paper px-5 py-10 sm:px-7">
+
       {/* Loading/Publishing Overlay Screen */}
       {publishing && (
-        <div className="overlay-loading">
-          <div className="loading-content-card">
-            <div className="spinner-ring"></div>
+        <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-5 backdrop-blur-sm">
+          <div className="[background-color:var(--surface-color)] [padding:3rem] [border-radius:var(--radius-lg)] [border:1px_solid_var(--border-color)] [max-width:450px] [width:90%] text-center [box-shadow:var(--shadow-lg)] [animation:scaleIn_0.3s_cubic-bezier(0.34,_1.56,_0.64,_1)]">
+            <div className="size-10 animate-spin rounded-full border-4 border-mesh-100 border-t-mesh-600"></div>
             <h2>Publishing Listing</h2>
             <p>{uploadStatus}</p>
-            <div className="progress-bar-outer">
-              <div className="progress-bar-inner" style={{ width: `${uploadProgress}%` }}></div>
+            <div className="w-full [height:8px] [background-color:var(--bg-color)] [border-radius:999px] overflow-hidden [border:1px_solid_var(--border-color)]">
+              <progress className="h-full w-full accent-mesh-600" value={uploadProgress} max="100" />
             </div>
-            <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)' }}>
+            <div className="mt-2 text-xs font-semibold text-ink/50">
               {uploadProgress}% Complete
             </div>
           </div>
@@ -310,38 +309,38 @@ const AddListing = () => {
       )}
 
       {/* Main Title Block */}
-      <div className="create-listing-title-block">
+      <div className="[margin-bottom:2.5rem]">
         <h1>Create New Listing</h1>
-        <p>List textbooks, electronics, furniture and other essentials for sale or rent.</p>
+        <p>Add the item details.</p>
       </div>
 
       {/* Validation Errors Header Banner */}
       {formValidationErrors.length > 0 && (
-        <div className="error-message">
-          <h4 style={{ fontWeight: 700, marginBottom: '0.5rem' }}>Please resolve the following errors:</h4>
-          <ul style={{ paddingLeft: '1.25rem' }}>
+        <div className="space-y-4">
+          <h4 className="mb-2 font-bold">Please resolve the following errors:</h4>
+          <ul className="pl-5">
             {formValidationErrors.map((err, idx) => (
-              <li key={idx} style={{ fontSize: '0.85rem', marginBottom: '0.15rem' }}>{err}</li>
+              <li key={idx} className="mb-0.5 text-sm">{err}</li>
             ))}
           </ul>
         </div>
       )}
 
-      {error && <div className="error-message">{error}</div>}
+      {error && <div className="space-y-4">{error}</div>}
 
       <form onSubmit={handleSubmit} onDragEnter={handleDrag}>
-        
+
         {/* SECTION 1 - ITEM DETAILS */}
-        <div className="form-section-card">
-          <div className="form-section-header">
+        <div className="hover:[box-shadow:var(--shadow-md)]">
+          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
             <h2><span>📦</span> Section 1: Item Details</h2>
           </div>
-          
-          <div className="form-group">
-            <label className="form-label">Product Title *</label>
-            <input 
-              type="text" 
-              className="form-input" 
+
+          <div className="space-y-4">
+            <label className="mb-1.5 block text-xs font-bold text-ink/60">Product Title *</label>
+            <input
+              type="text"
+              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               placeholder="e.g. MacBook Air M1"
               required
               value={formData.title}
@@ -349,10 +348,10 @@ const AddListing = () => {
             />
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Category *</label>
-            <select 
-              className="form-input"
+          <div className="space-y-4">
+            <label className="mb-1.5 block text-xs font-bold text-ink/60">Category *</label>
+            <select
+              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               value={formData.category}
               onChange={(e) => setFormData({...formData, category: e.target.value})}
             >
@@ -362,16 +361,16 @@ const AddListing = () => {
             </select>
           </div>
 
-          <div className="form-group">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-              <label className="form-label" style={{ marginBottom: 0 }}>Description *</label>
-              <span className={`character-counter ${formData.description.length > 450 ? (formData.description.length > 500 ? 'error' : 'warning') : ''}`}>
+          <div className="space-y-4">
+            <div className="mb-2 flex items-center justify-between">
+              <label className="block text-xs font-bold text-ink/60">Description *</label>
+              <span className={`text-xs font-medium ${formData.description.length > 500 ? 'text-red-600' : formData.description.length > 450 ? 'text-amber-600' : 'text-ink/45'}`}>
                 {formData.description.length} / 500 characters
               </span>
             </div>
-            <textarea 
-              className="form-input" 
-              placeholder="Provide details about the item's condition, age, usage history, and what's included..."
+            <textarea
+              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
+              placeholder="Condition and what is included"
               required
               maxLength={520}
               value={formData.description}
@@ -382,17 +381,16 @@ const AddListing = () => {
         </div>
 
         {/* SECTION 2 - CONDITION */}
-        <div className="form-section-card">
-          <div className="form-section-header">
+        <div className="hover:[box-shadow:var(--shadow-md)]">
+          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
             <h2><span>✨</span> Section 2: Condition</h2>
           </div>
-          
-          <div className="form-group">
-            <label className="form-label">Item Condition *</label>
-            <div className="condition-select-wrapper">
-              <select 
-                className="form-input"
-                style={{ width: '220px' }}
+
+          <div className="space-y-4">
+            <label className="mb-1.5 block text-xs font-bold text-ink/60">Item Condition *</label>
+            <div className="relative">
+              <select
+                className="h-11 w-[220px] rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                 value={formData.condition}
                 onChange={(e) => setFormData({...formData, condition: e.target.value})}
               >
@@ -400,7 +398,7 @@ const AddListing = () => {
                   <option key={cond} value={cond}>{cond}</option>
                 ))}
               </select>
-              <span className={`condition-badge-indicator ${getConditionClassName(formData.condition)}`}>
+              <span className={`[padding:0.25rem_0.75rem] [border-radius:4px] [font-size:0.75rem] font-bold uppercase [color:white] [transition:all_0.2s_ease] ${getConditionClassName(formData.condition)}`}>
                 {formData.condition}
               </span>
             </div>
@@ -408,19 +406,19 @@ const AddListing = () => {
         </div>
 
         {/* SECTION 3 - PRICING */}
-        <div className="form-section-card">
-          <div className="form-section-header">
+        <div className="hover:[box-shadow:var(--shadow-md)]">
+          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
             <h2><span>💰</span> Section 3: Pricing & Availability</h2>
           </div>
-          
-          <div className="form-row-grid cols-3">
-            <div className="form-group">
-              <label className="form-label">Selling Price (₹)</label>
-              <div className="input-with-icon-wrapper">
-                <span className="input-icon-left">₹</span>
-                <input 
-                  type="number" 
-                  className="form-input input-with-icon" 
+
+          <div className="grid [grid-template-columns:1fr] [gap:1.5rem] [grid-template-columns:repeat(3,_1fr)]">
+            <div className="space-y-4">
+              <label className="mb-1.5 block text-xs font-bold text-ink/60">Selling Price (₹)</label>
+              <div className="space-y-4">
+                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none">₹</span>
+                <input
+                  type="number"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-9 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   placeholder="0"
                   min="0"
                   value={formData.price}
@@ -429,13 +427,13 @@ const AddListing = () => {
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Rental Price per Day (₹)</label>
-              <div className="input-with-icon-wrapper">
-                <span className="input-icon-left">₹</span>
-                <input 
-                  type="number" 
-                  className="form-input input-with-icon" 
+            <div className="space-y-4">
+              <label className="mb-1.5 block text-xs font-bold text-ink/60">Rental Price per Day (₹)</label>
+              <div className="space-y-4">
+                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none">₹</span>
+                <input
+                  type="number"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-9 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   placeholder="0"
                   min="0"
                   value={formData.rentPrice}
@@ -444,13 +442,13 @@ const AddListing = () => {
               </div>
             </div>
 
-            <div className="form-group">
-              <label className="form-label">Security Deposit (₹)</label>
-              <div className="input-with-icon-wrapper">
-                <span className="input-icon-left">₹</span>
-                <input 
-                  type="number" 
-                  className="form-input input-with-icon" 
+            <div className="space-y-4">
+              <label className="mb-1.5 block text-xs font-bold text-ink/60">Security Deposit (₹)</label>
+              <div className="space-y-4">
+                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none">₹</span>
+                <input
+                  type="number"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-9 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   placeholder="0"
                   min="0"
                   value={formData.deposit}
@@ -460,11 +458,11 @@ const AddListing = () => {
             </div>
           </div>
 
-          <div className="form-row-grid cols-2" style={{ marginTop: '0.5rem' }}>
-            <div className="form-group">
-              <label className="form-label">Availability Timeframe</label>
-              <select 
-                className="form-input"
+          <div className="mt-2 grid gap-6 sm:grid-cols-2">
+            <div className="space-y-4">
+              <label className="mb-1.5 block text-xs font-bold text-ink/60">Availability Timeframe</label>
+              <select
+                className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                 value={formData.availability}
                 onChange={(e) => setFormData({...formData, availability: e.target.value})}
               >
@@ -475,11 +473,11 @@ const AddListing = () => {
             </div>
 
             {formData.availability === 'Custom Date' && (
-              <div className="form-group">
-                <label className="form-label">Select Availability Date</label>
-                <input 
-                  type="date" 
-                  className="form-input" 
+              <div className="space-y-4">
+                <label className="mb-1.5 block text-xs font-bold text-ink/60">Select Availability Date</label>
+                <input
+                  type="date"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   value={formData.customDate}
                   onChange={(e) => setFormData({...formData, customDate: e.target.value})}
                 />
@@ -489,63 +487,63 @@ const AddListing = () => {
         </div>
 
         {/* SECTION 4 - ITEM IMAGES */}
-        <div className="form-section-card">
-          <div className="form-section-header">
+        <div className="hover:[box-shadow:var(--shadow-md)]">
+          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
             <h2><span>🖼️</span> Section 4: Item Images</h2>
           </div>
-          
-          <p className="form-label" style={{ marginBottom: '0.75rem' }}>
+
+          <p className="mb-3">
             Upload up to 5 clear images showing the actual condition of the item. *
           </p>
 
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            onChange={handleFileChange} 
-            multiple 
-            accept=".jpg,.jpeg,.png,.webp" 
-            style={{ display: 'none' }}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            multiple
+            accept=".jpg,.jpeg,.png,.webp"
+            className="hidden"
           />
 
-          <div 
-            className={`dropzone-area ${dragActive ? 'drag-active' : ''}`}
+          <div
+            className={`hover:[border-color:var(--primary-color)] hover:[background-color:rgba(16,_185,_129,_0.03)] ${dragActive ? '[border-color:var(--primary-color)] [background-color:rgba(16,_185,_129,_0.03)]' : ''}`}
             onDragEnter={handleDrag}
             onDragOver={handleDrag}
             onDragLeave={handleDrag}
             onDrop={handleDrop}
             onClick={() => fileInputRef.current.click()}
           >
-            <span className="dropzone-icon">📤</span>
-            <div className="dropzone-text">
-              <h3>Drag & drop your files here, or click to browse</h3>
-              <p>Supports JPG, JPEG, PNG, WEBP formats (Max 5 MB per image)</p>
+            <span className="[font-size:2.5rem] [color:var(--text-muted)] [margin-bottom:0.75rem]">📤</span>
+            <div className="space-y-1 text-center">
+              <h3>Choose item photos</h3>
+              <p>JPG, PNG or WEBP · 5 MB max</p>
             </div>
           </div>
 
           {images.length > 0 && (
-            <div className="image-previews-grid">
+            <div className="space-y-4">
               {images.map((img, idx) => (
-                <div key={idx} className="thumbnail-card">
-                  <img src={img} alt={`Preview ${idx + 1}`} className="thumbnail-img" />
-                  
+                <div key={idx} className="[height:120px] [border-radius:var(--radius-md)] [border:1px_solid_var(--border-color)] relative overflow-hidden [box-shadow:var(--shadow-sm)] [background-color:#f3f4f6]">
+                  <img src={img} alt={`Preview ${idx + 1}`} className="w-full h-full object-cover" />
+
                   {idx === coverIndex && (
-                    <span className="cover-label-ribbon">Cover</span>
+                    <span className="absolute [bottom:0] [left:0] [right:0] [background-color:var(--primary-color)] [color:white] [font-size:0.65rem] font-extrabold text-center [padding:0.15rem_0] [z-index:1] [letter-spacing:0.05em] uppercase">Cover</span>
                   )}
-                  
-                  <div className="thumbnail-overlay-actions">
+
+                  <div className="absolute [top:0] [left:0] [right:0] [bottom:0] [background-color:rgba(0,_0,_0,_0.45)] flex items-center justify-center [gap:0.5rem] [opacity:0] [transition:opacity_0.2s_ease] [z-index:2]">
                     {idx !== coverIndex && (
-                      <button 
-                        type="button" 
-                        className="thumb-action-btn" 
+                      <button
+                        type="button"
+                        className="grid size-8 place-items-center rounded-lg border border-ink/10 bg-white text-ink/60 hover:bg-mesh-50"
                         onClick={() => makeCover(idx)}
                         title="Make Cover Image"
                       >
                         ⭐
                       </button>
                     )}
-                    <button 
-                      type="button" 
-                      className="thumb-action-btn btn-delete" 
+                    <button
+                      type="button"
+                      className="grid size-8 place-items-center rounded-lg border border-ink/10 bg-white text-ink/60 hover:bg-mesh-50 [color:#ef4444]"
                       onClick={() => handleDeleteImage(idx)}
                       title="Delete Image"
                     >
@@ -559,15 +557,15 @@ const AddListing = () => {
         </div>
 
         {/* SECTION 5 - PICKUP LOCATION */}
-        <div className="form-section-card">
-          <div className="form-section-header">
+        <div className="hover:[box-shadow:var(--shadow-md)]">
+          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
             <h2><span>📍</span> Section 5: Pickup Location</h2>
           </div>
-          
-          <div className="form-group">
-            <label className="form-label">Select On-Campus Pickup Location *</label>
-            <select 
-              className="form-input"
+
+          <div className="space-y-4">
+            <label className="mb-1.5 block text-xs font-bold text-ink/60">Select On-Campus Pickup Location *</label>
+            <select
+              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               value={formData.location}
               onChange={(e) => setFormData({...formData, location: e.target.value})}
               required
@@ -583,33 +581,33 @@ const AddListing = () => {
         </div>
 
         {/* SECTION 6 - DELIVERY */}
-        <div className="form-section-card">
-          <div className="form-section-header">
+        <div className="hover:[box-shadow:var(--shadow-md)]">
+          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
             <h2><span>🚚</span> Section 6: Delivery Settings</h2>
           </div>
-          
-          <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: formData.deliveryAvailable ? '1.5rem' : '0' }}>
-            <input 
-              type="checkbox" 
+
+          <div className={`flex items-center gap-2 ${formData.deliveryAvailable ? 'mb-6' : ''}`}>
+            <input
+              type="checkbox"
               id="delivery-check"
               checked={formData.deliveryAvailable}
               onChange={(e) => setFormData({...formData, deliveryAvailable: e.target.checked})}
-              style={{ width: '18px', height: '18px', accentColor: 'var(--primary-color)', cursor: 'pointer' }}
+              className="size-[18px] cursor-pointer accent-mesh-600"
             />
-            <label htmlFor="delivery-check" style={{ fontWeight: 600, fontSize: '0.95rem', cursor: 'pointer' }}>
+            <label htmlFor="delivery-check" className="cursor-pointer text-sm font-semibold">
               Student Courier Delivery Available
             </label>
           </div>
 
           {formData.deliveryAvailable && (
-            <div className="form-row-grid cols-2">
-              <div className="form-group">
-                <label className="form-label">Delivery Charge (₹)</label>
-                <div className="input-with-icon-wrapper">
-                  <span className="input-icon-left">₹</span>
-                  <input 
-                    type="number" 
-                    className="form-input input-with-icon" 
+            <div className="grid [grid-template-columns:1fr] [gap:1.5rem] [grid-template-columns:1fr_1fr]">
+              <div className="space-y-4">
+                <label className="mb-1.5 block text-xs font-bold text-ink/60">Delivery Charge (₹)</label>
+                <div className="space-y-4">
+                  <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none">₹</span>
+                  <input
+                    type="number"
+                    className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-9 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                     placeholder="0"
                     min="0"
                     value={formData.deliveryCharge}
@@ -618,11 +616,11 @@ const AddListing = () => {
                 </div>
               </div>
 
-              <div className="form-group">
-                <label className="form-label">Estimated Courier Pickup Time</label>
-                <input 
-                  type="text" 
-                  className="form-input" 
+              <div className="space-y-4">
+                <label className="mb-1.5 block text-xs font-bold text-ink/60">Estimated Courier Pickup Time</label>
+                <input
+                  type="text"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   placeholder="e.g. 10 - 20 mins"
                   value={formData.pickupTime}
                   onChange={(e) => setFormData({...formData, pickupTime: e.target.value})}
@@ -633,34 +631,34 @@ const AddListing = () => {
         </div>
 
         {/* SECTION 7 - CONTACT */}
-        <div className="form-section-card">
-          <div className="form-section-header">
+        <div className="hover:[box-shadow:var(--shadow-md)]">
+          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
             <h2><span>👤</span> Section 7: Seller Contact (Read Only)</h2>
           </div>
-          
-          <div className="seller-profile-card-readonly">
-            <div className="seller-avatar-large">
+
+          <div className="rounded-2xl border border-ink/10 bg-mesh-50 p-4">
+            <div className="[width:60px] [height:60px] [border-radius:50%] [background-color:var(--primary-color)] [color:white] flex items-center justify-center [font-size:1.5rem] font-extrabold [box-shadow:var(--shadow-sm)] [border:2px_solid_var(--border-color)]">
               {sellerInitials}
             </div>
-            <div className="seller-details-readonly">
+            <div className="grid gap-1 text-sm text-ink/55">
               <h3>{user?.name || 'Anonymous Student'}</h3>
               <p>{user?.email}</p>
-              <p style={{ color: 'var(--text-muted)' }}>
+              <p className="text-ink/50">
                 {sellerDept} • Semester {sellerSem}
               </p>
-              
-              <div className="seller-stats-readonly">
-                <span className="stat-item rating">⭐ Rating: {sellerRating}</span>
-                <span className="stat-item trust">🛡️ Trust score: {sellerMeshScore}</span>
+
+              <div className="flex [gap:1rem] [margin-top:0.35rem] [font-size:0.8rem] font-semibold">
+                <span className="text-amber-600">⭐ Rating: {sellerRating}</span>
+                <span className="text-mesh-700">🛡️ Trust score: {sellerMeshScore}</span>
               </div>
             </div>
           </div>
         </div>
 
         {/* SECTION 8 - SAFETY NOTICE */}
-        <div className="safety-notice-card">
-          <span className="safety-icon">⚠️</span>
-          <div className="safety-text">
+        <div className="flex gap-3 rounded-2xl border border-mesh-200 bg-mesh-50 p-4">
+          <span className="[font-size:1.5rem] [color:var(--primary-color)]">⚠️</span>
+          <div className="text-sm text-ink/60">
             <h3>Listing Safety & Accuracy Guidelines</h3>
             <p>
               Please upload real images of the item in your possession. Do not upload copyrighted images or images downloaded from the internet. The item's actual condition should match the uploaded photos exactly.
@@ -669,44 +667,44 @@ const AddListing = () => {
         </div>
 
         {/* SECTION 9 - ACTION BUTTONS */}
-        <div className="action-buttons-footer">
-          <button 
-            type="button" 
-            onClick={() => navigate('/marketplace')} 
-            className="btn btn-outline btn-footer"
+        <div className="flex flex-wrap justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => navigate('/marketplace')}
+            className="inline-flex h-11 items-center justify-center rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink hover:bg-mesh-50"
           >
             Cancel
           </button>
-          <button 
-            type="button" 
+          <button
+            type="button"
             onClick={handleSaveDraft}
-            className="btn btn-outline btn-footer"
+            className="inline-flex h-11 items-center justify-center rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink hover:bg-mesh-50"
           >
             Save Draft
           </button>
-          <button 
-            type="button" 
+          <button
+            type="button"
             onClick={() => {
               if (validateForm()) {
                 alert(`--- PREVIEW DETAILS ---\n\nTitle: ${formData.title}\nCategory: ${formData.category}\nCondition: ${formData.condition}\nSell Price: ₹${formData.price || 0}\nRent Rate: ₹${formData.rentPrice || 0}/day\nPickup: ${formData.location}\n\nPress Publish to publish it!`);
               } else {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }
-            }} 
-            className="btn btn-outline btn-footer"
+            }}
+            className="inline-flex h-11 items-center justify-center rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink hover:bg-mesh-50"
           >
             Preview Listing
           </button>
-          <button 
-            type="submit" 
-            className="btn btn-primary btn-footer"
+          <button
+            type="submit"
+            className="inline-flex h-11 items-center justify-center rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink hover:bg-mesh-50"
           >
             Publish Listing
           </button>
         </div>
 
       </form>
-    </div>
+    </main>
   );
 };
 

@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { openRazorpayCheckout } from '../utils/RazorpayService';
 import PaymentSummary from '../components/PaymentSummary';
-import './Payment.css';
 
 const API_BASE = 'http://localhost:3003';
 
@@ -88,15 +87,15 @@ export default function RentalPayment() {
             const verifyData = await verifyRes.json();
             if (!verifyRes.ok) throw new Error(verifyData.error || 'Signature verification failed.');
 
-            navigate('/payment-success', {
+            navigate('/', {
               state: {
-                message: 'Rental charges paid successfully! Booking request submitted to owner.',
+                message: 'Rental charges text-mesh-700 successfully! Booking request submitted to owner.',
                 actionText: 'Track Rental Status',
                 nextPath: `/rent-details/${id}`
               }
             });
           } catch (vErr) {
-            navigate('/payment-failed', {
+            navigate('/', {
               state: { error: vErr.message, retryPath: `/rental-payment/${id}` }
             });
           }
@@ -114,7 +113,7 @@ export default function RentalPayment() {
     } catch (err) {
       setError(err.message);
       setPaying(false);
-      navigate('/payment-failed', {
+      navigate('/', {
         state: { error: err.message, retryPath: `/rental-payment/${id}` }
       });
     }
@@ -122,46 +121,39 @@ export default function RentalPayment() {
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: 'var(--primary-color)' }}>
-        <div style={{
-          width: '48px',
-          height: '48px',
-          border: '4px solid rgba(16, 185, 129, 0.2)',
-          borderTopColor: 'var(--primary-color)',
-          borderRadius: '50%',
-          animation: 'spin 0.9s linear infinite'
-        }} />
-        <p style={{ marginTop: '20px' }}>Loading payment checkout...</p>
+      <div className="flex min-h-[60vh] flex-col items-center justify-center text-mesh-700">
+        <div className="size-12 animate-spin rounded-full border-4 border-mesh-100 border-t-mesh-600" />
+        <p className="mt-5">Loading payment checkout...</p>
       </div>
     );
   }
 
   if (error && !booking) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', color: '#ef4444' }}>
-        <span style={{ fontSize: '2rem' }}>⚠️</span>
+      <div className="flex min-h-[60vh] flex-col items-center justify-center text-red-600">
+        <span className="text-3xl">⚠️</span>
         <p>{error}</p>
-        <button onClick={() => navigate(-1)} className="payment-btn-outline" style={{ marginTop: '16px' }}>Go Back</button>
+        <button onClick={() => navigate(-1)} className="mt-4 inline-flex h-11 items-center justify-center rounded-xl border border-ink/10 bg-white px-5 font-semibold text-ink hover:bg-ink/5">Go Back</button>
       </div>
     );
   }
 
   return (
-    <div className="payment-page">
-      <div className="payment-container">
-        <h1 className="payment-title">
+    <div className="space-y-4">
+      <div className="[max-width:800px] [margin:0_auto]">
+        <h1 className="[font-size:2.25rem] font-extrabold [margin-bottom:24px] [color:var(--text-dark)] [letter-spacing:-0.025em] [background:linear-gradient(135deg,_var(--text-dark)_40%,_var(--primary-color)_100%)] [-webkit-background-clip:text] [-webkit-text-fill-color:transparent] [background-clip:text]">
           Confirm & Pay Rental Charges
         </h1>
 
         {/* Listing Info Card */}
-        <div className="payment-card payment-item-header">
+        <div className="hover:[box-shadow:var(--shadow-md)] ">
           {booking.listing_image && (
-            <img src={booking.listing_image} alt={booking.listing_title} className="payment-item-img" />
+            <img src={booking.listing_image} alt={booking.listing_title} className="[width:90px] [height:90px] [border-radius:var(--radius-md)] object-cover [background-color:#f3f4f6] [border:1px_solid_var(--border-color)]" />
           )}
-          <div className="payment-item-info">
-            <span className="payment-badge">{booking.listing_category}</span>
-            <h3 className="payment-item-title">{booking.listing_title}</h3>
-            <p className="payment-item-meta">📍 Pickup Location: {booking.listing_location}</p>
+          <div className="flex flex-col [gap:6px]">
+            <span className="[background-color:rgba(16,_185,_129,_0.08)] [color:var(--primary-color)] [font-size:0.75rem] font-bold [padding:3px_10px] [border-radius:99px] [align-self:flex-start] uppercase [letter-spacing:0.05em] [border:1px_solid_rgba(16,_185,_129,_0.15)]">{booking.listing_category}</span>
+            <h3 className="[font-size:1.25rem] font-bold [color:var(--text-dark)] m-0 [line-height:1.3]">{booking.listing_title}</h3>
+            <p className="[font-size:0.85rem] [color:var(--text-muted)]">📍 Pickup Location: {booking.listing_location}</p>
           </div>
         </div>
 
@@ -176,14 +168,14 @@ export default function RentalPayment() {
           depositAmount={booking.deposit_amount}
         />
 
-        {error && <div style={{ color: '#ef4444', background: '#fef2f2', padding: '12px', borderRadius: '8px', margin: '16px 0', border: '1px solid #fecaca' }}>⚠️ {error}</div>}
+        {error && <div className="my-4 rounded-lg border border-red-200 bg-red-50 p-3 text-red-600">⚠️ {error}</div>}
 
         {/* Pay Button */}
-        <div style={{ marginTop: '24px' }}>
+        <div className="mt-6">
           <button
             onClick={handlePayment}
             disabled={paying}
-            className="payment-btn-primary"
+            className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-mesh-600 px-5 font-bold text-white hover:bg-mesh-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {paying ? 'Launching Payment Gateway...' : `Proceed to Pay ${formatCurrency(booking.booking_amount)}`}
           </button>

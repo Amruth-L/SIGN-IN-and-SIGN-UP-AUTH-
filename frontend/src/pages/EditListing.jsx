@@ -6,7 +6,7 @@ const EditListing = () => {
   const { api } = useAuth();
   const navigate = useNavigate();
   const { id } = useParams();
-  
+
   const [formData, setFormData] = useState({
     title: '',
     description: '',
@@ -14,7 +14,7 @@ const EditListing = () => {
     category: 'Books',
     image_url: ''
   });
-  
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
@@ -24,12 +24,12 @@ const EditListing = () => {
       try {
         const res = await api.get(`/listings/${id}`);
         const { title, description, price, category, image_url } = res.data;
-        setFormData({ 
-          title, 
-          description, 
-          price: Math.round(price), 
-          category, 
-          image_url: image_url || '' 
+        setFormData({
+          title,
+          description,
+          price: Math.round(price),
+          category,
+          image_url: image_url || ''
         });
       } catch (err) {
         console.error(err);
@@ -48,7 +48,7 @@ const EditListing = () => {
 
     try {
       await api.put(`/listings/${id}`, formData);
-      navigate('/profile'); // Go back to profile after successful edit
+      navigate('/account/listings');
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to update listing');
     } finally {
@@ -57,33 +57,33 @@ const EditListing = () => {
   };
 
   if (fetching) {
-    return <div className="container" style={{ paddingTop: '3rem', textAlign: 'center' }}>Loading listing details...</div>;
+    return <div className="py-12 text-center">Loading listing details...</div>;
   }
 
   return (
-    <div className="container" style={{ paddingTop: '3rem', paddingBottom: '3rem' }}>
-      <div className="card" style={{ maxWidth: '600px', margin: '0 auto', padding: '2rem' }}>
-        <h2 style={{ marginBottom: '1.5rem' }}>Edit Listing</h2>
-        
-        {error && <div className="error-message">{error}</div>}
+    <div className="py-12">
+      <div className="mx-auto max-w-[600px] space-y-4 rounded-2xl border border-ink/10 bg-white p-8">
+        <h2 className="mb-6 text-2xl font-extrabold">Edit Listing</h2>
+
+        {error && <div className="space-y-4">{error}</div>}
 
         <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label">Title</label>
-            <input 
-              type="text" 
-              className="form-input" 
+          <div className="space-y-4">
+            <label className="mb-1.5 block text-xs font-bold text-ink/60">Title</label>
+            <input
+              type="text"
+              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               placeholder="e.g. Calculus Textbook"
               required
               value={formData.title}
               onChange={(e) => setFormData({...formData, title: e.target.value})}
             />
           </div>
-          
-          <div className="form-group">
-            <label className="form-label">Category</label>
-            <select 
-              className="form-input"
+
+          <div className="space-y-4">
+            <label className="mb-1.5 block text-xs font-bold text-ink/60">Category</label>
+            <select
+              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               value={formData.category}
               onChange={(e) => setFormData({...formData, category: e.target.value})}
             >
@@ -95,11 +95,11 @@ const EditListing = () => {
             </select>
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Price (₹)</label>
-            <input 
-              type="number" 
-              className="form-input" 
+          <div className="space-y-4">
+            <label className="mb-1.5 block text-xs font-bold text-ink/60">Price (₹)</label>
+            <input
+              type="number"
+              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               placeholder="e.g. 500"
               required
               min="0"
@@ -108,21 +108,21 @@ const EditListing = () => {
             />
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Image URL (Optional)</label>
-            <input 
-              type="url" 
-              className="form-input" 
+          <div className="space-y-4">
+            <label className="mb-1.5 block text-xs font-bold text-ink/60">Image URL (Optional)</label>
+            <input
+              type="url"
+              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               placeholder="https://example.com/image.jpg"
               value={formData.image_url}
               onChange={(e) => setFormData({...formData, image_url: e.target.value})}
             />
           </div>
 
-          <div className="form-group">
-            <label className="form-label">Description</label>
-            <textarea 
-              className="form-input" 
+          <div className="space-y-4">
+            <label className="mb-1.5 block text-xs font-bold text-ink/60">Description</label>
+            <textarea
+              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               placeholder="Provide details about the item..."
               required
               value={formData.description}
@@ -130,11 +130,11 @@ const EditListing = () => {
             />
           </div>
 
-          <div style={{ display: 'flex', gap: '1rem' }}>
-            <button type="button" className="btn btn-outline" style={{ flex: 1 }} onClick={() => navigate('/profile')}>
+          <div className="flex gap-4">
+            <button type="button" className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-ink/10 bg-white px-5 text-sm font-bold text-ink transition hover:bg-ink/5" onClick={() => navigate('/account/listings')}>
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary" style={{ flex: 1 }} disabled={loading}>
+            <button type="submit" className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50" disabled={loading}>
               {loading ? 'Saving...' : 'Save Changes'}
             </button>
           </div>

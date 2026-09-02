@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import './OwnerDashboard.css';
+import HandoverCredential from '../components/HandoverCredential';
 
 const API_BASE = 'http://localhost:3003';
 const formatCurrency = (n) => `₹${parseFloat(n || 0).toFixed(2)}`;
@@ -104,134 +104,134 @@ export default function OwnerDashboard() {
 
   if (loading) {
     return (
-      <div className="od-loading">
-        <div className="od-spinner" />
+      <div className="flex flex-col items-center justify-center [min-height:80vh] [gap:20px] [color:#a78bfa]">
+        <div className="[width:48px] [height:48px] [border:4px_solid_rgba(139,_92,_246,_0.2)] [border-top-color:#8b5cf6] [border-radius:50%] animate-spin" />
         <p>Loading dashboard…</p>
       </div>
     );
   }
 
   return (
-    <div className="od-page">
-      <div className="od-container">
+    <main className="min-h-screen bg-paper px-5 py-10 text-ink sm:px-7">
+      <div className="mx-auto max-w-[1100px] space-y-6">
         {/* Header */}
-        <div className="od-header">
+        <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <h1 className="od-title">Owner Dashboard</h1>
-            <p className="od-subtitle">Manage rental requests for your listings</p>
+            <h1 className="font-display text-4xl font-semibold">Owner dashboard</h1>
+            <p className="mt-1 text-sm text-ink/45">Rental requests</p>
           </div>
           {pendingCount > 0 && (
-            <div className="od-alert-badge">
+            <div className="animate-pulse rounded-full border border-mesh-200 bg-mesh-50 px-4 py-2 text-sm font-bold text-mesh-700">
               🔔 {pendingCount} Request{pendingCount > 1 ? 's' : ''} Need Response
             </div>
           )}
         </div>
 
         {/* Stats */}
-        <div className="od-stats">
-          <div className="od-stat">
-            <span className="od-stat-val">{requests.length}</span>
-            <span className="od-stat-label">Total Requests</span>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="flex flex-col gap-1 rounded-2xl border border-ink/10 bg-white p-5 text-center">
+            <span className="text-2xl font-extrabold">{requests.length}</span>
+            <span className="text-xs text-ink/45">Total</span>
           </div>
-          <div className="od-stat">
-            <span className="od-stat-val od-stat-purple">{pendingCount}</span>
-            <span className="od-stat-label">Pending</span>
+          <div className="flex flex-col gap-1 rounded-2xl border border-ink/10 bg-white p-5 text-center">
+            <span className="text-2xl font-extrabold text-amber-600">{pendingCount}</span>
+            <span className="text-xs text-ink/45">Pending</span>
           </div>
-          <div className="od-stat">
-            <span className="od-stat-val od-stat-green">
+          <div className="flex flex-col gap-1 rounded-2xl border border-ink/10 bg-white p-5 text-center">
+            <span className="text-2xl font-extrabold text-mesh-700">
               {requests.filter((r) => ['RENTAL_ACTIVE', 'QR_GENERATED', 'DEPOSIT_PENDING'].includes(r.status)).length}
             </span>
-            <span className="od-stat-label">Active</span>
+            <span className="text-xs text-ink/45">Active</span>
           </div>
-          <div className="od-stat">
-            <span className="od-stat-val od-stat-muted">
+          <div className="flex flex-col gap-1 rounded-2xl border border-ink/10 bg-white p-5 text-center">
+            <span className="text-2xl font-extrabold text-ink/45">
               {requests.filter((r) => ['COMPLETED', 'DEPOSIT_REFUNDED'].includes(r.status)).length}
             </span>
-            <span className="od-stat-label">Completed</span>
+            <span className="text-xs text-ink/45">Completed</span>
           </div>
         </div>
 
         {/* Filters */}
-        <div className="od-filters">
+        <div className="flex flex-wrap gap-2">
           {FILTERS.map((f) => (
             <button
               key={f}
-              className={`od-filter-btn ${filterStatus === f ? 'od-filter-active' : ''}`}
+              className={`flex items-center gap-1 rounded-full border px-4 py-2 text-xs font-bold ${filterStatus === f ? 'border-mesh-600 bg-mesh-600 text-white' : 'border-ink/10 bg-white text-ink/55'}`}
               onClick={() => setFilterStatus(f)}
             >
               {f === 'ALL' ? 'All' : STATUS_LABELS[f]?.label || f}
               {f === 'OWNER_PENDING' && pendingCount > 0 && (
-                <span className="od-filter-count">{pendingCount}</span>
+                <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px]">{pendingCount}</span>
               )}
             </button>
           ))}
         </div>
 
-        {error && <div className="od-error">{error}</div>}
+        {error && <div className="[background:rgba(239,_68,_68,_0.1)] [border:1px_solid_rgba(239,_68,_68,_0.3)] [color:#fca5a5] [padding:12px_16px] [border-radius:12px] [margin-bottom:20px] [font-size:0.88rem]">{error}</div>}
 
         {filtered.length === 0 ? (
-          <div className="od-empty">
+          <div className="flex flex-col items-center justify-center [gap:12px] [padding:64px_0] [color:#6b7280] [font-size:1rem]">
             <span>📋</span>
             <p>{filterStatus === 'ALL' ? 'No rental requests yet.' : `No requests with status "${filterStatus}".`}</p>
           </div>
         ) : (
-          <div className="od-cards">
+          <div className="space-y-4">
             {filtered.map((rental) => {
               const statusCfg = STATUS_LABELS[rental.status] || { label: rental.status, color: '#6b7280' };
               const isActionable = rental.status === 'OWNER_PENDING' || rental.status === 'RENTAL_PAYMENT_COMPLETED';
               return (
-                <div key={rental.id} className={`od-card ${isActionable ? 'od-card-highlight' : ''}`}>
-                  {isActionable && <div className="od-action-ribbon">Action Required</div>}
-                  <div className="od-card-top">
+                <div key={rental.id} className={`relative flex flex-col gap-4 overflow-hidden rounded-2xl border bg-white p-5 transition hover:-translate-y-0.5 ${isActionable ? 'border-mesh-300 shadow-lg' : 'border-ink/10'}`}>
+                  {isActionable && <div className="absolute [top:14px] [right:-28px] [background:#7c3aed] [color:white] [font-size:0.7rem] font-bold [padding:4px_36px] [transform:rotate(40deg)] uppercase [letter-spacing:0.5px]">Action Required</div>}
+                  <div className="flex [gap:14px] items-start">
                     {rental.listing_image && (
-                      <img src={rental.listing_image} alt={rental.listing_title} className="od-listing-img" />
+                      <img src={rental.listing_image} alt={rental.listing_title} className="[width:72px] [height:64px] [border-radius:12px] object-cover shrink-0" />
                     )}
-                    <div className="od-card-info">
-                      <span className="od-listing-cat">{rental.listing_category}</span>
-                      <h3 className="od-listing-title">{rental.listing_title}</h3>
-                      <span className="od-status-pill" style={{ '--sc': statusCfg.color }}>
+                    <div className="flex flex-col [gap:6px]">
+                      <span className="[font-size:0.72rem] [color:#a78bfa] uppercase [letter-spacing:0.5px]">{rental.listing_category}</span>
+                      <h3 className="m-0 text-sm font-bold text-ink">{rental.listing_title}</h3>
+                      <span className="w-fit rounded-full border border-mesh-200 bg-mesh-50 px-2.5 py-1 text-xs font-semibold text-mesh-700">
                         {statusCfg.label}
                       </span>
                     </div>
                   </div>
 
-                  <div className="od-borrower-row">
-                    <span className="od-label">Borrower</span>
-                    <span className="od-val">{rental.borrower_name}</span>
-                    <span className="od-email">{rental.borrower_email}</span>
+                  <div className="flex items-center [gap:8px] [font-size:0.83rem] [padding:10px_0] [border-top:1px_solid_rgba(255,_255,_255,_0.05)]">
+                    <span className="[color:#6b7280]">Renter</span>
+                    <span className="[color:#d1d5db] font-medium">{rental.borrower_name}</span>
+                    <span className="[color:#6b7280] [font-size:0.76rem] [margin-left:auto]">{rental.borrower_email}</span>
                   </div>
 
-                  <div className="od-dates-row">
-                    <div className="od-date-block">
-                      <span className="od-label">Start</span>
-                      <span className="od-val">{new Date(rental.start_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
+                  <div className="flex [gap:16px] flex-wrap">
+                    <div className="flex flex-col [gap:2px]">
+                      <span className="[color:#6b7280]">Start</span>
+                      <span className="[color:#d1d5db] font-medium">{new Date(rental.start_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
                     </div>
-                    <div className="od-date-block">
-                      <span className="od-label">End</span>
-                      <span className="od-val">{new Date(rental.end_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
+                    <div className="flex flex-col [gap:2px]">
+                      <span className="[color:#6b7280]">End</span>
+                      <span className="[color:#d1d5db] font-medium">{new Date(rental.end_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
                     </div>
-                    <div className="od-date-block">
-                      <span className="od-label">Duration</span>
-                      <span className="od-val">{rental.rental_days} day{rental.rental_days > 1 ? 's' : ''}</span>
+                    <div className="flex flex-col [gap:2px]">
+                      <span className="[color:#6b7280]">Duration</span>
+                      <span className="[color:#d1d5db] font-medium">{rental.rental_days} day{rental.rental_days > 1 ? 's' : ''}</span>
                     </div>
                   </div>
 
-                  <div className="od-amounts-row">
-                    <div className="od-amount"><span>Booking</span><strong>{formatCurrency(rental.booking_amount)}</strong></div>
-                    <div className="od-amount"><span>Deposit</span><strong>{formatCurrency(rental.deposit_amount)}</strong></div>
+                  <div className="flex [gap:20px] [padding:12px_0] [border-top:1px_solid_rgba(255,_255,_255,_0.05)]">
+                    <div className="flex flex-col [gap:2px]"><span>Booking</span><strong>{formatCurrency(rental.booking_amount)}</strong></div>
+                    <div className="flex flex-col [gap:2px]"><span>Deposit</span><strong>{formatCurrency(rental.deposit_amount)}</strong></div>
                   </div>
 
                   {isActionable && (
-                    <div className="od-action-btns">
+                    <div className="space-y-4">
                       <button
-                        className="od-btn od-btn-accept"
+                        className="flex-1 [padding:12px] [border-radius:12px] [font-size:0.88rem] font-bold cursor-pointer [transition:all_0.2s] border-0 disabled:[opacity:0.55] disabled:[cursor:not-allowed] [background:linear-gradient(135deg,_#059669,_#10b981)] [color:white] [box-shadow:0_4px_16px_rgba(16,_185,_129,_0.3)]"
                         onClick={() => handleRespond(rental.id, 'ACCEPTED')}
                         disabled={!!responding[rental.id]}
                       >
                         {responding[rental.id] === 'ACCEPTED' ? '⏳ Accepting…' : '✓ Accept Booking'}
                       </button>
                       <button
-                        className="od-btn od-btn-reject"
+                        className="flex-1 [padding:12px] [border-radius:12px] [font-size:0.88rem] font-bold cursor-pointer [transition:all_0.2s] border-0 disabled:[opacity:0.55] disabled:[cursor:not-allowed] [background:rgba(239,_68,_68,_0.12)] [border:1px_solid_rgba(239,_68,_68,_0.35)] [color:#fca5a5]"
                         onClick={() => handleRespond(rental.id, 'REJECTED')}
                         disabled={!!responding[rental.id]}
                       >
@@ -241,9 +241,9 @@ export default function OwnerDashboard() {
                   )}
 
                   {rental.status === 'RETURN_REQUESTED' && (
-                    <div className="od-action-btns">
+                    <div className="space-y-4">
                       <button
-                        className="od-btn od-btn-inspect"
+                        className="flex-1 [padding:12px] [border-radius:12px] [font-size:0.88rem] font-bold cursor-pointer [transition:all_0.2s] border-0 disabled:[opacity:0.55] disabled:[cursor:not-allowed] [background:rgba(251,_191,_36,_0.12)] [border:1px_solid_rgba(251,_191,_36,_0.35)] [color:#fde68a] w-full hover:[background:rgba(251,_191,_36,_0.2)]"
                         onClick={() => navigate(`/rental-return/${rental.id}`)}
                       >
                         🔍 Inspect & Process Return
@@ -252,7 +252,7 @@ export default function OwnerDashboard() {
                   )}
 
                   <button
-                    className="od-view-link"
+                    className="[background:none] border-0 [color:#7c3aed] [font-size:0.82rem] font-semibold cursor-pointer text-left p-0 [transition:color_0.2s] hover:[color:#a78bfa]"
                     onClick={() => navigate(`/rent-details/${rental.id}`)}
                   >
                     View Full Details →
@@ -262,10 +262,10 @@ export default function OwnerDashboard() {
                   {deliveryStatuses[rental.id] && deliveryStatuses[rental.id].has_delivery && (() => {
                     const ds = deliveryStatuses[rental.id];
                     return (
-                      <div style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: '8px', padding: '0.75rem', marginTop: '0.5rem' }}>
-                        <div style={{ fontSize: '0.75rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.3rem', marginBottom: '0.5rem' }}>
+                      <div className="mt-2 rounded-lg border border-ink/10 bg-mesh-50 p-3">
+                        <div className="mb-2 flex items-center gap-1 text-xs font-bold">
                           🚚 Delivery
-                          <span style={{ marginLeft: 'auto', fontSize: '0.65rem', fontWeight: 700, padding: '0.15rem 0.5rem', borderRadius: '12px', background: ds.status === 'DELIVERED' ? '#dcfce7' : '#ede9fe', color: ds.status === 'DELIVERED' ? '#16a34a' : '#7c3aed' }}>
+                          <span className={`ml-auto rounded-full px-2 py-0.5 text-[.65rem] font-bold ${ds.status === 'DELIVERED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
                             {{
                               AVAILABLE: 'Waiting for Courier',
                               ACCEPTED: 'Courier Assigned',
@@ -278,19 +278,22 @@ export default function OwnerDashboard() {
                           </span>
                         </div>
                         {ds.courier_name && (
-                          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', marginBottom: '0.5rem' }}>
-                            Courier: <strong style={{ color: 'var(--color-text)' }}>{ds.courier_name}</strong>
+                          <div className="mb-2 text-xs text-ink/50">
+                            Courier: <strong className="text-ink">{ds.courier_name}</strong>
                           </div>
                         )}
                         {/* Seller's Pickup Token */}
                         {ds.pickup_token && ['ACCEPTED','ARRIVING_FOR_PICKUP'].includes(ds.status) && (
-                          <div style={{ background: 'linear-gradient(135deg, #1a1040, #2d1b69)', borderRadius: '8px', padding: '1rem', textAlign: 'center' }}>
-                            <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.35rem' }}>Your Pickup Token</div>
-                            <div style={{ fontSize: '1.5rem', fontWeight: 900, fontFamily: 'Courier New, monospace', letterSpacing: '0.25em', color: '#fff', userSelect: 'all' }}>
+                          <div className="rounded-lg bg-ink p-4 text-center">
+                            <div className="mb-1 text-[.65rem] font-semibold uppercase tracking-widest text-white/60">Your Pickup Token</div>
+                            <div className="select-all font-mono text-2xl font-black tracking-[.25em] text-white">
                               {ds.pickup_token}
                             </div>
-                            <div style={{ fontSize: '0.6rem', color: 'rgba(255,255,255,0.5)', marginTop: '0.35rem' }}>Show this token to the courier when they arrive for pickup</div>
+                            <div className="mt-1 text-[.6rem] text-white/50">Show this token to the courier when they arrive for pickup</div>
                           </div>
+                        )}
+                        {ds.delivery_id && ['COURIER_ASSIGNED','GOING_TO_PICKUP','RETURN_IN_TRANSIT'].includes(ds.status) && (
+                          <HandoverCredential deliveryId={ds.delivery_id} stage={ds.task_type === 'RENTAL_RETURN' ? 'RETURN_RECEIVED' : 'PICKUP'} title={ds.task_type === 'RENTAL_RETURN' ? 'Confirm returned item' : 'Owner pickup handover'} />
                         )}
                       </div>
                     );
@@ -301,6 +304,6 @@ export default function OwnerDashboard() {
           </div>
         )}
       </div>
-    </div>
+    </main>
   );
 }

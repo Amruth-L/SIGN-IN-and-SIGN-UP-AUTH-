@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { mockProducts } from '../data/mockData';
 import QRCode from 'qrcode';
-import './RentDetails.css';
+import HandoverCredential from '../components/HandoverCredential';
 
 const API_BASE = 'http://localhost:3003';
 const formatCurrency = (n) => `₹${parseFloat(n || 0).toFixed(2)}`;
@@ -58,9 +58,9 @@ function CountdownTimer({ deadline, onExpired }) {
   const isUrgent = seconds < 300;
 
   return (
-    <div className={`rd-timer ${isUrgent ? 'rd-timer-urgent' : ''}`}>
-      <span className="rd-timer-icon">⏳</span>
-      <span className="rd-timer-value">{m}:{s}</span>
+    <div className={`flex items-center [gap:10px] [background:#ffffff] [border:1px_solid_#e5e7eb] [border-radius:12px] [padding:10px_16px] [width:fit-content] ${isUrgent ? '[border-color:rgba(239,_68,_68,_0.4)] [background:rgba(239,_68,_68,_0.05)] [animation:timer-pulse_1s_ease-in-out_infinite]' : ''}`}>
+      <span className="[font-size:1.1rem]">⏳</span>
+      <span className="[font-family:'Courier_New',_monospace] [font-size:1.6rem] font-bold [color:#15803d] [letter-spacing:2px]">{m}:{s}</span>
     </div>
   );
 }
@@ -232,8 +232,8 @@ export default function RentDetails() {
 
   if (loading) {
     return (
-      <div className="rd-loading">
-        <div className="rd-spinner" />
+      <div className="flex flex-col items-center justify-center [min-height:80vh] [gap:20px] [color:#22c55e]">
+        <div className="[width:48px] [height:48px] [border:4px_solid_rgba(34,_197,_94,_0.2)] [border-top-color:#22c55e] [border-radius:50%] animate-spin" />
         <p>Loading rental details…</p>
       </div>
     );
@@ -241,11 +241,11 @@ export default function RentDetails() {
 
   if (error && !rental) {
     return (
-      <div className="rd-error-page" style={{ padding: '4rem 1rem', textAlign: 'center' }}>
-        <span style={{ fontSize: '2.5rem', display: 'block', marginBottom: '1rem' }}>⚠️</span>
-        <h3 style={{ fontSize: '1.25rem', color: '#dc2626', marginBottom: '0.5rem' }}>Unable to load this rental item. Please refresh.</h3>
-        <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem' }}>The booking details could not be found or you do not have permission to view them.</p>
-        <button onClick={() => navigate('/profile')} className="btn btn-primary">Go to My Rentals</button>
+      <div className="flex min-h-[70vh] flex-col items-center justify-center gap-4 px-4 py-16 text-center text-lg text-red-600">
+        <span className="mb-4 block text-4xl">⚠️</span>
+        <h3 className="mb-2 text-xl text-red-700">Rental unavailable.</h3>
+        <p className="mb-6 text-ink/50">Refresh or return to your rentals.</p>
+        <button onClick={() => navigate('/account/rentals')} className="inline-flex h-11 items-center justify-center rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white">My rentals</button>
       </div>
     );
   }
@@ -257,17 +257,17 @@ export default function RentDetails() {
   const isOwner = rental.owner_id === user?.id;
 
   return (
-    <div className="rd-page">
-      <div className="rd-container">
+    <div className="space-y-4">
+      <div className="[max-width:1100px] [margin:0_auto]">
         {/* Header */}
-        <div className="rd-header">
-          <button className="rd-back-btn" onClick={() => navigate(-1)}>← Back</button>
-          <div className="rd-header-top">
+        <div className="space-y-4">
+          <button className="[background:#ffffff] [border:1px_solid_#e5e7eb] [color:#4b5563] [padding:8px_20px] [border-radius:8px] cursor-pointer [font-size:0.9rem] font-medium [transition:all_0.2s] [margin-bottom:16px] [box-shadow:0_1px_2px_rgba(0,0,0,0.05)] hover:[background:#f3f4f6] hover:[transform:translateX(-2px)]" onClick={() => navigate(-1)}>← Back</button>
+          <div className="flex justify-between items-start flex-wrap [gap:16px]">
             <div>
-              <h1 className="rd-title">Rental Status</h1>
-              <p className="rd-rental-id">ID: {rentalId}</p>
+              <h1 className="[font-size:2rem] font-extrabold [color:#111827] [margin:0_0_4px]">Rental Status</h1>
+              <p className="[font-size:0.78rem] [color:#6b7280] [font-family:monospace] m-0">ID: {rentalId}</p>
             </div>
-            <div className="rd-status-badge" style={{ '--status-color': statusCfg.color }}>
+            <div className="flex items-center gap-2 rounded-full border border-green-500 bg-green-50 px-4 py-2.5 text-sm font-bold text-green-700">
               <span>{statusCfg.icon}</span>
               <span>{statusCfg.label}</span>
             </div>
@@ -275,50 +275,50 @@ export default function RentDetails() {
         </div>
 
         {/* Progress Steps */}
-        <div className="rd-steps">
+        <div className="space-y-4">
           {STEPS.map((step, i) => (
             <div
               key={step.key}
-              className={`rd-step ${i < currentStep ? 'rd-step-done' : ''} ${i === currentStep ? 'rd-step-active' : ''}`}
+              className={`flex flex-col items-center [gap:8px] relative flex-1 [min-width:60px] ${i < currentStep ? '' : ''} ${i === currentStep ? '' : ''}`}
             >
-              <div className="rd-step-dot">
+              <div className="[width:36px] [height:36px] [border-radius:50%] [background:#f3f4f6] [border:2px_solid_#d1d5db] flex items-center justify-center [font-size:0.85rem] font-bold [color:#6b7280] [transition:all_0.3s] [z-index:2]">
                 {i < currentStep ? '✓' : i + 1}
               </div>
-              <span className="rd-step-label">{step.label}</span>
-              {i < STEPS.length - 1 && <div className={`rd-step-line ${i < currentStep ? 'rd-step-line-done' : ''}`} />}
+              <span className="[font-size:0.72rem] [color:#6b7280] text-center font-medium">{step.label}</span>
+              {i < STEPS.length - 1 && <div className={`absolute [top:18px] [left:calc(50%_+_18px)] [width:calc(100%_-_36px)] [height:2px] [background:#e5e7eb] [z-index:1] ${i < currentStep ? '[background:#10b981]' : ''}`} />}
             </div>
           ))}
         </div>
 
         {/* Main Content */}
-        <div className="rd-layout">
-          <div className="rd-left">
+        <div className="[grid-template-columns:1fr]">
+          <div className="space-y-4">
             {/* Listing Info */}
-            <div className="rd-card">
-              <div className="rd-listing-row">
+            <div className="[background:#ffffff] [border:1px_solid_#e5e7eb] [border-radius:16px] [padding:24px] [box-shadow:0_4px_6px_-1px_rgba(0,0,0,0.05),_0_2px_4px_-1px_rgba(0,0,0,0.03)] [margin-bottom:20px]">
+              <div className="flex [gap:18px] items-start [margin-bottom:20px]">
                 {rental.listing_image && (
-                  <img src={rental.listing_image} alt={rental.listing_title} className="rd-listing-img" />
+                  <img src={rental.listing_image} alt={rental.listing_title} className="[width:90px] [height:80px] [border-radius:12px] object-cover shrink-0 [border:1px_solid_#e5e7eb]" />
                 )}
                 <div>
-                  <p className="rd-listing-cat">{rental.listing_category}</p>
-                  <h2 className="rd-listing-title">{rental.listing_title}</h2>
-                  <p className="rd-listing-loc">📍 {rental.listing_location}</p>
+                  <p className="[font-size:0.75rem] [color:#16a34a] uppercase [letter-spacing:0.5px] [margin:0_0_4px] font-semibold">{rental.listing_category}</p>
+                  <h2 className="[font-size:1.15rem] font-bold [color:#1f2937] [margin:0_0_4px]">{rental.listing_title}</h2>
+                  <p className="[font-size:0.83rem] [color:#6b7280] m-0">📍 {rental.listing_location}</p>
                 </div>
               </div>
-              <div className="rd-date-row">
-                <div><span className="rd-label">Start</span><span className="rd-value">{new Date(rental.start_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span></div>
-                <div className="rd-arrow">→</div>
-                <div><span className="rd-label">End</span><span className="rd-value">{new Date(rental.end_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span></div>
-                <div><span className="rd-label">Duration</span><span className="rd-value">{rental.rental_days} day{rental.rental_days > 1 ? 's' : ''}</span></div>
+              <div className="flex [gap:20px] items-center flex-wrap [padding-top:16px] [border-top:1px_solid_#e5e7eb]">
+                <div><span className="[font-size:0.72rem] [color:#9ca3af] uppercase [letter-spacing:0.5px]">Start</span><span className="[font-size:0.9rem] font-semibold [color:#1f2937]">{new Date(rental.start_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span></div>
+                <div className="[font-size:1.2rem] [color:#9ca3af] [padding-top:10px]">→</div>
+                <div><span className="[font-size:0.72rem] [color:#9ca3af] uppercase [letter-spacing:0.5px]">End</span><span className="[font-size:0.9rem] font-semibold [color:#1f2937]">{new Date(rental.end_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span></div>
+                <div><span className="[font-size:0.72rem] [color:#9ca3af] uppercase [letter-spacing:0.5px]">Duration</span><span className="[font-size:0.9rem] font-semibold [color:#1f2937]">{rental.rental_days} day{rental.rental_days > 1 ? 's' : ''}</span></div>
               </div>
             </div>
 
             {/* Deposit Warning Banner */}
             {rental.status === 'DEPOSIT_PENDING' && isBorrower && (
-              <div className="rd-deposit-banner">
-                <div className="rd-deposit-warning-text">
-                  <strong>Owner Accepted Your Booking!</strong>
-                  <p>Please pay the refundable security deposit before the timer expires. Failure to pay will automatically cancel your booking and release the item.</p>
+              <div className="space-y-4">
+                <div className="space-y-4">
+                  <strong>Booking accepted</strong>
+                  <p>Pay the deposit before the timer ends.</p>
                 </div>
                 {rental.deposit_deadline && (
                   <CountdownTimer
@@ -327,7 +327,7 @@ export default function RentDetails() {
                   />
                 )}
                 <button
-                  className="rd-pay-deposit-btn"
+                  className="[background:#22c55e] [color:white] border-0 [padding:16px] [border-radius:12px] [font-size:1rem] font-bold cursor-pointer [transition:all_0.2s] [box-shadow:0_4px_10px_rgba(34,_197,_94,_0.2)] disabled:[opacity:0.55] disabled:[cursor:not-allowed]"
                   onClick={() => navigate(`/deposit-payment/${rentalId}`)}
                 >
                   Pay Security Deposit {formatCurrency(rental.deposit_amount)}
@@ -337,28 +337,28 @@ export default function RentDetails() {
 
             {/* QR Code Handover */}
             {rental.status === 'QR_GENERATED' && (
-              <div className="rd-qr-card">
-                <h3 className="rd-qr-title">🔐 Secure Handover QR Code</h3>
-                <p className="rd-qr-subtitle">Show this QR to the owner during item pickup/delivery</p>
-                <canvas ref={canvasRef} className="rd-qr-canvas" />
-                <p className="rd-qr-hash">Hash: {rental.qr_code_hash?.slice(0, 20)}…</p>
+              <div className="space-y-4">
+                <h3 className="[font-size:1rem] font-bold [color:#059669] [margin:0_0_6px]">Handover QR</h3>
+                <p className="[font-size:0.83rem] [color:#6b7280] [margin:0_0_20px]">Show this at pickup.</p>
+                <canvas ref={canvasRef} className="[border-radius:12px] [padding:12px] [background:#ffffff] [border:1px_solid_rgba(16,_185,_129,_0.2)] block [margin:0_auto_12px]" />
+                <p className="[font-size:0.72rem] [font-family:monospace] [color:#9ca3af] m-0">Hash: {rental.qr_code_hash?.slice(0, 20)}…</p>
               </div>
             )}
 
             {/* Delivery Courier Status */}
             {deliveryInfo && deliveryInfo.has_delivery && (
-              <div className="rd-delivery-section" style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '1rem', marginTop: '1rem' }}>
-                <h4 style={{ margin: '0 0 0.75rem', fontSize: '0.85rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              <div className="mt-4 space-y-4 rounded-lg border border-ink/10 bg-mesh-50 p-4">
+                <h4 className="mb-3 flex items-center gap-1.5 text-sm font-bold">
                   🚚 Delivery Status
                 </h4>
                 {deliveryInfo.status === 'AVAILABLE' && (
-                  <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>Waiting for a courier to accept your delivery request...</p>
+                  <p className="text-xs text-ink/50">Finding a courier…</p>
                 )}
                 {deliveryInfo.status !== 'AVAILABLE' && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem' }}>
+                  <div className="grid grid-cols-2 gap-2.5">
                     <div>
-                      <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>Status</div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 700, color: deliveryInfo.status === 'DELIVERED' ? '#22c55e' : '#6366f1' }}>
+                      <div className="text-[.65rem] font-semibold uppercase text-ink/50">Status</div>
+                      <div className={`text-sm font-bold ${deliveryInfo.status === 'DELIVERED' ? 'text-green-600' : 'text-blue-600'}`}>
                         {{
                           ACCEPTED: '✅ Courier Assigned',
                           ARRIVING_FOR_PICKUP: '🚶 Heading to Seller',
@@ -371,77 +371,41 @@ export default function RentDetails() {
                     </div>
                     {deliveryInfo.courier_name && (
                       <div>
-                        <div style={{ fontSize: '0.65rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>Courier</div>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>{deliveryInfo.courier_name}</div>
+                        <div className="text-[.65rem] font-semibold uppercase text-ink/50">Courier</div>
+                        <div className="text-sm font-semibold">{deliveryInfo.courier_name}</div>
                       </div>
                     )}
                   </div>
                 )}
                 {/* Customer's Delivery Token — shown when courier needs to verify delivery */}
                 {isBorrower && deliveryInfo.delivery_token && ['PICKED_UP','IN_TRANSIT','ARRIVED'].includes(deliveryInfo.status) && (
-                  <div style={{ background: 'linear-gradient(135deg, #1a1040, #2d1b69)', borderRadius: 'var(--radius-md)', padding: '1.25rem', textAlign: 'center', marginTop: '0.75rem' }}>
-                    <div style={{ fontSize: '0.7rem', fontWeight: 600, color: 'rgba(255,255,255,0.6)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '0.4rem' }}>Your Delivery Token</div>
-                    <div style={{ fontSize: '1.75rem', fontWeight: 900, fontFamily: 'Courier New, monospace', letterSpacing: '0.25em', color: '#fff', userSelect: 'all' }}>
+                  <div className="mt-3 rounded-xl bg-ink p-5 text-center">
+                    <div className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-white/60">Your Delivery Token</div>
+                    <div className="select-all font-mono text-3xl font-black tracking-[.25em] text-white">
                       {deliveryInfo.delivery_token}
                     </div>
-                    <div style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.5)', marginTop: '0.4rem' }}>Show this token to the courier when they deliver your item</div>
+                    <div className="mt-1.5 text-[.65rem] text-white/50">Show at delivery.</div>
                   </div>
+                )}
+                {isBorrower && deliveryInfo.delivery_id && ['PICKUP_VERIFIED','IN_TRANSIT','RETURN_COURIER_ASSIGNED','RETURN_IN_TRANSIT','COURIER_ASSIGNED'].includes(deliveryInfo.status) && (
+                  <HandoverCredential deliveryId={deliveryInfo.delivery_id} stage={deliveryInfo.task_type === 'RENTAL_RETURN' ? 'RETURN_PICKUP' : 'DELIVERY'} title={deliveryInfo.task_type === 'RENTAL_RETURN' ? 'Return pickup handover' : 'Delivery handover'} />
                 )}
               </div>
             )}
 
             {/* Status-specific messages */}
             {(rental.status === 'OWNER_PENDING' || rental.status === 'RENTAL_PAYMENT_COMPLETED') && isBorrower && (
-              <div className="rd-info-banner rd-info-blue">
+              <div className=" [background:rgba(59,_130,_246,_0.05)] [border:1px_solid_rgba(59,_130,_246,_0.2)] [color:#1e40af]">
                 <span>👀</span>
-                <div style={{ flex: 1 }}>
-                  <strong>Waiting for Owner</strong>
-                  <p>Your booking payment was successful! The owner has been notified and will respond shortly.</p>
-                  <button
-                    className="rd-pay-deposit-btn"
-                    style={{ marginTop: '1rem', backgroundColor: '#22C55E', color: '#ffffff', border: 'none', padding: '0.5rem 1rem', borderRadius: '8px', cursor: 'pointer' }}
-                    onClick={async () => {
-                      if (rental.id.startsWith('mock-rental-')) {
-                        localStorage.setItem(`mock_status_${rental.id}`, 'DEPOSIT_PENDING');
-                        setRental(prev => ({
-                          ...prev,
-                          status: 'DEPOSIT_PENDING',
-                          deposit_deadline: new Date(Date.now() + 30 * 60 * 1000).toISOString()
-                        }));
-                      } else {
-                        const token = localStorage.getItem('token');
-                        try {
-                          const res = await fetch(`${API_BASE}/api/rentals/respond`, {
-                            method: 'POST',
-                            headers: {
-                              'Content-Type': 'application/json',
-                              Authorization: `Bearer ${token}`
-                            },
-                            body: JSON.stringify({
-                              rental_id: rental.id,
-                              response: 'ACCEPTED',
-                              bypass_owner: true
-                            })
-                          });
-                          if (!res.ok) {
-                            const errData = await res.json();
-                            throw new Error(errData.error || 'Failed to respond to booking.');
-                          }
-                          await fetchStatus();
-                        } catch (err) {
-                          alert('Failed to simulate owner acceptance: ' + err.message);
-                        }
-                      }
-                    }}
-                  >
-                    ✓ Simulate Owner Acceptance (Test)
-                  </button>
+                <div className="flex-1">
+                  <strong>Waiting for owner</strong>
+                  <p>Payment received.</p>
                 </div>
               </div>
             )}
 
             {rental.status === 'CANCELLED' && (
-              <div className="rd-info-banner rd-info-red">
+              <div className=" [background:rgba(239,_68,_68,_0.05)] [border:1px_solid_rgba(239,_68,_68,_0.2)] [color:#991b1b]">
                 <span>❌</span>
                 <div>
                   <strong>Booking Cancelled</strong>
@@ -454,61 +418,69 @@ export default function RentDetails() {
             )}
 
             {rental.status === 'RENTAL_ACTIVE' && isBorrower && (
-              <div className="rd-action-section">
+              <div className="[margin-bottom:20px]">
                 <button
-                  className="rd-return-btn"
-                  onClick={() => navigate(`/rental-return/${rentalId}`)}
+                  className="[background:rgba(249,_115,_22,_0.05)] [border:1px_solid_rgba(249,_115,_22,_0.25)] [color:#c2410c] [padding:14px_28px] [border-radius:12px] [font-size:0.95rem] font-semibold cursor-pointer [transition:all_0.2s] w-full hover:[background:rgba(249,_115,_22,_0.1)] hover:[transform:translateY(-1px)]"
+                  onClick={async () => {
+                    try {
+                      const token = localStorage.getItem('token');
+                      const response = await fetch(`${API_BASE}/api/rentals/${rentalId}/return-request`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+                      const data = await response.json();
+                      if (!response.ok) throw new Error(data.error || 'Could not request return.');
+                      await fetchStatus();
+                    } catch (returnError) { setError(returnError.message); }
+                  }}
                 >
-                  ↩️ Request Return
+                  ↩️ Request Courier Return
                 </button>
               </div>
             )}
 
-            {error && <div className="rd-error-msg">⚠️ {error}</div>}
+            {error && <div className="[background:rgba(239,_68,_68,_0.05)] [border:1px_solid_rgba(239,_68,_68,_0.2)] [color:#991b1b] [padding:12px_16px] [border-radius:12px] [font-size:0.88rem] [margin-bottom:16px]">⚠️ {error}</div>}
           </div>
 
           {/* Right — Payment Summary */}
-          <div className="rd-right">
-            <div className="rd-summary-card">
-              <h3 className="rd-summary-title">💳 Payment Summary</h3>
-              <div className="rd-summary-rows">
-                <div className="rd-srow"><span>Rental Fee</span><span>{formatCurrency(rental.rental_fee)}</span></div>
-                <div className="rd-srow"><span>Delivery Fee</span><span>{formatCurrency(rental.delivery_fee)}</span></div>
-                <div className="rd-srow"><span>Platform Fee</span><span>{formatCurrency(rental.platform_fee)}</span></div>
-                <div className="rd-divider" />
-                <div className="rd-srow rd-srow-bold"><span>Booking Amount</span><span>{formatCurrency(rental.booking_amount)}</span></div>
-                <div className="rd-srow rd-srow-deposit">
+          <div className="space-y-4">
+            <div className="[background:#ffffff] [border:1px_solid_#e5e7eb] [border-radius:16px] [padding:24px] [box-shadow:0_4px_6px_-1px_rgba(0,0,0,0.05),_0_2px_4px_-1px_rgba(0,0,0,0.03)]">
+              <h3 className="[font-size:0.95rem] font-bold [color:#1f2937] [margin:0_0_18px]">💳 Payment Summary</h3>
+              <div className="flex flex-col [gap:10px]">
+                <div className="flex justify-between [font-size:0.88rem] [color:#4b5563]"><span>Rental Fee</span><span>{formatCurrency(rental.rental_fee)}</span></div>
+                <div className="flex justify-between [font-size:0.88rem] [color:#4b5563]"><span>Delivery Fee</span><span>{formatCurrency(rental.delivery_fee)}</span></div>
+                <div className="flex justify-between [font-size:0.88rem] [color:#4b5563]"><span>Platform Fee</span><span>{formatCurrency(rental.platform_fee)}</span></div>
+                <div className="border-0 [border-top:1px_solid_#e5e7eb] [margin:4px_0]" />
+                <div className="flex justify-between [font-size:0.88rem] [color:#4b5563] [font-size:1rem] font-bold [color:#111827]"><span>Booking Amount</span><span>{formatCurrency(rental.booking_amount)}</span></div>
+                <div className="flex justify-between [font-size:0.88rem] [color:#4b5563] ">
                   <span>Security Deposit</span>
-                  <span className={`rd-deposit-status ${rental.deposit_status === 'PAID' ? 'paid' : ''}`}>
+                  <span className={` ${rental.deposit_status === 'PAID' ? 'text-mesh-700' : ''}`}>
                     {rental.deposit_status === 'PAID' ? '✅ Paid' : `${formatCurrency(rental.deposit_amount)}`}
                   </span>
                 </div>
               </div>
 
               {/* People */}
-              <div className="rd-people">
-                <div className="rd-person">
-                  <span className="rd-person-role">Owner</span>
-                  <span className="rd-person-name">{rental.owner_name}</span>
-                  {isOwner && <span className="rd-you-badge">You</span>}
+              <div className="[margin-top:20px] [padding-top:16px] [border-top:1px_solid_#e5e7eb] flex flex-col [gap:10px]">
+                <div className="flex items-center [gap:8px]">
+                  <span className="[font-size:0.75rem] [color:#9ca3af] [width:60px]">Owner</span>
+                  <span className="[font-size:0.9rem] [color:#374151] font-medium flex-1">{rental.owner_name}</span>
+                  {isOwner && <span className="[background:rgba(34,_197,_94,_0.1)] [color:#16a34a] [font-size:0.7rem] font-bold [padding:2px_8px] [border-radius:99px] [border:1px_solid_rgba(34,_197,_94,_0.2)]">You</span>}
                 </div>
-                <div className="rd-person">
-                  <span className="rd-person-role">Borrower</span>
-                  <span className="rd-person-name">{rental.borrower_name}</span>
-                  {isBorrower && <span className="rd-you-badge">You</span>}
+                <div className="flex items-center [gap:8px]">
+                  <span className="[font-size:0.75rem] [color:#9ca3af] [width:60px]">Renter</span>
+                  <span className="[font-size:0.9rem] [color:#374151] font-medium flex-1">{rental.borrower_name}</span>
+                  {isBorrower && <span className="[background:rgba(34,_197,_94,_0.1)] [color:#16a34a] [font-size:0.7rem] font-bold [padding:2px_8px] [border-radius:99px] [border:1px_solid_rgba(34,_197,_94,_0.2)]">You</span>}
                 </div>
               </div>
             </div>
 
             {/* Payment History */}
             {payments.length > 0 && (
-              <div className="rd-payment-history">
+              <div className="[background:#ffffff] [border:1px_solid_#e5e7eb] [border-radius:16px] [padding:20px] [box-shadow:0_4px_6px_-1px_rgba(0,0,0,0.05)]">
                 <h4>📜 Transactions</h4>
                 {payments.map((p) => (
-                  <div key={p.id} className="rd-txn">
-                    <div className="rd-txn-type">{p.payment_type.replace('_', ' ')}</div>
-                    <div className="rd-txn-amount">{formatCurrency(p.amount)}</div>
-                    <div className={`rd-txn-status ${p.status === 'PAID' ? 'paid' : 'pending'}`}>{p.status}</div>
+                  <div key={p.id} className="flex justify-between items-center [padding:10px_0] [border-bottom:1px_solid_#e5e7eb] [font-size:0.83rem]">
+                    <div className="[color:#4b5563] capitalize flex-1">{p.payment_type.replace('_', ' ')}</div>
+                    <div className="font-semibold [color:#111827]">{formatCurrency(p.amount)}</div>
+                    <div className={`ml-2 rounded-full px-2 py-0.5 text-xs ${p.status === 'PAID' ? 'bg-mesh-50 text-mesh-700' : 'bg-amber-50 text-amber-700'}`}>{p.status}</div>
                   </div>
                 ))}
               </div>

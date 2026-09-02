@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import './RentalReturn.css';
 
 const API_BASE = 'http://localhost:3003';
 const formatCurrency = (n) => `₹${parseFloat(n || 0).toFixed(2)}`;
@@ -85,15 +84,15 @@ export default function RentalReturn() {
 
   if (loading) {
     return (
-      <div className="rr-loading">
-        <div className="rr-spinner" />
+      <div className="flex flex-col items-center justify-center [min-height:80vh] [gap:20px] [color:#a78bfa]">
+        <div className="[width:48px] [height:48px] [border:4px_solid_rgba(139,_92,_246,_0.2)] [border-top-color:#8b5cf6] [border-radius:50%] animate-spin" />
         <p>Loading rental info…</p>
       </div>
     );
   }
 
   if (error && !rental) {
-    return <div className="rr-error-page"><span>⚠️</span><p>{error}</p></div>;
+    return <div className="flex flex-col items-center justify-center [min-height:70vh] [gap:16px] [color:#f87171] [font-size:1.1rem]"><span>⚠️</span><p>{error}</p></div>;
   }
 
   const isOwner = rental?.owner_id === user?.id;
@@ -103,21 +102,21 @@ export default function RentalReturn() {
 
   if (submitted) {
     return (
-      <div className="rr-success-page">
-        <div className="rr-success-card">
-          <div className="rr-success-icon">🎉</div>
+      <div className="space-y-4">
+        <div className="[background:rgba(255,_255,_255,_0.05)] [border:1px_solid_rgba(16,_185,_129,_0.3)] [border-radius:24px] [padding:48px_40px] [max-width:480px] w-full text-center [backdrop-filter:blur(20px)] [box-shadow:0_0_60px_rgba(16,_185,_129,_0.12)]">
+          <div className="[font-size:4rem] [margin-bottom:20px] block">🎉</div>
           <h2>Return Confirmed!</h2>
-          <p className="rr-success-msg">
+          <p className="[color:#9ca3af] [font-size:0.9rem] [line-height:1.6] [margin:0_0_28px]">
             {isDamaged
               ? `Damage report submitted. After admin review, a refund of ${formatCurrency(estimatedRefund)} will be processed.`
               : `The item was returned in good condition. A full deposit refund of ${formatCurrency(deposit)} has been initiated.`
             }
           </p>
-          <div className="rr-refund-display">
-            <span className="rr-refund-label">Refund Amount</span>
-            <span className="rr-refund-amount">{formatCurrency(estimatedRefund)}</span>
+          <div className="flex flex-col [gap:4px] [background:rgba(16,_185,_129,_0.1)] [border:1px_solid_rgba(16,_185,_129,_0.3)] [border-radius:16px] [padding:20px] [margin-bottom:28px]">
+            <span className="[font-size:0.75rem] [color:#34d399] uppercase [letter-spacing:1px]">Refund Amount</span>
+            <span className="[font-size:2.4rem] font-extrabold [color:#f3f4f6]">{formatCurrency(estimatedRefund)}</span>
           </div>
-          <button className="rr-home-btn" onClick={() => navigate('/owner-dashboard')}>
+          <button className="[background:linear-gradient(135deg,_#7c3aed,_#4f46e5)] [color:white] border-0 [padding:14px_32px] [border-radius:14px] [font-size:1rem] font-bold cursor-pointer [transition:all_0.25s] [box-shadow:0_4px_20px_rgba(124,_58,_237,_0.4)] hover:[transform:translateY(-2px)] hover:[box-shadow:0_8px_28px_rgba(124,_58,_237,_0.5)]" onClick={() => navigate('/owner-dashboard')}>
             Back to Dashboard
           </button>
         </div>
@@ -126,40 +125,40 @@ export default function RentalReturn() {
   }
 
   return (
-    <div className="rr-page">
-      <div className="rr-container">
+    <div className="space-y-4">
+      <div className="space-y-4">
         {/* Header */}
-        <div className="rr-header">
-          <button className="rr-back-btn" onClick={() => navigate(-1)}>← Back</button>
-          <h1 className="rr-title">Return & Inspection</h1>
-          <p className="rr-subtitle">Confirm item return and process security deposit refund</p>
+        <div className="[margin-bottom:32px]">
+          <button className="[background:rgba(139,_92,_246,_0.15)] [border:1px_solid_rgba(139,_92,_246,_0.3)] [color:#a78bfa] [padding:8px_20px] [border-radius:99px] cursor-pointer [font-size:0.9rem] [transition:all_0.2s] [margin-bottom:16px] hover:[background:rgba(139,_92,_246,_0.28)] hover:[transform:translateX(-2px)]" onClick={() => navigate(-1)}>← Back</button>
+          <h1 className="[font-size:2rem] font-extrabold [background:linear-gradient(135deg,_#fff_0%,_#a78bfa_100%)] [-webkit-background-clip:text] [-webkit-text-fill-color:transparent] [background-clip:text] [margin:0_0_6px]">Return & Inspection</h1>
+          <p className="[color:#9ca3af] [font-size:0.95rem] m-0">Inspect and refund.</p>
         </div>
 
-        <div className="rr-layout">
+        <div className="grid [grid-template-columns:1fr_340px] [gap:24px] [align-items:start] [grid-template-columns:1fr]">
           {/* Left — Inspection Form */}
-          <div className="rr-left">
+          <div className="space-y-4">
             {/* Rental Info */}
-            <div className="rr-info-card">
+            <div className="space-y-4">
               {rental.listing_image && (
-                <img src={rental.listing_image} alt={rental.listing_title} className="rr-item-img" />
+                <img src={rental.listing_image} alt={rental.listing_title} className="[width:80px] [height:70px] [border-radius:12px] object-cover shrink-0" />
               )}
               <div>
-                <p className="rr-item-cat">{rental.listing_category}</p>
-                <h2 className="rr-item-title">{rental.listing_title}</h2>
-                <p className="rr-borrower">Rented by: <strong>{rental.borrower_name}</strong></p>
+                <p className="[font-size:0.73rem] [color:#a78bfa] uppercase [letter-spacing:0.5px] [margin:0_0_4px]">{rental.listing_category}</p>
+                <h2 className="[font-size:1rem] font-bold [color:#f3f4f6] [margin:0_0_4px]">{rental.listing_title}</h2>
+                <p className="[font-size:0.82rem] [color:#9ca3af] m-0">Rented by: <strong>{rental.borrower_name}</strong></p>
               </div>
             </div>
 
             {/* Condition Check */}
             {isOwner ? (
-              <form onSubmit={handleSubmit} className="rr-form">
-                <h3 className="rr-form-heading">📋 Condition Inspection</h3>
-                <p className="rr-form-note">As the owner, confirm whether the item was returned in good condition.</p>
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <h3 className="[font-size:1rem] font-bold [color:#e2d9f3] m-0">📋 Condition Inspection</h3>
+                <p className="[font-size:0.85rem] [color:#9ca3af] m-0 [line-height:1.5]">Confirm the returned condition.</p>
 
-                <div className="rr-condition-choices">
+                <div className="flex [gap:12px]">
                   <button
                     type="button"
-                    className={`rr-condition-btn ${!isDamaged ? 'rr-condition-good' : ''}`}
+                    className={`flex-1 flex flex-col items-center [gap:4px] [padding:18px_12px] [border-radius:14px] [background:rgba(255,_255,_255,_0.05)] [border:2px_solid_rgba(139,_92,_246,_0.2)] [color:#9ca3af] cursor-pointer [transition:all_0.2s] ${!isDamaged ? '[background:rgba(16,_185,_129,_0.1)] [border-color:rgba(16,_185,_129,_0.5)] [color:#34d399] [box-shadow:0_0_16px_rgba(16,_185,_129,_0.15)]' : ''}`}
                     onClick={() => setIsDamaged(false)}
                   >
                     <span>✅</span>
@@ -168,7 +167,7 @@ export default function RentalReturn() {
                   </button>
                   <button
                     type="button"
-                    className={`rr-condition-btn ${isDamaged ? 'rr-condition-damaged' : ''}`}
+                    className={`flex-1 flex flex-col items-center [gap:4px] [padding:18px_12px] [border-radius:14px] [background:rgba(255,_255,_255,_0.05)] [border:2px_solid_rgba(139,_92,_246,_0.2)] [color:#9ca3af] cursor-pointer [transition:all_0.2s] ${isDamaged ? '[background:rgba(239,_68,_68,_0.1)] [border-color:rgba(239,_68,_68,_0.5)] [color:#fca5a5] [box-shadow:0_0_16px_rgba(239,_68,_68,_0.12)]' : ''}`}
                     onClick={() => setIsDamaged(true)}
                   >
                     <span>⚠️</span>
@@ -178,8 +177,8 @@ export default function RentalReturn() {
                 </div>
 
                 {isDamaged && (
-                  <div className="rr-damage-section">
-                    <div className="rr-field">
+                  <div className="flex flex-col [gap:16px]">
+                    <div className="flex flex-col [gap:6px]">
                       <label htmlFor="damage-desc">Damage Description *</label>
                       <textarea
                         id="damage-desc"
@@ -190,7 +189,7 @@ export default function RentalReturn() {
                         required={isDamaged}
                       />
                     </div>
-                    <div className="rr-field">
+                    <div className="flex flex-col [gap:6px]">
                       <label htmlFor="damage-amt">Estimated Damage Cost (₹)</label>
                       <input
                         id="damage-amt"
@@ -202,43 +201,43 @@ export default function RentalReturn() {
                         value={damageAmount}
                         onChange={(e) => setDamageAmount(e.target.value)}
                       />
-                      <small className="rr-field-note">Maximum deductible: {formatCurrency(deposit)}</small>
+                      <small className="[font-size:0.75rem] [color:#6b7280]">Maximum deductible: {formatCurrency(deposit)}</small>
                     </div>
                   </div>
                 )}
 
-                {error && <div className="rr-error">{error}</div>}
+                {error && <div className="[background:rgba(239,_68,_68,_0.1)] [border:1px_solid_rgba(239,_68,_68,_0.3)] [color:#fca5a5] [padding:10px_14px] [border-radius:10px] [font-size:0.88rem]">{error}</div>}
 
-                <button type="submit" className="rr-submit-btn" disabled={submitting}>
+                <button type="submit" className="[background:linear-gradient(135deg,_#7c3aed,_#4f46e5)] [color:white] border-0 [padding:16px] [border-radius:14px] [font-size:1rem] font-bold cursor-pointer [transition:all_0.25s] [box-shadow:0_4px_20px_rgba(124,_58,_237,_0.4)] disabled:[opacity:0.5] disabled:[cursor:not-allowed]" disabled={submitting}>
                   {submitting ? 'Processing…' : 'Confirm Return & Process Refund'}
                 </button>
               </form>
             ) : (
-              <div className="rr-borrower-view">
-                <div className="rr-borrower-icon">📦</div>
+              <div className="space-y-4">
+                <div className="[font-size:3rem] [margin-bottom:16px] block">📦</div>
                 <h3>Return in Progress</h3>
-                <p>The owner is inspecting your returned item. Your deposit refund will be processed shortly.</p>
+                <p>Inspection in progress.</p>
               </div>
             )}
           </div>
 
           {/* Right — Refund Preview */}
-          <div className="rr-right">
-            <div className="rr-refund-card">
-              <h3 className="rr-refund-title">💰 Refund Preview</h3>
-              <div className="rr-refund-rows">
-                <div className="rr-rrow"><span>Security Deposit</span><span>{formatCurrency(deposit)}</span></div>
-                <div className="rr-rrow"><span>Damage Deduction</span><span className="rr-deduction">
+          <div className="space-y-4">
+            <div className="[background:rgba(255,_255,_255,_0.04)] [border:1px_solid_rgba(139,_92,_246,_0.2)] [border-radius:20px] [padding:24px] [backdrop-filter:blur(8px)]">
+              <h3 className="[font-size:0.95rem] font-bold [color:#e2d9f3] [margin:0_0_18px]">💰 Refund Preview</h3>
+              <div className="flex flex-col [gap:12px]">
+                <div className="flex justify-between [font-size:0.9rem] [color:#9ca3af]"><span>Security Deposit</span><span>{formatCurrency(deposit)}</span></div>
+                <div className="flex justify-between [font-size:0.9rem] [color:#9ca3af]"><span>Damage Deduction</span><span className="[color:#fca5a5] font-semibold">
                   {isDamaged ? `- ${formatCurrency(deduction)}` : '—'}
                 </span></div>
-                <div className="rr-rdivider" />
-                <div className="rr-rrow rr-rrow-total">
+                <div className="border-0 [border-top:1px_solid_rgba(139,_92,_246,_0.15)]" />
+                <div className="flex justify-between [font-size:0.9rem] [color:#9ca3af] [font-size:1.05rem] font-bold [color:#f3f4f6]">
                   <span>Estimated Refund</span>
-                  <span className="rr-refund-val">{formatCurrency(estimatedRefund)}</span>
+                  <span className="[color:#34d399] [font-size:1.2rem] font-extrabold">{formatCurrency(estimatedRefund)}</span>
                 </div>
               </div>
 
-              <div className="rr-policy-note">
+              <div className="[margin-top:20px] [padding-top:16px] [border-top:1px_solid_rgba(139,_92,_246,_0.1)] flex flex-col [gap:6px]">
                 <p>✅ Full refund if no damage is reported.</p>
                 <p>⚠️ Partial refund if damage deduction applies — pending admin review.</p>
                 <p>🔒 Refunds are processed via the original payment method.</p>
@@ -246,12 +245,12 @@ export default function RentalReturn() {
             </div>
 
             {/* Rental Summary */}
-            <div className="rr-summary-card">
+            <div className="[background:rgba(255,_255,_255,_0.03)] [border:1px_solid_rgba(139,_92,_246,_0.12)] [border-radius:16px] [padding:20px] flex flex-col [gap:10px]">
               <h4>Rental Summary</h4>
-              <div className="rr-srow"><span>Rental Fee</span><span>{formatCurrency(rental.rental_fee)}</span></div>
-              <div className="rr-srow"><span>Duration</span><span>{rental.rental_days} day{rental.rental_days > 1 ? 's' : ''}</span></div>
-              <div className="rr-srow"><span>Booking Amount</span><span>{formatCurrency(rental.booking_amount)}</span></div>
-              <div className="rr-srow"><span>Status</span><span className="rr-status-chip">{rental.status.replace(/_/g, ' ')}</span></div>
+              <div className="flex justify-between [font-size:0.85rem] [color:#9ca3af]"><span>Rental Fee</span><span>{formatCurrency(rental.rental_fee)}</span></div>
+              <div className="flex justify-between [font-size:0.85rem] [color:#9ca3af]"><span>Duration</span><span>{rental.rental_days} day{rental.rental_days > 1 ? 's' : ''}</span></div>
+              <div className="flex justify-between [font-size:0.85rem] [color:#9ca3af]"><span>Booking Amount</span><span>{formatCurrency(rental.booking_amount)}</span></div>
+              <div className="flex justify-between [font-size:0.85rem] [color:#9ca3af]"><span>Status</span><span className="[font-size:0.72rem] [background:rgba(139,_92,_246,_0.15)] [border:1px_solid_rgba(139,_92,_246,_0.3)] [color:#a78bfa] [padding:2px_10px] [border-radius:99px] capitalize [font-weight:600]">{rental.status.replace(/_/g, ' ')}</span></div>
             </div>
           </div>
         </div>
