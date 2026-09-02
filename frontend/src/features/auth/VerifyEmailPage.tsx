@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Mail, RotateCcw } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { verifyEmail, resendOtp, getApiError } from '../auth/authService';
-import type { AuthLoadingState } from '../auth/authTypes';
-import './Auth.css';
+import { useAuth } from '../../context/AuthContext';
+import { verifyEmail, resendOtp, getApiError } from './auth.service';
+import type { AuthLoadingState } from './auth.types';
 
 const VerifyEmail: React.FC = () => {
   const { api } = useAuth();
@@ -67,37 +66,37 @@ const VerifyEmail: React.FC = () => {
   };
 
   return (
-    <div className="auth-layout">
+    <div className="[grid-template-columns:1fr]">
       {/* ── Left: Brand panel ── */}
-      <aside className="auth-brand">
-        <div className="auth-brand-logo">Campus<span>Mesh</span></div>
+      <aside className="hidden">
+        <div className="[font-size:1.375rem] font-extrabold [color:var(--color-text)] [letter-spacing:-0.04em] [margin-bottom:2.5rem] relative">Campus<span>Mesh</span></div>
 
-        <h2 className="auth-brand-headline">
+        <h2 className="[font-size:2rem] font-extrabold [line-height:1.2] [color:var(--color-text)] [letter-spacing:-0.03em] [margin-bottom:1rem] relative">
           One step<br />
           <span>left to go.</span>
         </h2>
 
-        <p className="auth-brand-sub">
+        <p className="[font-size:15px] [color:var(--color-text-secondary)] [line-height:1.65] [max-width:320px] [margin-bottom:2.5rem] relative">
           We sent a 6-digit verification code to your DBIT university email.
           Enter it to activate your account.
         </p>
 
-        <ul className="auth-features">
+        <ul className="space-y-3 text-sm text-ink/55">
           <li>
-            <span className="auth-feature-icon"><Mail size={14} strokeWidth={2} /></span>
+            <span className="[width:28px] [height:28px] [background:var(--color-primary-light)] [border-radius:var(--radius-sm)] flex items-center justify-center shrink-0 [color:var(--color-primary-dark)]"><Mail size={14} strokeWidth={2} /></span>
             Check your inbox and spam folder
           </li>
           <li>
-            <span className="auth-feature-icon"><RotateCcw size={14} strokeWidth={2} /></span>
+            <span className="[width:28px] [height:28px] [background:var(--color-primary-light)] [border-radius:var(--radius-sm)] flex items-center justify-center shrink-0 [color:var(--color-primary-dark)]"><RotateCcw size={14} strokeWidth={2} /></span>
             Code expires in 10 minutes
           </li>
         </ul>
       </aside>
 
       {/* ── Right: Form panel ── */}
-      <main className="auth-form-panel">
-        <div className="auth-form-inner">
-          <div className="auth-form-header">
+      <main className="[padding:2rem_1.5rem] [padding:1.5rem_1.25rem]">
+        <div className="w-full [max-width:400px] [max-width:420px]">
+          <div className="[margin-bottom:1.75rem]">
             <h1>Check your inbox</h1>
             <p>
               Enter the 6-digit code sent to{' '}
@@ -105,20 +104,20 @@ const VerifyEmail: React.FC = () => {
             </p>
           </div>
 
-          {error && <div className="error-message" role="alert">{error}</div>}
-          {success && <div className="success-message" role="status">{success}</div>}
+          {error && <div className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700" role="alert">{error}</div>}
+          {success && <div className="rounded-xl bg-mesh-50 p-3 text-sm font-semibold text-mesh-700" role="status">{success}</div>}
 
           <form onSubmit={handleVerify} noValidate>
             {/* Email field — only shown if not passed via router state */}
             {!initialEmail && (
-              <div className="form-group">
-                <label className="form-label" htmlFor="ve-email">University Email</label>
-                <div className="input-wrapper">
-                  <span className="input-icon-left"><Mail size={15} strokeWidth={1.75} /></span>
+              <div className="space-y-4">
+                <label className="mb-1.5 block text-xs font-bold text-ink/60" htmlFor="ve-email">University Email</label>
+                <div className="space-y-4">
+                  <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none"><Mail size={15} strokeWidth={1.75} /></span>
                   <input
                     id="ve-email"
                     type="email"
-                    className="form-input has-icon-left"
+                    className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-11 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                     placeholder="1DB23AD001@dbit.co.in"
                     required
                     autoComplete="email"
@@ -130,12 +129,12 @@ const VerifyEmail: React.FC = () => {
             )}
 
             {/* OTP */}
-            <div className="form-group">
-              <label className="form-label" htmlFor="ve-otp">Verification Code</label>
+            <div className="space-y-4">
+              <label className="mb-1.5 block text-xs font-bold text-ink/60" htmlFor="ve-otp">Verification Code</label>
               <input
                 id="ve-otp"
                 type="text"
-                className="form-input"
+                className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-center text-xl font-bold tracking-[.4rem] outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                 placeholder="Enter 6-digit code"
                 required
                 maxLength={6}
@@ -143,36 +142,29 @@ const VerifyEmail: React.FC = () => {
                 pattern="[0-9]*"
                 value={otp}
                 onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
-                style={{
-                  letterSpacing: '0.4rem',
-                  textAlign: 'center',
-                  fontSize: '1.25rem',
-                  fontWeight: 700,
-                }}
               />
             </div>
 
             <button
               type="submit"
               id="ve-submit"
-              className="btn btn-primary btn-block auth-submit-btn"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50"
               disabled={isLoading || otp.length !== 6}
             >
               {isLoading
-                ? <><span className="spinner" /> Verifying...</>
+                ? <><span  /> Verifying...</>
                 : 'Verify Email'}
             </button>
           </form>
 
           {/* Resend section */}
-          <div style={{ marginTop: '1.25rem', textAlign: 'center' }}>
-            <p className="auth-footer-link" style={{ marginTop: 0 }}>
+          <div className="mt-5 text-center">
+            <p>
               Didn't receive the code?
             </p>
             <button
               type="button"
-              className="btn btn-secondary btn-block"
-              style={{ marginTop: '0.625rem', gap: '0.375rem' }}
+              className="mt-2 inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50"
               onClick={handleResend}
               disabled={isLoading || resendCooldown > 0}
               id="ve-resend"

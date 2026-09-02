@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Mail, Lock, ArrowLeft, Eye, EyeOff } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { requestPasswordReset, resetPassword, getApiError } from '../auth/authService';
-import type { AuthLoadingState } from '../auth/authTypes';
-import './Auth.css';
+import { useAuth } from '../../context/AuthContext';
+import { requestPasswordReset, resetPassword, getApiError } from './auth.service';
+import type { AuthLoadingState } from './auth.types';
 
 const ForgotPassword: React.FC = () => {
   const { api } = useAuth();
@@ -69,43 +68,43 @@ const ForgotPassword: React.FC = () => {
   };
 
   return (
-    <div className="auth-layout">
+    <div className="[grid-template-columns:1fr]">
       {/* ── Left: Brand panel ── */}
-      <aside className="auth-brand">
-        <div className="auth-brand-logo">Campus<span>Mesh</span></div>
+      <aside className="hidden">
+        <div className="[font-size:1.375rem] font-extrabold [color:var(--color-text)] [letter-spacing:-0.04em] [margin-bottom:2.5rem] relative">Campus<span>Mesh</span></div>
 
-        <h2 className="auth-brand-headline">
+        <h2 className="[font-size:2rem] font-extrabold [line-height:1.2] [color:var(--color-text)] [letter-spacing:-0.03em] [margin-bottom:1rem] relative">
           Forgot your<br />
           <span>password?</span>
         </h2>
 
-        <p className="auth-brand-sub">
+        <p className="[font-size:15px] [color:var(--color-text-secondary)] [line-height:1.65] [max-width:320px] [margin-bottom:2.5rem] relative">
           No problem. Enter your DBIT university email and we'll
           send you a one-time reset code.
         </p>
 
-        <ul className="auth-features">
+        <ul className="space-y-3 text-sm text-ink/55">
           <li>
-            <span className="auth-feature-icon"><Mail size={14} strokeWidth={2} /></span>
+            <span className="[width:28px] [height:28px] [background:var(--color-primary-light)] [border-radius:var(--radius-sm)] flex items-center justify-center shrink-0 [color:var(--color-primary-dark)]"><Mail size={14} strokeWidth={2} /></span>
             Code sent to your university email
           </li>
           <li>
-            <span className="auth-feature-icon"><Lock size={14} strokeWidth={2} /></span>
+            <span className="[width:28px] [height:28px] [background:var(--color-primary-light)] [border-radius:var(--radius-sm)] flex items-center justify-center shrink-0 [color:var(--color-primary-dark)]"><Lock size={14} strokeWidth={2} /></span>
             Code expires in 10 minutes
           </li>
         </ul>
       </aside>
 
       {/* ── Right: Form panel ── */}
-      <main className="auth-form-panel">
-        <div className="auth-form-inner">
+      <main className="[padding:2rem_1.5rem] [padding:1.5rem_1.25rem]">
+        <div className="w-full [max-width:400px] [max-width:420px]">
           {/* Step indicators */}
-          <div className="auth-steps">
-            <div className={`auth-step-dot ${step >= 1 ? 'active' : ''}`} />
-            <div className={`auth-step-dot ${step >= 2 ? 'active' : ''}`} />
+          <div className="space-y-4">
+            <div className={`h-1 w-8 rounded-full transition ${step >= 1 ? 'bg-mesh-600' : 'bg-ink/10'}`} />
+            <div className={`h-1 w-8 rounded-full transition ${step >= 2 ? 'bg-mesh-600' : 'bg-ink/10'}`} />
           </div>
 
-          <div className="auth-form-header">
+          <div className="[margin-bottom:1.75rem]">
             <h1>{step === 1 ? 'Reset your password' : 'Enter new password'}</h1>
             <p>
               {step === 1
@@ -114,19 +113,19 @@ const ForgotPassword: React.FC = () => {
             </p>
           </div>
 
-          {error && <div className="error-message" role="alert">{error}</div>}
-          {success && <div className="success-message" role="status">{success}</div>}
+          {error && <div className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700" role="alert">{error}</div>}
+          {success && <div className="rounded-xl bg-mesh-50 p-3 text-sm font-semibold text-mesh-700" role="status">{success}</div>}
 
           {step === 1 ? (
             <form onSubmit={handleRequestOtp} noValidate>
-              <div className="form-group">
-                <label className="form-label" htmlFor="fp-email">University Email</label>
-                <div className="input-wrapper">
-                  <span className="input-icon-left"><Mail size={15} strokeWidth={1.75} /></span>
+              <div className="space-y-4">
+                <label className="mb-1.5 block text-xs font-bold text-ink/60" htmlFor="fp-email">University Email</label>
+                <div className="space-y-4">
+                  <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none"><Mail size={15} strokeWidth={1.75} /></span>
                   <input
                     id="fp-email"
                     type="email"
-                    className="form-input has-icon-left"
+                    className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-11 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                     placeholder="1DB23AD001@dbit.co.in"
                     required
                     autoComplete="email"
@@ -138,17 +137,16 @@ const ForgotPassword: React.FC = () => {
 
               <button
                 type="submit"
-                className="btn btn-primary btn-block auth-submit-btn"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50"
                 disabled={isLoading}
                 id="fp-send-btn"
               >
-                {isLoading ? <><span className="spinner" /> Sending...</> : 'Send Reset Code'}
+                {isLoading ? <><span  /> Sending...</> : 'Send Reset Code'}
               </button>
 
               <button
                 type="button"
-                className="btn btn-ghost btn-block"
-                style={{ marginTop: '0.75rem', gap: '0.375rem' }}
+                className="mt-3 inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50"
                 onClick={() => navigate('/login')}
               >
                 <ArrowLeft size={15} strokeWidth={2} />
@@ -158,12 +156,12 @@ const ForgotPassword: React.FC = () => {
           ) : (
             <form onSubmit={handleResetPassword} noValidate>
               {/* OTP */}
-              <div className="form-group">
-                <label className="form-label" htmlFor="fp-otp">6-Digit Reset Code</label>
+              <div className="space-y-4">
+                <label className="mb-1.5 block text-xs font-bold text-ink/60" htmlFor="fp-otp">6-Digit Reset Code</label>
                 <input
                   id="fp-otp"
                   type="text"
-                  className="form-input"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-center text-lg font-semibold tracking-[.4rem] outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   placeholder="Enter 6-digit code"
                   required
                   maxLength={6}
@@ -171,19 +169,18 @@ const ForgotPassword: React.FC = () => {
                   pattern="[0-9]*"
                   value={otp}
                   onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
-                  style={{ letterSpacing: '0.4rem', textAlign: 'center', fontSize: '1.125rem', fontWeight: 600 }}
                 />
               </div>
 
               {/* New Password */}
-              <div className="form-group">
-                <label className="form-label" htmlFor="fp-newpw">New Password</label>
-                <div className="input-wrapper">
-                  <span className="input-icon-left"><Lock size={15} strokeWidth={1.75} /></span>
+              <div className="space-y-4">
+                <label className="mb-1.5 block text-xs font-bold text-ink/60" htmlFor="fp-newpw">New Password</label>
+                <div className="space-y-4">
+                  <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none"><Lock size={15} strokeWidth={1.75} /></span>
                   <input
                     id="fp-newpw"
                     type={showPassword ? 'text' : 'password'}
-                    className="form-input has-icon-left has-icon-right"
+                    className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-11 pr-11 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                     placeholder="Min. 6 characters"
                     required
                     minLength={6}
@@ -193,7 +190,7 @@ const ForgotPassword: React.FC = () => {
                   />
                   <button
                     type="button"
-                    className="input-icon-right"
+                    className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50"
                     onClick={() => setShowPassword(s => !s)}
                     tabIndex={-1}
                     aria-label={showPassword ? 'Hide password' : 'Show password'}
@@ -205,16 +202,16 @@ const ForgotPassword: React.FC = () => {
 
               <button
                 type="submit"
-                className="btn btn-primary btn-block auth-submit-btn"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50"
                 disabled={isLoading || otp.length !== 6 || newPassword.length < 6}
                 id="fp-reset-btn"
               >
-                {isLoading ? <><span className="spinner" /> Resetting...</> : 'Reset Password'}
+                {isLoading ? <><span  /> Resetting...</> : 'Reset Password'}
               </button>
             </form>
           )}
 
-          <p className="auth-footer-link">
+          <p >
             Remembered it? <a href="#" onClick={e => { e.preventDefault(); navigate('/login'); }}>Back to Sign In</a>
           </p>
         </div>

@@ -1,10 +1,9 @@
 import { useState, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, User, AtSign, ShieldCheck, Users, ArrowRight } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
-import { signupUser, getApiError } from '../auth/authService';
-import type { SignupFormData, SignupFieldErrors, AuthLoadingState } from '../auth/authTypes';
-import './Auth.css';
+import { useAuth } from '../../context/AuthContext';
+import { signupUser, getApiError } from './auth.service';
+import type { SignupFormData, SignupFieldErrors, AuthLoadingState } from './auth.types';
 
 // ─── Password strength ────────────────────────────
 
@@ -26,12 +25,20 @@ const strengthLabel: Record<StrengthLevel, string> = {
   strong: 'Strong',
 };
 
-const strengthColor: Record<StrengthLevel, string> = {
-  none:   'var(--color-border)',
-  weak:   '#EF4444',
-  fair:   '#F59E0B',
-  good:   '#3B82F6',
-  strong: '#22C55E',
+const strengthBarClass: Record<StrengthLevel, string> = {
+  none:   'bg-ink/10',
+  weak:   'bg-red-500',
+  fair:   'bg-amber-500',
+  good:   'bg-blue-500',
+  strong: 'bg-green-500',
+};
+
+const strengthTextClass: Record<StrengthLevel, string> = {
+  none:   'text-ink/40',
+  weak:   'text-red-600',
+  fair:   'text-amber-600',
+  good:   'text-blue-600',
+  strong: 'text-green-600',
 };
 
 // ─── Component ────────────────────────────────────
@@ -135,61 +142,61 @@ const Signup: React.FC = () => {
   };
 
   return (
-    <div className="auth-layout">
+    <div className="[grid-template-columns:1fr]">
       {/* ── Left: Brand Panel ── */}
-      <aside className="auth-brand">
-        <div className="auth-brand-logo">
+      <aside className="hidden">
+        <div className="[font-size:1.375rem] font-extrabold [color:var(--color-text)] [letter-spacing:-0.04em] [margin-bottom:2.5rem] relative">
           Campus<span>Mesh</span>
         </div>
 
-        <h2 className="auth-brand-headline">
+        <h2 className="[font-size:2rem] font-extrabold [line-height:1.2] [color:var(--color-text)] [letter-spacing:-0.03em] [margin-bottom:1rem] relative">
           Join your campus<br />
           <span>sharing community.</span>
         </h2>
 
-        <p className="auth-brand-sub">
-          Connect with verified DBIT students to rent, borrow and
+        <p className="[font-size:15px] [color:var(--color-text-secondary)] [line-height:1.65] [max-width:320px] [margin-bottom:2.5rem] relative">
+          Connect with verified DBIT students to rent and
           share items — saving money and building community.
         </p>
 
-        <ul className="auth-features">
+        <ul className="space-y-3 text-sm text-ink/55">
           <li>
-            <span className="auth-feature-icon"><ShieldCheck size={14} strokeWidth={2} /></span>
+            <span className="[width:28px] [height:28px] [background:var(--color-primary-light)] [border-radius:var(--radius-sm)] flex items-center justify-center shrink-0 [color:var(--color-primary-dark)]"><ShieldCheck size={14} strokeWidth={2} /></span>
             Free to join — no subscription fees
           </li>
           <li>
-            <span className="auth-feature-icon"><Users size={14} strokeWidth={2} /></span>
+            <span className="[width:28px] [height:28px] [background:var(--color-primary-light)] [border-radius:var(--radius-sm)] flex items-center justify-center shrink-0 [color:var(--color-primary-dark)]"><Users size={14} strokeWidth={2} /></span>
             Earn from items you already own
           </li>
           <li>
-            <span className="auth-feature-icon"><ShieldCheck size={14} strokeWidth={2} /></span>
+            <span className="[width:28px] [height:28px] [background:var(--color-primary-light)] [border-radius:var(--radius-sm)] flex items-center justify-center shrink-0 [color:var(--color-primary-dark)]"><ShieldCheck size={14} strokeWidth={2} /></span>
             Refundable security deposits protect everyone
           </li>
         </ul>
       </aside>
 
       {/* ── Right: Form Panel ── */}
-      <main className="auth-form-panel">
-        <div className="auth-form-inner">
-          <div className="auth-form-header">
+      <main className="[padding:2rem_1.5rem] [padding:1.5rem_1.25rem]">
+        <div className="w-full [max-width:400px] [max-width:420px]">
+          <div className="[margin-bottom:1.75rem]">
             <h1>Create your account</h1>
             <p>Join thousands of DBIT students on CampusMesh</p>
           </div>
 
           {globalError && (
-            <div className="error-message" role="alert">{globalError}</div>
+            <div className="rounded-xl bg-red-50 p-3 text-sm font-semibold text-red-700" role="alert">{globalError}</div>
           )}
 
           <form onSubmit={handleSubmit} noValidate>
             {/* Full Name */}
-            <div className="form-group">
-              <label className="form-label" htmlFor="signup-name">Full Name</label>
-              <div className="input-wrapper">
-                <span className="input-icon-left"><User size={15} strokeWidth={1.75} /></span>
+            <div className="space-y-4">
+              <label className="mb-1.5 block text-xs font-bold text-ink/60" htmlFor="signup-name">Full Name</label>
+              <div className="space-y-4">
+                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none"><User size={15} strokeWidth={1.75} /></span>
                 <input
                   id="signup-name"
                   type="text"
-                  className="form-input has-icon-left"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-11 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   placeholder="e.g. Amruth Kumar"
                   required
                   autoComplete="name"
@@ -197,18 +204,18 @@ const Signup: React.FC = () => {
                   onChange={e => { update('name', e.target.value); clearFieldError('name'); }}
                 />
               </div>
-              {fieldErrors.name && <p className="field-error">{fieldErrors.name}</p>}
+              {fieldErrors.name && <p className="mt-1 text-xs font-semibold text-red-600">{fieldErrors.name}</p>}
             </div>
 
             {/* Username */}
-            <div className="form-group">
-              <label className="form-label" htmlFor="signup-username">Username</label>
-              <div className="input-wrapper">
-                <span className="input-icon-left"><AtSign size={15} strokeWidth={1.75} /></span>
+            <div className="space-y-4">
+              <label className="mb-1.5 block text-xs font-bold text-ink/60" htmlFor="signup-username">Username</label>
+              <div className="space-y-4">
+                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none"><AtSign size={15} strokeWidth={1.75} /></span>
                 <input
                   id="signup-username"
                   type="text"
-                  className="form-input has-icon-left"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-11 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   placeholder="e.g. amruth_k"
                   required
                   autoComplete="username"
@@ -216,18 +223,18 @@ const Signup: React.FC = () => {
                   onChange={e => { update('username', e.target.value); clearFieldError('username'); }}
                 />
               </div>
-              {fieldErrors.username && <p className="field-error">{fieldErrors.username}</p>}
+              {fieldErrors.username && <p className="mt-1 text-xs font-semibold text-red-600">{fieldErrors.username}</p>}
             </div>
 
             {/* University Email */}
-            <div className="form-group">
-              <label className="form-label" htmlFor="signup-email">University Email</label>
-              <div className="input-wrapper">
-                <span className="input-icon-left"><Mail size={15} strokeWidth={1.75} /></span>
+            <div className="space-y-4">
+              <label className="mb-1.5 block text-xs font-bold text-ink/60" htmlFor="signup-email">University Email</label>
+              <div className="space-y-4">
+                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none"><Mail size={15} strokeWidth={1.75} /></span>
                 <input
                   id="signup-email"
                   type="email"
-                  className="form-input has-icon-left"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-11 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   placeholder="Must end in @dbit.co.in"
                   required
                   autoComplete="email"
@@ -235,18 +242,18 @@ const Signup: React.FC = () => {
                   onChange={e => { update('email', e.target.value); clearFieldError('email'); }}
                 />
               </div>
-              {fieldErrors.email && <p className="field-error">{fieldErrors.email}</p>}
+              {fieldErrors.email && <p className="mt-1 text-xs font-semibold text-red-600">{fieldErrors.email}</p>}
             </div>
 
             {/* Password */}
-            <div className="form-group">
-              <label className="form-label" htmlFor="signup-password">Password</label>
-              <div className="input-wrapper">
-                <span className="input-icon-left"><Lock size={15} strokeWidth={1.75} /></span>
+            <div className="space-y-4">
+              <label className="mb-1.5 block text-xs font-bold text-ink/60" htmlFor="signup-password">Password</label>
+              <div className="space-y-4">
+                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none"><Lock size={15} strokeWidth={1.75} /></span>
                 <input
                   id="signup-password"
                   type={showPassword ? 'text' : 'password'}
-                  className="form-input has-icon-left has-icon-right"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-11 pr-11 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   placeholder="Min. 6 characters"
                   required
                   autoComplete="new-password"
@@ -255,7 +262,7 @@ const Signup: React.FC = () => {
                 />
                 <button
                   type="button"
-                  className="input-icon-right"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50"
                   onClick={() => setShowPassword(s => !s)}
                   aria-label={showPassword ? 'Hide password' : 'Show password'}
                   tabIndex={-1}
@@ -265,40 +272,31 @@ const Signup: React.FC = () => {
               </div>
               {/* Strength bar */}
               {form.password && (
-                <div style={{ marginTop: '6px', display: 'flex', gap: '4px', alignItems: 'center' }}>
+                <div className="mt-1.5 flex items-center gap-1">
                   {(['weak', 'fair', 'good', 'strong'] as StrengthLevel[]).map(level => {
                     const levels: StrengthLevel[] = ['weak', 'fair', 'good', 'strong'];
                     const active = levels.indexOf(strength as StrengthLevel) >= levels.indexOf(level);
                     return (
-                      <div
-                        key={level}
-                        style={{
-                          flex: 1,
-                          height: '3px',
-                          borderRadius: '99px',
-                          background: active ? strengthColor[strength] : 'var(--color-border)',
-                          transition: 'background 0.25s',
-                        }}
-                      />
+                      <div key={level} className={`h-[3px] flex-1 rounded-full transition-colors ${active ? strengthBarClass[strength] : 'bg-ink/10'}`} />
                     );
                   })}
-                  <span style={{ fontSize: '11px', color: strengthColor[strength], fontWeight: 600, minWidth: '40px', textAlign: 'right' }}>
+                  <span className={`min-w-10 text-right text-[11px] font-semibold ${strengthTextClass[strength]}`}>
                     {strengthLabel[strength]}
                   </span>
                 </div>
               )}
-              {fieldErrors.password && <p className="field-error">{fieldErrors.password}</p>}
+              {fieldErrors.password && <p className="mt-1 text-xs font-semibold text-red-600">{fieldErrors.password}</p>}
             </div>
 
             {/* Confirm Password */}
-            <div className="form-group">
-              <label className="form-label" htmlFor="signup-confirm">Confirm Password</label>
-              <div className="input-wrapper">
-                <span className="input-icon-left"><Lock size={15} strokeWidth={1.75} /></span>
+            <div className="space-y-4">
+              <label className="mb-1.5 block text-xs font-bold text-ink/60" htmlFor="signup-confirm">Confirm Password</label>
+              <div className="space-y-4">
+                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none"><Lock size={15} strokeWidth={1.75} /></span>
                 <input
                   id="signup-confirm"
                   type={showConfirm ? 'text' : 'password'}
-                  className="form-input has-icon-left has-icon-right"
+                  className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-11 pr-11 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                   placeholder="Re-enter your password"
                   required
                   autoComplete="new-password"
@@ -307,7 +305,7 @@ const Signup: React.FC = () => {
                 />
                 <button
                   type="button"
-                  className="input-icon-right"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50"
                   onClick={() => setShowConfirm(s => !s)}
                   aria-label={showConfirm ? 'Hide' : 'Show'}
                   tabIndex={-1}
@@ -315,25 +313,25 @@ const Signup: React.FC = () => {
                   {showConfirm ? <EyeOff size={15} strokeWidth={1.75} /> : <Eye size={15} strokeWidth={1.75} />}
                 </button>
               </div>
-              {fieldErrors.confirmPassword && <p className="field-error">{fieldErrors.confirmPassword}</p>}
+              {fieldErrors.confirmPassword && <p className="mt-1 text-xs font-semibold text-red-600">{fieldErrors.confirmPassword}</p>}
             </div>
 
             {/* Submit */}
             <button
               type="submit"
               id="signup-submit"
-              className="btn btn-primary btn-block auth-submit-btn"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50"
               disabled={isLoading}
             >
               {isLoading ? (
-                <><span className="spinner" /> Creating account...</>
+                <><span  /> Creating account...</>
               ) : (
                 <>Create Account <ArrowRight size={15} strokeWidth={2} /></>
               )}
             </button>
           </form>
 
-          <p className="auth-footer-link">
+          <p >
             Already have an account? <Link to="/login">Sign in</Link>
           </p>
         </div>

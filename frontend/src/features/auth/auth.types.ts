@@ -97,3 +97,4 @@ export interface SignupFieldErrors {
 }
 
 export type AuthLoadingState = 'idle' | 'loading' | 'success' | 'error';
+

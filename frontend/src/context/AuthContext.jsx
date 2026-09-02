@@ -1,4 +1,4 @@
-import { createContext, useState, useEffect, useContext } from 'react';
+import { createContext, useState, useEffect, useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 
@@ -14,18 +14,17 @@ export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
 
   // Axios instance with default base URL
-  const api = axios.create({
-    baseURL: 'http://localhost:3003'
-  });
-
-  // Interceptor to inject token
-  api.interceptors.request.use((config) => {
-    const activeToken = localStorage.getItem('token');
-    if (activeToken) {
-      config.headers.Authorization = `Bearer ${activeToken}`;
-    }
-    return config;
-  });
+  const api = useMemo(() => {
+    const instance = axios.create({
+      baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3003'
+    });
+    instance.interceptors.request.use((config) => {
+      const activeToken = localStorage.getItem('token');
+      if (activeToken) config.headers.Authorization = `Bearer ${activeToken}`;
+      return config;
+    });
+    return instance;
+  }, []);
 
   useEffect(() => {
     const checkUserLoggedIn = async () => {
@@ -35,10 +34,10 @@ export const AuthProvider = ({ children }) => {
           const res = await api.get('/me', {
             headers: { Authorization: `Bearer ${activeToken}` }
           });
-          setUser(res.data);
+          setUser(res.data.profile);
           setToken(activeToken);
           setIsAuthenticated(true);
-        } catch (error) {
+        } catch {
           console.error("Token invalid or expired, clearing session");
           localStorage.removeItem('token');
           setToken(null);
@@ -53,7 +52,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     checkUserLoggedIn();
-  }, []);
+  }, [api, navigate]);
 
   const login = async (newToken) => {
     localStorage.setItem('token', newToken);
@@ -62,7 +61,7 @@ export const AuthProvider = ({ children }) => {
       const res = await api.get('/me', {
         headers: { Authorization: `Bearer ${newToken}` }
       });
-      setUser(res.data);
+      setUser(res.data.profile);
       setIsAuthenticated(true);
     } catch (err) {
       console.error("Login verification failed:", err);
