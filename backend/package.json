@@ -2,11 +2,20 @@
   "name": "student-marketplace-backend",
   "version": "1.0.0",
   "description": "Backend for CampusMesh",
-  "main": "server.js",
+  "main": "src/server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
-    "seed": "node seed.js"
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate": "npm run db:migrate",
+    "seed": "npm run db:seed",
+    "db:migrate": "node src/db/migrate.js",
+    "db:reset": "node src/db/reset.js",
+    "db:seed": "npm run db:migrate && node src/db/seed.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "xerox:cleanup": "node src/db/cleanup-xerox.js",
+    "test": "node --test"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.8",
@@ -19,5 +28,9 @@
     "pg": "^8.12.0",
     "razorpay": "^2.9.8",
     "socket.io": "^4.8.3"
+  },
+  "devDependencies": {
+    "eslint": "^10.9.1",
+    "prettier": "^3.9.6"
   }
 }
