@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "motion/react";
 import {
   CheckCircle2,
@@ -12,6 +12,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { campusLocationLabel, normalizeCampusLocations } from "../../lib/campus";
 
 const human = (value) =>
   String(value || "received")
@@ -59,26 +60,40 @@ export default function XeroxRequest() {
   const [orders, setOrders] = useState([]);
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
-  const load = () =>
-    Promise.all([
+  const load = useCallback(async () => {
+    const [locationResult, orderResult] = await Promise.allSettled([
       api.get("/api/campus/locations"),
       api.get(desk ? "/api/xerox/desk/requests" : "/api/xerox/requests/mine"),
-    ]).then(([locationData, orderData]) => {
-      setLocations(locationData.data);
-      setOrders(orderData.data);
+    ]);
+
+    if (locationResult.status === "fulfilled") {
+      const locationList = normalizeCampusLocations(locationResult.value.data);
+      setLocations(locationList);
       setDrop(
         (current) =>
-          current ||
-          locationData.data.find((item) => item.building_id === "hostel")?.id ||
-          locationData.data[0]?.id ||
+          (locationList.some((item) => item.id === current) && current) ||
+          locationList.find((item) => item.building_id === "hostel")?.id ||
+          locationList[0]?.id ||
           "",
       );
-    });
+    } else {
+      throw locationResult.reason;
+    }
+
+    if (orderResult.status === "fulfilled") {
+      const orderList = Array.isArray(orderResult.value.data)
+        ? orderResult.value.data
+        : orderResult.value.data?.orders || [];
+      setOrders(orderList);
+    } else if (locationResult.status === "fulfilled") {
+      setNotice(orderResult.reason?.response?.data?.error || "Could not load print requests.");
+    }
+  }, [api, desk]);
   useEffect(() => {
     load().catch((error) =>
       setNotice(error.response?.data?.error || "Could not load Xerox service."),
     );
-  }, []);
+  }, [load]);
   const inspect = async (selected) => {
     setFile(selected);
     setPreview();
@@ -273,13 +288,12 @@ export default function XeroxRequest() {
                 value={drop}
                 onChange={(event) => setDrop(event.target.value)}
               >
-                {locations.map((item) => (
+                <option value="" disabled>Choose campus location</option>
+                {locations.length ? locations.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {[item.building_name, item.floor_name, item.room_name]
-                      .filter(Boolean)
-                      .join(" · ")}
+                    {campusLocationLabel(item)}
                   </option>
-                ))}
+                )) : <option value="" disabled>No campus locations available</option>}
               </select>
             </label>
           </div>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Heart, MapPin, ShieldCheck, Truck } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { listingFallback } from "../../lib/assets";
+import { listingImage } from "../../lib/assets";
 import RentalDialog from "./RentalDialog";
 
 export default function ListingDetailsPage() {
@@ -50,7 +50,7 @@ export default function ListingDetailsPage() {
         <div className="overflow-hidden rounded-[2rem] bg-mesh-50">
           <img
             className="aspect-[4/3] size-full object-cover"
-            src={item.image_url || listingFallback}
+            src={listingImage(item)}
             alt={item.title}
           />
         </div>

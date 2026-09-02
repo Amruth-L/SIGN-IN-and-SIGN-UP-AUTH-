@@ -19,11 +19,11 @@ const students = [
   'Lavanya Student',
 ];
 const items = [
-  ['Casio FX-991ES Plus', 'Electronics', 25, 300, 'library-ground-floor-rental-counter-02'],
-  ['Engineering Mathematics Textbook', 'Books', 18, 150, 'library-ground-floor-rental-counter-02'],
-  ['Digital Multimeter Lab Kit', 'Lab Equipment', 35, 400, 'a-block-ground-floor-101'],
-  ['Laptop Stand', 'Electronics', 20, 250, 'b-block-ground-floor-101'],
-  ['Badminton Racquet Pair', 'Sports', 30, 300, 'hostel-ground-floor-204'],
+  ['Casio FX-991ES Plus', 'Electronics', 25, 300, 'library-ground-floor-rental-counter-02', 'https://images.unsplash.com/photo-1574607383476-f517f260d30b?auto=format&fit=crop&w=900&q=80'],
+  ['Engineering Mathematics Textbook', 'Books', 18, 150, 'library-ground-floor-rental-counter-02', 'https://images.unsplash.com/photo-1495446815901-a7297e633e8d?auto=format&fit=crop&w=900&q=80'],
+  ['Digital Multimeter Lab Kit', 'Lab Equipment', 35, 400, 'a-block-ground-floor-101', 'https://images.unsplash.com/photo-1532187863486-abf9dbad1b69?auto=format&fit=crop&w=900&q=80'],
+  ['Laptop Stand', 'Electronics', 20, 250, 'b-block-ground-floor-101', 'https://images.unsplash.com/photo-1652198144911-4f204ccf35e6?auto=format&fit=crop&w=900&q=80'],
+  ['Badminton Racquet Pair', 'Sports', 30, 300, 'hostel-ground-floor-204', 'https://images.unsplash.com/photo-1559309106-ed14040fd35d?auto=format&fit=crop&w=900&q=80'],
 ];
 
 async function seed() {
@@ -43,13 +43,18 @@ async function seed() {
     `INSERT INTO users(name,username,email,password,email_verified,account_type) VALUES('Campus Xerox Desk','campus_xerox','xerox@dbit.co.in',$1,TRUE,'XEROX_DESK') ON CONFLICT(email) DO UPDATE SET account_type='XEROX_DESK',email_verified=TRUE`,
     [password],
   );
-  for (const [title, category, rent, deposit, pickup] of items)
+  for (const [title, category, rent, deposit, pickup, imageUrl] of items) {
     await pool.query(
       `INSERT INTO listings(title,description,price,category,image_url,owner_id,condition,rent_price,deposit,location,delivery_available,delivery_charge,pickup_location_id)
-    SELECT $1::varchar,'Presentation-ready CampusMesh rental.',$2::numeric*12,$3::varchar,'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800',$4::uuid,'Good',$2::numeric,$5::numeric,'Central Library',TRUE,20,$6::text
-    WHERE NOT EXISTS(SELECT 1 FROM listings WHERE title=$1::varchar AND owner_id=$4::uuid)`,
-      [title, rent, category, ids[0], deposit, pickup],
+    SELECT $1::varchar,'Presentation-ready CampusMesh rental.',$2::numeric*12,$3::varchar,$4::text,$5::uuid,'Good',$2::numeric,$6::numeric,'Central Library',TRUE,20,$7::text
+    WHERE NOT EXISTS(SELECT 1 FROM listings WHERE title=$1::varchar AND owner_id=$5::uuid)`,
+      [title, rent, category, imageUrl, ids[0], deposit, pickup],
     );
+    await pool.query(
+      'UPDATE listings SET image_url=$1, updated_at=NOW() WHERE title=$2 AND owner_id=$3',
+      [imageUrl, title, ids[0]],
+    );
+  }
   const { rows: locations } = await pool.query(
     "SELECT * FROM campus_locations WHERE id IN ('library-ground-floor-rental-counter-02','hostel-ground-floor-204','a-block-ground-floor-101')",
   );

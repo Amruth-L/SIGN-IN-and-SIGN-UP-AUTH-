@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { listingFallback } from "../../lib/assets";
+import { listingImage } from "../../lib/assets";
+import { campusLocationLabel, normalizeCampusLocations } from "../../lib/campus";
 
 const dayMs = 86400000;
 const iso = (date) =>
@@ -143,7 +144,7 @@ export default function RentalDialog({ listing, onClose }) {
             [],
         );
       if (campus.status === "fulfilled")
-        setLocations(campus.value.data.locations || campus.value.data || []);
+        setLocations(normalizeCampusLocations(campus.value.data));
     });
   }, [api, listing]);
   const pricing = useMemo(() => {
@@ -220,7 +221,7 @@ export default function RentalDialog({ listing, onClose }) {
         <motion.section
           role="dialog"
           aria-modal="true"
-          className="max-h-[94vh] w-full max-w-5xl overflow-y-auto rounded-[28px] bg-paper shadow-2xl"
+          className="max-h-[calc(100vh-2rem)] w-full max-w-5xl overflow-y-auto rounded-[28px] bg-paper shadow-2xl lg:overflow-hidden"
           initial={{ opacity: 0, y: 24, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 12, scale: 0.98 }}
@@ -246,7 +247,7 @@ export default function RentalDialog({ listing, onClose }) {
               <div className="mb-5 flex gap-4">
                 <img
                   className="size-24 rounded-2xl object-cover"
-                  src={listing.image_url || listingFallback}
+                  src={listingImage(listing)}
                   alt=""
                 />
                 <div>
@@ -307,14 +308,11 @@ export default function RentalDialog({ listing, onClose }) {
                       onChange={(e) => setDropLocation(e.target.value)}
                     >
                       <option value="">Choose campus location</option>
-                      {locations.map((location) => (
-                        <option
-                          key={location.id || location.name}
-                          value={location.id || location.name}
-                        >
-                          {location.name}
+                      {locations.length ? locations.map((location) => (
+                        <option key={location.id || location.name} value={location.id || location.name}>
+                          {campusLocationLabel(location)}
                         </option>
-                      ))}
+                      )) : <option value="" disabled>No campus locations available</option>}
                     </select>
                   </label>
                 )}

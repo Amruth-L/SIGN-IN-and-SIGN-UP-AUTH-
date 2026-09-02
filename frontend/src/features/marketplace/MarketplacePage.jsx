@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { listingFallback } from "../../lib/assets";
+import { listingImage } from "../../lib/assets";
 import RentalDialog from "./RentalDialog";
 
 const categories = [
@@ -181,7 +181,7 @@ export default function MarketplacePage() {
               >
                 <div className="relative aspect-[4/3] overflow-hidden bg-mesh-50">
                   <img
-                    src={item.image_url || listingFallback}
+                    src={listingImage(item)}
                     alt=""
                     className="size-full object-cover transition duration-500 group-hover:scale-105"
                   />
