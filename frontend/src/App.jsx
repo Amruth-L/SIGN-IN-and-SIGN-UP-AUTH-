@@ -1,245 +1,248 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from './context/AuthContext';
-import Navbar from './components/Navbar';
-import PrivateRoute from './components/PrivateRoute';
-import Home from './pages/Home';
-import Marketplace from './pages/Marketplace';
-import Login from './pages/Login.tsx';
-import Signup from './pages/Signup.tsx';
-import VerifyEmail from './pages/VerifyEmail.tsx';
-import ForgotPassword from './pages/ForgotPassword.tsx';
-import Profile from './pages/Profile';
-import AddListing from './pages/AddListing';
-import EditListing from './pages/EditListing';
-import RentItem from './pages/RentItem';
-import Chat from './pages/Chat';
-import RentSummary from './pages/RentSummary';
-import RentDetails from './pages/RentDetails';
-import OwnerDashboard from './pages/OwnerDashboard';
-import RentalReturn from './pages/RentalReturn';
-import RentalPayment from './pages/RentalPayment';
-import DepositPayment from './pages/DepositPayment';
-import PaymentSuccess from './pages/PaymentSuccess';
-import PaymentFailed from './pages/PaymentFailed';
-import Cart from './pages/Cart';
-import Checkout from './pages/Checkout';
-import DeliveryDashboard from './pages/DeliveryDashboard';
-import ChooseMode from './pages/ChooseMode';
-import DeliveryTracking from './pages/DeliveryTracking';
+import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import AppNavbar from "./components/layout/AppNavbar";
+import PrivateRoute from "./components/PrivateRoute";
+import { useAuth } from "./context/AuthContext";
+import AccountPage from "./features/account/AccountPage";
+import LandingPage from "./features/landing/LandingPage";
+import ListingDetailsPage from "./features/marketplace/ListingDetailsPage";
+import MarketplacePage from "./features/marketplace/MarketplacePage";
+import AddListing from "./pages/AddListing";
+import Cart from "./features/cart/CartPage";
+import Checkout from "./features/cart/CheckoutPage";
+import ChooseMode from "./features/auth/ChooseModePage";
+import DeliveryPage from "./features/delivery/DeliveryPage";
+import DeliveryTracking from "./features/delivery/DeliveryTrackingPage";
+import DepositPayment from "./pages/DepositPayment";
+import EditListing from "./pages/EditListing";
+import ForgotPassword from "./features/auth/ForgotPasswordPage";
+import Login from "./features/auth/LoginPage";
+import OwnerDashboard from "./pages/OwnerDashboard";
+import PaymentFailed from "./pages/PaymentFailed";
+import PaymentSuccess from "./pages/PaymentSuccess";
+import RentalPayment from "./pages/RentalPayment";
+import RentalReturn from "./pages/RentalReturn";
+import RentDetails from "./pages/RentDetails";
+import RentSummary from "./pages/RentSummary";
+import Signup from "./features/auth/SignupPage";
+import VerifyEmail from "./features/auth/VerifyEmailPage";
+import XeroxRequest from "./features/xerox/XeroxPage";
 
-function App() {
+const Protected = ({ children }) => <PrivateRoute>{children}</PrivateRoute>;
+const LegacyListingRedirect = () => {
+  const { id } = useParams();
+  return <Navigate to={`/item/${id}`} replace />;
+};
+
+export default function App() {
   const { user } = useAuth();
-
   return (
     <>
-      <Navbar />
+      <AppNavbar />
       <Routes>
-        <Route path="/" element={user ? <Navigate to="/choose-mode" replace /> : <Home />} />
-        <Route 
-          path="/login" 
-          element={user ? <Navigate to="/choose-mode" replace /> : <Login />} 
+        <Route path="/" element={<LandingPage />} />
+        <Route
+          path="/login"
+          element={user ? <Navigate to="/choose-mode" replace /> : <Login />}
         />
-        <Route path="/choose-mode" element={<PrivateRoute><ChooseMode /></PrivateRoute>} />
-        <Route 
-          path="/signup" 
-          element={user ? <Navigate to="/" replace /> : <Signup />} 
+        <Route
+          path="/signup"
+          element={user ? <Navigate to="/" replace /> : <Signup />}
         />
-        <Route 
-          path="/verify-email" 
-          element={user ? <Navigate to="/" replace /> : <VerifyEmail />} 
+        <Route
+          path="/verify-email"
+          element={user ? <Navigate to="/" replace /> : <VerifyEmail />}
         />
-        <Route 
-          path="/forgot-password" 
-          element={user ? <Navigate to="/" replace /> : <ForgotPassword />} 
+        <Route
+          path="/forgot-password"
+          element={user ? <Navigate to="/" replace /> : <ForgotPassword />}
         />
-        <Route 
-          path="/profile" 
+        <Route
+          path="/choose-mode"
           element={
-            <PrivateRoute>
-              <Profile defaultTab="listings" />
-            </PrivateRoute>
-          } 
+            <Protected>
+              <ChooseMode />
+            </Protected>
+          }
         />
         <Route
           path="/marketplace"
           element={
-            <PrivateRoute>
-              <Marketplace />
-            </PrivateRoute>
+            <Protected>
+              <MarketplacePage />
+            </Protected>
           }
-        />
-        <Route path="/delivery/:id/track" element={<PrivateRoute><DeliveryTracking /></PrivateRoute>} />
-        <Route
-          path="/my-rentals"
-          element={
-            <PrivateRoute>
-              <Profile defaultTab="rentals" />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/my-listings"
-          element={
-            <PrivateRoute>
-              <Profile defaultTab="listings" />
-            </PrivateRoute>
-          }
-        />
-        <Route 
-          path="/cart" 
-          element={
-            <PrivateRoute>
-              <Cart />
-            </PrivateRoute>
-          } 
-        />
-        <Route 
-          path="/checkout" 
-          element={
-            <PrivateRoute>
-              <Checkout />
-            </PrivateRoute>
-          } 
-        />
-        <Route 
-          path="/saved-items" 
-          element={
-            <PrivateRoute>
-              <Profile defaultTab="saved" />
-            </PrivateRoute>
-          } 
-        />
-        <Route 
-          path="/add-listing" 
-          element={
-            <PrivateRoute>
-              <AddListing />
-            </PrivateRoute>
-          } 
-        />
-        <Route
-          path="/create-listing"
-          element={
-            <PrivateRoute>
-              <AddListing />
-            </PrivateRoute>
-          }
-        />
-        <Route 
-          path="/edit-listing/:id" 
-          element={
-            <PrivateRoute>
-              <EditListing />
-            </PrivateRoute>
-          } 
-        />
-        <Route 
-          path="/rent-item/:id" 
-          element={
-            <PrivateRoute>
-              <RentItem />
-            </PrivateRoute>
-          } 
         />
         <Route
           path="/item/:id"
           element={
-            <PrivateRoute>
-              <RentItem />
-            </PrivateRoute>
+            <Protected>
+              <ListingDetailsPage />
+            </Protected>
+          }
+        />
+        <Route path="/rent-item/:id" element={<LegacyListingRedirect />} />
+        <Route path="/rent/:id" element={<LegacyListingRedirect />} />
+        <Route
+          path="/account/:tab"
+          element={
+            <Protected>
+              <AccountPage />
+            </Protected>
           }
         />
         <Route
-          path="/rent/:id"
+          path="/account"
+          element={<Navigate to="/account/rentals" replace />}
+        />
+        <Route
+          path="/profile"
+          element={<Navigate to="/account/settings" replace />}
+        />
+        <Route
+          path="/my-rentals"
+          element={<Navigate to="/account/rentals" replace />}
+        />
+        <Route
+          path="/my-listings"
+          element={<Navigate to="/account/listings" replace />}
+        />
+        <Route
+          path="/saved-items"
+          element={<Navigate to="/account/saved" replace />}
+        />
+        <Route
+          path="/add-listing"
           element={
-            <PrivateRoute>
-              <RentItem />
-            </PrivateRoute>
+            <Protected>
+              <AddListing />
+            </Protected>
           }
         />
-        <Route 
-          path="/chat" 
+        <Route
+          path="/create-listing"
           element={
-            <PrivateRoute>
-              <Chat />
-            </PrivateRoute>
-          } 
+            <Protected>
+              <AddListing />
+            </Protected>
+          }
+        />
+        <Route
+          path="/edit-listing/:id"
+          element={
+            <Protected>
+              <EditListing />
+            </Protected>
+          }
+        />
+        <Route
+          path="/cart"
+          element={
+            <Protected>
+              <Cart />
+            </Protected>
+          }
+        />
+        <Route
+          path="/checkout"
+          element={
+            <Protected>
+              <Checkout />
+            </Protected>
+          }
         />
         <Route
           path="/rent-summary/:id"
           element={
-            <PrivateRoute>
+            <Protected>
               <RentSummary />
-            </PrivateRoute>
+            </Protected>
           }
         />
         <Route
           path="/rent-details/:rentalId"
           element={
-            <PrivateRoute>
+            <Protected>
               <RentDetails />
-            </PrivateRoute>
+            </Protected>
           }
         />
         <Route
           path="/owner-dashboard"
           element={
-            <PrivateRoute>
+            <Protected>
               <OwnerDashboard />
-            </PrivateRoute>
+            </Protected>
           }
         />
         <Route
           path="/rental-return/:rentalId"
           element={
-            <PrivateRoute>
+            <Protected>
               <RentalReturn />
-            </PrivateRoute>
+            </Protected>
           }
         />
         <Route
           path="/rental-payment/:id"
           element={
-            <PrivateRoute>
+            <Protected>
               <RentalPayment />
-            </PrivateRoute>
+            </Protected>
           }
         />
         <Route
           path="/deposit-payment/:id"
           element={
-            <PrivateRoute>
+            <Protected>
               <DepositPayment />
-            </PrivateRoute>
+            </Protected>
           }
         />
         <Route
-          path="/payment-success"
+          path="/"
           element={
-            <PrivateRoute>
+            <Protected>
               <PaymentSuccess />
-            </PrivateRoute>
+            </Protected>
           }
         />
         <Route
-          path="/payment-failed"
+          path="/"
           element={
-            <PrivateRoute>
+            <Protected>
               <PaymentFailed />
-            </PrivateRoute>
+            </Protected>
           }
         />
         <Route
           path="/delivery"
           element={
-            <PrivateRoute>
-              <DeliveryDashboard />
-            </PrivateRoute>
+            <Protected>
+              <DeliveryPage />
+            </Protected>
           }
+        />
+        <Route
+          path="/delivery/:id/track"
+          element={
+            <Protected>
+              <DeliveryTracking />
+            </Protected>
+          }
+        />
+        <Route
+          path="/xerox"
+          element={
+            <Protected>
+              <XeroxRequest />
+            </Protected>
+          }
+        />
+        <Route
+          path="*"
+          element={<Navigate to={user ? "/choose-mode" : "/"} replace />}
         />
       </Routes>
     </>
   );
 }
-
-export default App;

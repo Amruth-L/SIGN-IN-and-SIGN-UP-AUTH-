@@ -5,7 +5,7 @@ const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return <div className="container" style={{ padding: '4rem 0', textAlign: 'center' }}>Loading...</div>;
+    return <div className="py-16 text-center">Loading...</div>;
   }
 
   if (!user) {
