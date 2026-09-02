@@ -29,17 +29,17 @@ exports.getDeliveryStats = async (req, res) => {
 
     const activeRes = await pool.query(
       `SELECT COUNT(*) as count FROM delivery_requests 
-       WHERE courier_id = $1 AND status IN ('ACCEPTED','ARRIVING_FOR_PICKUP','PICKED_UP','IN_TRANSIT','ARRIVED')`,
+       WHERE courier_id = $1 AND status IN ('COURIER_ASSIGNED','ACCEPTED','GOING_TO_PICKUP','ARRIVING_FOR_PICKUP','ARRIVED_AT_PICKUP','PICKUP_VERIFIED','ORDER_COLLECTED','PICKED_UP','GOING_TO_DESTINATION','IN_TRANSIT','ARRIVED_AT_DESTINATION','ARRIVED')`,
       [userId],
     );
 
     const completedRes = await pool.query(
-      `SELECT COUNT(*) as count FROM delivery_requests WHERE courier_id = $1 AND status = 'DELIVERED'`,
+      `SELECT COUNT(*) as count FROM delivery_requests WHERE courier_id = $1 AND status IN ('COMPLETED','DELIVERED')`,
       [userId],
     );
 
     const earningsRes = await pool.query(
-      `SELECT COALESCE(SUM(courier_earning), 0) as total FROM delivery_requests WHERE courier_id = $1 AND status = 'DELIVERED'`,
+      `SELECT COALESCE(SUM(courier_earning), 0) as total FROM delivery_requests WHERE courier_id = $1 AND status IN ('COMPLETED','DELIVERED')`,
       [userId],
     );
 
@@ -101,7 +101,7 @@ exports.getMyDeliveries = async (req, res) => {
        LEFT JOIN users u_customer ON dr.customer_id = u_customer.id
        WHERE dr.courier_id = $1
        ORDER BY 
-         CASE WHEN dr.status = 'DELIVERED' THEN 1 ELSE 0 END,
+         CASE WHEN dr.status IN ('COMPLETED','DELIVERED') THEN 1 ELSE 0 END,
          dr.updated_at DESC`,
       [userId],
     );
@@ -121,7 +121,7 @@ exports.getEarnings = async (req, res) => {
     // Total earnings
     const totalRes = await pool.query(
       `SELECT COALESCE(SUM(courier_earning), 0) as total, COUNT(*) as count
-       FROM delivery_requests WHERE courier_id = $1 AND status = 'DELIVERED'`,
+       FROM delivery_requests WHERE courier_id = $1 AND status IN ('COMPLETED','DELIVERED')`,
       [userId],
     );
 
@@ -129,7 +129,7 @@ exports.getEarnings = async (req, res) => {
     const todayRes = await pool.query(
       `SELECT COALESCE(SUM(courier_earning), 0) as today_total, COUNT(*) as today_count
        FROM delivery_requests 
-       WHERE courier_id = $1 AND status = 'DELIVERED' AND delivered_at::date = CURRENT_DATE`,
+       WHERE courier_id = $1 AND status IN ('COMPLETED','DELIVERED') AND COALESCE(delivered_at, completed_at)::date = CURRENT_DATE`,
       [userId],
     );
 
@@ -139,8 +139,8 @@ exports.getEarnings = async (req, res) => {
               l.title as listing_title, l.image_url as listing_image
        FROM delivery_requests dr
        LEFT JOIN listings l ON dr.listing_id = l.id
-       WHERE dr.courier_id = $1 AND dr.status = 'DELIVERED'
-       ORDER BY dr.delivered_at DESC LIMIT 20`,
+       WHERE dr.courier_id = $1 AND dr.status IN ('COMPLETED','DELIVERED')
+       ORDER BY COALESCE(dr.delivered_at, dr.completed_at) DESC LIMIT 20`,
       [userId],
     );
 
@@ -784,4 +784,3 @@ exports.createDeliveryRequest = async (
   );
   return result.rows[0].id;
 };
-

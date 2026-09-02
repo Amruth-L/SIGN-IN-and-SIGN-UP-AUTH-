@@ -1,6 +1,27 @@
 import { useState, useRef, useEffect } from 'react';
+import {
+  AlertCircle,
+  ArrowLeft,
+  BadgeCheck,
+  CalendarDays,
+  Camera,
+  Check,
+  ImagePlus,
+  Info,
+  IndianRupee,
+  MapPin,
+  Package,
+  Save,
+  ShieldCheck,
+  Star,
+  Trash2,
+  Truck,
+  UserRound,
+  X,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { campusLocationLabel, normalizeCampusLocations } from '../lib/campus';
 
 const DRAFT_STORAGE_KEY = 'campusmesh_listing_draft';
 
@@ -21,6 +42,7 @@ const AddListing = () => {
     availability: 'Available Now',
     customDate: '',
     location: '',
+    pickupLocationId: '',
     deliveryAvailable: false,
     deliveryCharge: '0',
     pickupTime: '5 min'
@@ -39,6 +61,7 @@ const AddListing = () => {
   const [publishing, setPublishing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadStatus, setUploadStatus] = useState('');
+  const [campusLocations, setCampusLocations] = useState([]);
 
   // Restore a locally saved draft when the create-listing page is opened again.
   useEffect(() => {
@@ -58,6 +81,32 @@ const AddListing = () => {
     }
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/api/campus/locations')
+      .then(({ data }) => {
+        if (cancelled) return;
+        const locationList = normalizeCampusLocations(data);
+        setCampusLocations(locationList);
+        setFormData((current) => {
+          const selected = locationList.find((item) =>
+            item.id === current.pickupLocationId ||
+            campusLocationLabel(item) === current.location ||
+            item.building_name === current.location,
+          );
+          return selected
+            ? { ...current, pickupLocationId: selected.id, location: campusLocationLabel(selected) }
+            : current;
+        });
+      })
+      .catch(() => {
+        // The fallback campus list below keeps the form usable if the campus API is unavailable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
   // Dropdown options
   const categories = [
     'Books',
@@ -75,17 +124,29 @@ const AddListing = () => {
   const conditions = ['Brand New', 'Like New', 'Excellent', 'Good', 'Fair'];
   const availabilities = ['Available Now', 'Available Tomorrow', 'Available This Weekend', 'Custom Date'];
 
-  const locations = [
-    { name: 'Central Library', icon: '📚' },
-    { name: 'AI & DS Block', icon: '🏫' },
-    { name: 'Boys Hostel', icon: '🏠' },
-    { name: 'Girls Hostel', icon: '🏠' },
-    { name: 'Main Gate', icon: '🚪' }
+  const fallbackLocations = [
+    { id: 'library-ground-floor-rental-counter-02', name: 'Central Library' },
+    { id: 'a-block-ground-floor-101', name: 'A-Block' },
+    { id: 'hostel-ground-floor-204', name: 'Boys Hostel' },
+    { id: 'girls-hostel', name: 'Girls Hostel' },
+    { id: 'entrance', name: 'Main Entrance' },
   ];
+  const locations = campusLocations.length ? campusLocations : fallbackLocations;
+  const selectedLocation = locations.find((item) =>
+    item.id === formData.pickupLocationId ||
+    campusLocationLabel(item) === formData.location ||
+    item.name === formData.location,
+  );
 
   // Helper: Condition class name
   const getConditionClassName = (cond) => {
-    return cond.toLowerCase().replace(' ', '-');
+    return {
+      'Brand New': 'border-blue-200 bg-blue-50 text-blue-700',
+      'Like New': 'border-violet-200 bg-violet-50 text-violet-700',
+      Excellent: 'border-mesh-200 bg-mesh-50 text-mesh-700',
+      Good: 'border-amber-200 bg-amber-50 text-amber-700',
+      Fair: 'border-orange-200 bg-orange-50 text-orange-700',
+    }[cond] || 'border-ink/10 bg-ink/5 text-ink/60';
   };
 
   // Image Upload Logic (converts files to base64)
@@ -188,6 +249,9 @@ const AddListing = () => {
     if (!formData.location) {
       errors.push('Pickup location is required.');
     }
+    if (formData.deliveryAvailable && !(formData.pickupLocationId || selectedLocation?.id)) {
+      errors.push('Choose a valid campus pickup location before enabling delivery.');
+    }
 
     const sellPrice = parseFloat(formData.price) || 0;
     const rentPrice = parseFloat(formData.rentPrice) || 0;
@@ -230,6 +294,7 @@ const AddListing = () => {
       rent_price: formData.rentPrice ? parseFloat(formData.rentPrice) : 0,
       deposit: formData.deposit ? parseFloat(formData.deposit) : 0,
       location: formData.location,
+      pickup_location_id: formData.pickupLocationId || selectedLocation?.id || null,
       delivery_available: formData.deliveryAvailable,
       delivery_charge: formData.deliveryAvailable ? parseFloat(formData.deliveryCharge) : 0,
       pickup_time: formData.deliveryAvailable ? formData.pickupTime : '5 min',
@@ -289,16 +354,16 @@ const AddListing = () => {
   const sellerInitials = user?.name ? user.name.charAt(0).toUpperCase() : 'U';
 
   return (
-    <main className="min-h-screen bg-paper px-5 py-10 sm:px-7">
+    <main className="min-h-screen bg-paper pb-20">
 
       {/* Loading/Publishing Overlay Screen */}
       {publishing && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-5 backdrop-blur-sm">
-          <div className="[background-color:var(--surface-color)] [padding:3rem] [border-radius:var(--radius-lg)] [border:1px_solid_var(--border-color)] [max-width:450px] [width:90%] text-center [box-shadow:var(--shadow-lg)] [animation:scaleIn_0.3s_cubic-bezier(0.34,_1.56,_0.64,_1)]">
-            <div className="size-10 animate-spin rounded-full border-4 border-mesh-100 border-t-mesh-600"></div>
-            <h2>Publishing Listing</h2>
-            <p>{uploadStatus}</p>
-            <div className="w-full [height:8px] [background-color:var(--bg-color)] [border-radius:999px] overflow-hidden [border:1px_solid_var(--border-color)]">
+          <div className="w-full max-w-md rounded-3xl border border-ink/10 bg-white p-7 text-center shadow-[0_22px_70px_rgba(35,58,40,.16)]">
+            <div className="mx-auto size-10 animate-spin rounded-full border-4 border-mesh-100 border-t-mesh-600" />
+            <h2 className="mt-5 text-xl font-extrabold">Publishing listing</h2>
+            <p className="mt-2 text-sm text-ink/50">{uploadStatus}</p>
+            <div className="mt-5 h-2 w-full overflow-hidden rounded-full bg-mesh-50 ring-1 ring-inset ring-ink/10">
               <progress className="h-full w-full accent-mesh-600" value={uploadProgress} max="100" />
             </div>
             <div className="mt-2 text-xs font-semibold text-ink/50">
@@ -308,35 +373,68 @@ const AddListing = () => {
         </div>
       )}
 
-      {/* Main Title Block */}
-      <div className="[margin-bottom:2.5rem]">
-        <h1>Create New Listing</h1>
-        <p>Add the item details.</p>
-      </div>
+      <header className="border-b border-ink/10 bg-[radial-gradient(circle_at_78%_0%,rgba(61,121,255,.10),transparent_28%)]">
+        <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-6 px-5 py-9 sm:px-7 sm:py-12 lg:flex-row lg:items-end lg:justify-between lg:px-10">
+          <div>
+            <button
+              type="button"
+              onClick={() => navigate('/marketplace')}
+              className="mb-5 inline-flex items-center gap-1.5 text-xs font-extrabold text-ink/45 transition hover:text-mesh-700"
+            >
+              <ArrowLeft size={14} /> Back to marketplace
+            </button>
+            <span className="flex items-center gap-1.5 text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">
+              <Package size={14} /> Seller workspace
+            </span>
+            <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight sm:text-5xl">
+              List something useful.
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/50">
+              Add clear details so another student can find, trust, and rent your item.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 self-start rounded-full border border-mesh-900/10 bg-white/80 px-3 py-2 text-xs font-bold text-mesh-700 lg:self-auto">
+            <BadgeCheck size={15} /> Free to list
+          </div>
+        </div>
+      </header>
 
       {/* Validation Errors Header Banner */}
       {formValidationErrors.length > 0 && (
-        <div className="space-y-4">
-          <h4 className="mb-2 font-bold">Please resolve the following errors:</h4>
-          <ul className="pl-5">
+        <div className="mx-auto mt-6 flex w-full max-w-[1240px] gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-red-800 sm:px-5">
+          <AlertCircle className="mt-0.5 shrink-0" size={18} />
+          <div>
+            <h4 className="font-extrabold">Please resolve the following:</h4>
+            <ul className="mt-2 list-disc space-y-1 pl-5">
             {formValidationErrors.map((err, idx) => (
               <li key={idx} className="mb-0.5 text-sm">{err}</li>
             ))}
-          </ul>
+            </ul>
+          </div>
         </div>
       )}
 
-      {error && <div className="space-y-4">{error}</div>}
+      {error && (
+        <div className="mx-auto mt-6 flex w-full max-w-[1240px] items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm font-bold text-red-800 sm:px-5">
+          <AlertCircle className="mt-0.5 shrink-0" size={18} />
+          <span>{error}</span>
+        </div>
+      )}
 
-      <form onSubmit={handleSubmit} onDragEnter={handleDrag}>
+      <form onSubmit={handleSubmit} onDragEnter={handleDrag} className="mx-auto grid w-full max-w-[1240px] gap-6 px-5 py-7 sm:px-7 lg:grid-cols-[minmax(0,1fr)_300px] lg:px-10 lg:py-9">
+        <div className="min-w-0 space-y-5">
 
         {/* SECTION 1 - ITEM DETAILS */}
-        <div className="hover:[box-shadow:var(--shadow-md)]">
-          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
-            <h2><span>📦</span> Section 1: Item Details</h2>
+        <section className="rounded-3xl border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)] sm:p-7">
+          <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
+            <span className="grid size-10 place-items-center rounded-xl bg-mesh-50 text-mesh-700"><Package size={19} /></span>
+            <div>
+              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 1</span>
+              <h2 className="mt-0.5 text-lg font-extrabold">Item details</h2>
+            </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-5">
             <label className="mb-1.5 block text-xs font-bold text-ink/60">Product Title *</label>
             <input
               type="text"
@@ -348,7 +446,7 @@ const AddListing = () => {
             />
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-5">
             <label className="mb-1.5 block text-xs font-bold text-ink/60">Category *</label>
             <select
               className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
@@ -361,7 +459,7 @@ const AddListing = () => {
             </select>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-5">
             <div className="mb-2 flex items-center justify-between">
               <label className="block text-xs font-bold text-ink/60">Description *</label>
               <span className={`text-xs font-medium ${formData.description.length > 500 ? 'text-red-600' : formData.description.length > 450 ? 'text-amber-600' : 'text-ink/45'}`}>
@@ -369,7 +467,7 @@ const AddListing = () => {
               </span>
             </div>
             <textarea
-              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
+              className="min-h-28 w-full resize-y rounded-xl border border-ink/15 bg-white px-3 py-3 text-sm leading-6 outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               placeholder="Condition and what is included"
               required
               maxLength={520}
@@ -378,19 +476,23 @@ const AddListing = () => {
               rows={4}
             />
           </div>
-        </div>
+        </section>
 
         {/* SECTION 2 - CONDITION */}
-        <div className="hover:[box-shadow:var(--shadow-md)]">
-          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
-            <h2><span>✨</span> Section 2: Condition</h2>
+        <section className="rounded-3xl border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)] sm:p-7">
+          <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
+            <span className="grid size-10 place-items-center rounded-xl bg-amber-50 text-amber-700"><BadgeCheck size={19} /></span>
+            <div>
+              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 2</span>
+              <h2 className="mt-0.5 text-lg font-extrabold">Condition</h2>
+            </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <label className="mb-1.5 block text-xs font-bold text-ink/60">Item Condition *</label>
-            <div className="relative">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
               <select
-                className="h-11 w-[220px] rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
+                className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100 sm:w-64"
                 value={formData.condition}
                 onChange={(e) => setFormData({...formData, condition: e.target.value})}
               >
@@ -398,24 +500,28 @@ const AddListing = () => {
                   <option key={cond} value={cond}>{cond}</option>
                 ))}
               </select>
-              <span className={`[padding:0.25rem_0.75rem] [border-radius:4px] [font-size:0.75rem] font-bold uppercase [color:white] [transition:all_0.2s_ease] ${getConditionClassName(formData.condition)}`}>
+              <span className={`inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide ${getConditionClassName(formData.condition)}`}>
                 {formData.condition}
               </span>
             </div>
           </div>
-        </div>
+        </section>
 
         {/* SECTION 3 - PRICING */}
-        <div className="hover:[box-shadow:var(--shadow-md)]">
-          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
-            <h2><span>💰</span> Section 3: Pricing & Availability</h2>
+        <section className="rounded-3xl border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)] sm:p-7">
+          <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
+            <span className="grid size-10 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><IndianRupee size={19} /></span>
+            <div>
+              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 3</span>
+              <h2 className="mt-0.5 text-lg font-extrabold">Pricing & availability</h2>
+            </div>
           </div>
 
-          <div className="grid [grid-template-columns:1fr] [gap:1.5rem] [grid-template-columns:repeat(3,_1fr)]">
-            <div className="space-y-4">
+          <div className="grid gap-5 md:grid-cols-3">
+            <div className="space-y-2">
               <label className="mb-1.5 block text-xs font-bold text-ink/60">Selling Price (₹)</label>
-              <div className="space-y-4">
-                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none">₹</span>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-ink/40">₹</span>
                 <input
                   type="number"
                   className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-9 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
@@ -427,10 +533,10 @@ const AddListing = () => {
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-2">
               <label className="mb-1.5 block text-xs font-bold text-ink/60">Rental Price per Day (₹)</label>
-              <div className="space-y-4">
-                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none">₹</span>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-ink/40">₹</span>
                 <input
                   type="number"
                   className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-9 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
@@ -442,10 +548,10 @@ const AddListing = () => {
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-2">
               <label className="mb-1.5 block text-xs font-bold text-ink/60">Security Deposit (₹)</label>
-              <div className="space-y-4">
-                <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none">₹</span>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-ink/40">₹</span>
                 <input
                   type="number"
                   className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-9 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
@@ -458,9 +564,9 @@ const AddListing = () => {
             </div>
           </div>
 
-          <div className="mt-2 grid gap-6 sm:grid-cols-2">
-            <div className="space-y-4">
-              <label className="mb-1.5 block text-xs font-bold text-ink/60">Availability Timeframe</label>
+          <div className="mt-6 grid gap-5 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="mb-1.5 flex items-center gap-1.5 text-xs font-bold text-ink/60"><CalendarDays size={14} /> Availability timeframe</label>
               <select
                 className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
                 value={formData.availability}
@@ -473,7 +579,7 @@ const AddListing = () => {
             </div>
 
             {formData.availability === 'Custom Date' && (
-              <div className="space-y-4">
+              <div className="space-y-2">
                 <label className="mb-1.5 block text-xs font-bold text-ink/60">Select Availability Date</label>
                 <input
                   type="date"
@@ -484,16 +590,20 @@ const AddListing = () => {
               </div>
             )}
           </div>
-        </div>
+        </section>
 
         {/* SECTION 4 - ITEM IMAGES */}
-        <div className="hover:[box-shadow:var(--shadow-md)]">
-          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
-            <h2><span>🖼️</span> Section 4: Item Images</h2>
+        <section className="rounded-3xl border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)] sm:p-7">
+          <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
+            <span className="grid size-10 place-items-center rounded-xl bg-violet-50 text-violet-700"><Camera size={19} /></span>
+            <div>
+              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 4</span>
+              <h2 className="mt-0.5 text-lg font-extrabold">Item images</h2>
+            </div>
           </div>
 
-          <p className="mb-3">
-            Upload up to 5 clear images showing the actual condition of the item. *
+          <p className="mb-4 text-sm leading-6 text-ink/50">
+            Upload up to 5 clear images showing the actual condition of the item. Your first image will be the cover.
           </p>
 
           <input
@@ -506,105 +616,121 @@ const AddListing = () => {
           />
 
           <div
-            className={`hover:[border-color:var(--primary-color)] hover:[background-color:rgba(16,_185,_129,_0.03)] ${dragActive ? '[border-color:var(--primary-color)] [background-color:rgba(16,_185,_129,_0.03)]' : ''}`}
+            className={`grid min-h-44 cursor-pointer place-items-center rounded-2xl border-2 border-dashed px-5 py-8 text-center transition ${dragActive ? 'border-mesh-500 bg-mesh-50' : 'border-mesh-200 bg-mesh-50/40 hover:border-mesh-500 hover:bg-mesh-50'}`}
             onDragEnter={handleDrag}
             onDragOver={handleDrag}
             onDragLeave={handleDrag}
             onDrop={handleDrop}
-            onClick={() => fileInputRef.current.click()}
+            onClick={() => fileInputRef.current?.click()}
           >
-            <span className="[font-size:2.5rem] [color:var(--text-muted)] [margin-bottom:0.75rem]">📤</span>
-            <div className="space-y-1 text-center">
-              <h3>Choose item photos</h3>
-              <p>JPG, PNG or WEBP · 5 MB max</p>
+            <ImagePlus className="text-mesh-600" size={34} />
+            <div className="mt-3 space-y-1 text-center">
+              <h3 className="font-extrabold">Choose item photos</h3>
+              <p className="text-xs text-ink/45">JPG, PNG or WEBP · 5 MB max each</p>
             </div>
           </div>
 
           {images.length > 0 && (
-            <div className="space-y-4">
+            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
               {images.map((img, idx) => (
-                <div key={idx} className="[height:120px] [border-radius:var(--radius-md)] [border:1px_solid_var(--border-color)] relative overflow-hidden [box-shadow:var(--shadow-sm)] [background-color:#f3f4f6]">
+                <div key={idx} className="group relative aspect-square overflow-hidden rounded-2xl border border-ink/10 bg-ink/5 shadow-sm">
                   <img src={img} alt={`Preview ${idx + 1}`} className="w-full h-full object-cover" />
 
                   {idx === coverIndex && (
-                    <span className="absolute [bottom:0] [left:0] [right:0] [background-color:var(--primary-color)] [color:white] [font-size:0.65rem] font-extrabold text-center [padding:0.15rem_0] [z-index:1] [letter-spacing:0.05em] uppercase">Cover</span>
+                    <span className="absolute bottom-2 left-2 z-10 inline-flex items-center gap-1 rounded-full bg-mesh-600 px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-white"><Check size={11} /> Cover</span>
                   )}
 
-                  <div className="absolute [top:0] [left:0] [right:0] [bottom:0] [background-color:rgba(0,_0,_0,_0.45)] flex items-center justify-center [gap:0.5rem] [opacity:0] [transition:opacity_0.2s_ease] [z-index:2]">
+                  <div className="absolute inset-0 z-20 flex items-center justify-center gap-2 bg-ink/55 opacity-0 transition group-hover:opacity-100">
                     {idx !== coverIndex && (
                       <button
                         type="button"
-                        className="grid size-8 place-items-center rounded-lg border border-ink/10 bg-white text-ink/60 hover:bg-mesh-50"
+                        className="grid size-9 place-items-center rounded-xl border border-white/30 bg-white text-ink/60 transition hover:bg-mesh-50"
                         onClick={() => makeCover(idx)}
                         title="Make Cover Image"
                       >
-                        ⭐
+                        <Star size={15} />
                       </button>
                     )}
                     <button
                       type="button"
-                      className="grid size-8 place-items-center rounded-lg border border-ink/10 bg-white text-ink/60 hover:bg-mesh-50 [color:#ef4444]"
+                      className="grid size-9 place-items-center rounded-xl border border-white/30 bg-white text-red-600 transition hover:bg-red-50"
                       onClick={() => handleDeleteImage(idx)}
                       title="Delete Image"
                     >
-                      🗑️
+                      <Trash2 size={15} />
                     </button>
                   </div>
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </section>
 
         {/* SECTION 5 - PICKUP LOCATION */}
-        <div className="hover:[box-shadow:var(--shadow-md)]">
-          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
-            <h2><span>📍</span> Section 5: Pickup Location</h2>
+        <section className="rounded-3xl border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)] sm:p-7">
+          <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
+            <span className="grid size-10 place-items-center rounded-xl bg-rose-50 text-rose-700"><MapPin size={19} /></span>
+            <div>
+              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 5</span>
+              <h2 className="mt-0.5 text-lg font-extrabold">Pickup location</h2>
+            </div>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-2">
             <label className="mb-1.5 block text-xs font-bold text-ink/60">Select On-Campus Pickup Location *</label>
             <select
               className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
-              value={formData.location}
-              onChange={(e) => setFormData({...formData, location: e.target.value})}
+              value={formData.pickupLocationId || selectedLocation?.id || ''}
+              onChange={(e) => {
+                const selected = locations.find((item) => item.id === e.target.value);
+                setFormData({
+                  ...formData,
+                  pickupLocationId: e.target.value,
+                  location: selected ? campusLocationLabel(selected) : '',
+                });
+              }}
               required
             >
               <option value="">-- Choose a location --</option>
               {locations.map(loc => (
-                <option key={loc.name} value={loc.name}>
-                  {loc.icon} {loc.name}
+                <option key={loc.id || loc.name} value={loc.id || loc.name}>
+                  {campusLocationLabel(loc)}
                 </option>
               ))}
             </select>
           </div>
-        </div>
+        </section>
 
         {/* SECTION 6 - DELIVERY */}
-        <div className="hover:[box-shadow:var(--shadow-md)]">
-          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
-            <h2><span>🚚</span> Section 6: Delivery Settings</h2>
+        <section className="rounded-3xl border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)] sm:p-7">
+          <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
+            <span className="grid size-10 place-items-center rounded-xl bg-sky-50 text-sky-700"><Truck size={19} /></span>
+            <div>
+              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 6</span>
+              <h2 className="mt-0.5 text-lg font-extrabold">Delivery settings</h2>
+            </div>
           </div>
 
-          <div className={`flex items-center gap-2 ${formData.deliveryAvailable ? 'mb-6' : ''}`}>
+          <div className={`flex items-start gap-3 rounded-2xl border p-4 ${formData.deliveryAvailable ? 'border-mesh-200 bg-mesh-50' : 'border-ink/10 bg-ink/[.02]'}`}>
             <input
               type="checkbox"
               id="delivery-check"
               checked={formData.deliveryAvailable}
               onChange={(e) => setFormData({...formData, deliveryAvailable: e.target.checked})}
-              className="size-[18px] cursor-pointer accent-mesh-600"
+              className="mt-0.5 size-[18px] cursor-pointer accent-mesh-600"
             />
-            <label htmlFor="delivery-check" className="cursor-pointer text-sm font-semibold">
-              Student Courier Delivery Available
-            </label>
+            <div>
+              <label htmlFor="delivery-check" className="cursor-pointer text-sm font-extrabold">Student courier delivery</label>
+              <p className="mt-1 text-xs leading-5 text-ink/45">Let matched couriers bring your item to another campus location.</p>
+            </div>
           </div>
 
           {formData.deliveryAvailable && (
-            <div className="grid [grid-template-columns:1fr] [gap:1.5rem] [grid-template-columns:1fr_1fr]">
-              <div className="space-y-4">
+            <div className="mt-5 grid gap-5 sm:grid-cols-2">
+              <div className="space-y-2">
                 <label className="mb-1.5 block text-xs font-bold text-ink/60">Delivery Charge (₹)</label>
-                <div className="space-y-4">
-                  <span className="absolute [left:1rem] [font-size:1rem] [color:var(--text-muted)] pointer-events-none">₹</span>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold text-ink/40">₹</span>
                   <input
                     type="number"
                     className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 pl-9 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
@@ -616,7 +742,7 @@ const AddListing = () => {
                 </div>
               </div>
 
-              <div className="space-y-4">
+              <div className="space-y-2">
                 <label className="mb-1.5 block text-xs font-bold text-ink/60">Estimated Courier Pickup Time</label>
                 <input
                   type="text"
@@ -628,59 +754,63 @@ const AddListing = () => {
               </div>
             </div>
           )}
-        </div>
+        </section>
 
         {/* SECTION 7 - CONTACT */}
-        <div className="hover:[box-shadow:var(--shadow-md)]">
-          <div className="flex justify-between items-center [margin-bottom:1.5rem] [padding-bottom:0.75rem] [border-bottom:1px_solid_var(--border-color)]">
-            <h2><span>👤</span> Section 7: Seller Contact (Read Only)</h2>
+        <section className="rounded-3xl border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)] sm:p-7">
+          <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
+            <span className="grid size-10 place-items-center rounded-xl bg-slate-100 text-slate-600"><UserRound size={19} /></span>
+            <div>
+              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 7</span>
+              <h2 className="mt-0.5 text-lg font-extrabold">Seller contact</h2>
+            </div>
           </div>
 
-          <div className="rounded-2xl border border-ink/10 bg-mesh-50 p-4">
-            <div className="[width:60px] [height:60px] [border-radius:50%] [background-color:var(--primary-color)] [color:white] flex items-center justify-center [font-size:1.5rem] font-extrabold [box-shadow:var(--shadow-sm)] [border:2px_solid_var(--border-color)]">
+          <div className="flex flex-col gap-4 rounded-2xl border border-mesh-200 bg-mesh-50 p-4 sm:flex-row sm:items-center">
+            <div className="grid size-14 shrink-0 place-items-center rounded-full border-2 border-white bg-mesh-600 text-xl font-extrabold text-white shadow-sm">
               {sellerInitials}
             </div>
             <div className="grid gap-1 text-sm text-ink/55">
-              <h3>{user?.name || 'Anonymous Student'}</h3>
+              <h3 className="font-extrabold text-ink">{user?.name || 'Anonymous Student'}</h3>
               <p>{user?.email}</p>
               <p className="text-ink/50">
                 {sellerDept} • Semester {sellerSem}
               </p>
 
-              <div className="flex [gap:1rem] [margin-top:0.35rem] [font-size:0.8rem] font-semibold">
-                <span className="text-amber-600">⭐ Rating: {sellerRating}</span>
-                <span className="text-mesh-700">🛡️ Trust score: {sellerMeshScore}</span>
+              <div className="mt-1 flex flex-wrap gap-4 text-xs font-bold">
+                <span className="flex items-center gap-1 text-amber-600"><Star size={13} fill="currentColor" /> Rating: {sellerRating}</span>
+                <span className="flex items-center gap-1 text-mesh-700"><ShieldCheck size={13} /> Trust score: {sellerMeshScore}</span>
               </div>
             </div>
           </div>
-        </div>
+        </section>
 
         {/* SECTION 8 - SAFETY NOTICE */}
-        <div className="flex gap-3 rounded-2xl border border-mesh-200 bg-mesh-50 p-4">
-          <span className="[font-size:1.5rem] [color:var(--primary-color)]">⚠️</span>
-          <div className="text-sm text-ink/60">
-            <h3>Listing Safety & Accuracy Guidelines</h3>
-            <p>
-              Please upload real images of the item in your possession. Do not upload copyrighted images or images downloaded from the internet. The item's actual condition should match the uploaded photos exactly.
+        <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+          <Info className="mt-0.5 shrink-0 text-amber-700" size={19} />
+          <div className="text-sm">
+            <h3 className="font-extrabold">Safety & accuracy</h3>
+            <p className="mt-1 leading-6 text-amber-900/70">
+              Upload real images of the item in your possession. Make sure the condition in your description matches the photos.
             </p>
           </div>
         </div>
 
         {/* SECTION 9 - ACTION BUTTONS */}
-        <div className="flex flex-wrap justify-end gap-3">
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
           <button
             type="button"
             onClick={() => navigate('/marketplace')}
-            className="inline-flex h-11 items-center justify-center rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink hover:bg-mesh-50"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink transition hover:border-mesh-500 hover:bg-mesh-50"
           >
-            Cancel
+            <X size={16} /> Cancel
           </button>
           <button
             type="button"
             onClick={handleSaveDraft}
-            className="inline-flex h-11 items-center justify-center rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink hover:bg-mesh-50"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink transition hover:border-mesh-500 hover:bg-mesh-50"
           >
-            Save Draft
+            <Save size={16} /> Save draft
           </button>
           <button
             type="button"
@@ -691,17 +821,39 @@ const AddListing = () => {
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }
             }}
-            className="inline-flex h-11 items-center justify-center rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink hover:bg-mesh-50"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink transition hover:border-mesh-500 hover:bg-mesh-50"
           >
             Preview Listing
           </button>
           <button
             type="submit"
-            className="inline-flex h-11 items-center justify-center rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink hover:bg-mesh-50"
+            className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-6 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg active:translate-y-0"
           >
-            Publish Listing
+            <Check size={16} /> Publish listing
           </button>
         </div>
+
+        </div>
+
+        <aside className="hidden space-y-5 lg:block">
+          <div className="sticky top-24 space-y-5">
+            <div className="rounded-3xl border border-mesh-900/10 bg-ink p-5 text-white shadow-[0_10px_40px_rgba(35,58,40,.10)]">
+              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-300">Listing checklist</span>
+              <h2 className="mt-2 text-xl font-extrabold">Make it easy to trust.</h2>
+              <ul className="mt-5 space-y-4 text-sm text-white/70">
+                <li className="flex gap-3"><Check className="mt-0.5 shrink-0 text-mesh-300" size={16} /> Use a clear, specific title.</li>
+                <li className="flex gap-3"><Check className="mt-0.5 shrink-0 text-mesh-300" size={16} /> Show the actual item in good light.</li>
+                <li className="flex gap-3"><Check className="mt-0.5 shrink-0 text-mesh-300" size={16} /> Add one price for selling or renting.</li>
+                <li className="flex gap-3"><Check className="mt-0.5 shrink-0 text-mesh-300" size={16} /> Choose the exact pickup point.</li>
+              </ul>
+            </div>
+
+            <div className="rounded-3xl border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)]">
+              <div className="flex items-center gap-2 text-mesh-700"><ShieldCheck size={18} /><b className="text-sm">Student-to-student safe</b></div>
+              <p className="mt-2 text-xs leading-5 text-ink/50">Your contact details stay tied to your account and are shown only as needed for a confirmed rental.</p>
+            </div>
+          </div>
+        </aside>
 
       </form>
     </main>

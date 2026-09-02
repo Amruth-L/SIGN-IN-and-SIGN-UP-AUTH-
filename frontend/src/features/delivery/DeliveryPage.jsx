@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import { Radio, Route } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { normalizeCampusLocations } from "../../lib/campus";
 import QrScanner from "../../components/QrScanner";
 import ActiveTask from "./components/ActiveTask";
 import CampusRouteMap from "./components/CampusRouteMap";
@@ -13,6 +14,16 @@ const next = {
   COURIER_ASSIGNED: "GOING_TO_PICKUP",
   ACCEPTED: "GOING_TO_PICKUP",
   GOING_TO_PICKUP: "ARRIVED_AT_PICKUP",
+  ARRIVING_FOR_PICKUP: "ARRIVED_AT_PICKUP",
+  ORDER_COLLECTED: "GOING_TO_DESTINATION",
+  PICKED_UP: "GOING_TO_DESTINATION",
+  IN_TRANSIT: "ARRIVED_AT_DESTINATION",
+  GOING_TO_DESTINATION: "ARRIVED_AT_DESTINATION",
+};
+const listFrom = (result, key) => {
+  if (result.status !== "fulfilled") return [];
+  const value = result.value.data;
+  return Array.isArray(value) ? value : Array.isArray(value?.[key]) ? value[key] : [];
 };
 export default function DeliveryPage() {
   const { user, api } = useAuth();
@@ -39,56 +50,80 @@ export default function DeliveryPage() {
     available_until: new Date(Date.now() + 7200000).toISOString().slice(0, 16),
     max_detour_meters: 250,
   });
-  const load = async () => {
-    const [c, l, o, m, r] = await Promise.all([
+  const load = useCallback(async () => {
+    const [c, l, o, m, r] = await Promise.allSettled([
       api.get("/api/campus"),
       api.get("/api/campus/locations"),
       api.get("/api/courier/offers"),
       api.get("/api/delivery/my-deliveries"),
       api.get("/api/courier/routes/current"),
     ]);
-    setCampus(c.data);
-    setLocations(l.data);
-    setOffers(o.data);
-    setTasks(m.data);
-    setOnline(Boolean(r.data.route));
+    if (c.status === "fulfilled") setCampus(c.value.data);
+    const locationList = normalizeCampusLocations(l.status === "fulfilled" ? l.value.data : []);
+    const offerList = listFrom(o, "offers");
+    const taskList = listFrom(m, "deliveries");
+    setLocations(locationList);
+    setOffers(offerList);
+    setTasks(taskList);
+    if (r.status === "fulfilled") setOnline(Boolean(r.value.data?.route));
     setForm((current) => ({
       ...current,
-      origin_location_id: current.origin_location_id || l.data[0]?.id || "",
+      origin_location_id:
+        locationList.some((item) => item.id === current.origin_location_id)
+          ? current.origin_location_id
+          : locationList[0]?.id || "",
       destination_location_id:
-        current.destination_location_id ||
-        l.data.find((x) => x.building_id === "hostel")?.id ||
-        l.data[1]?.id ||
-        "",
+        locationList.some((item) => item.id === current.destination_location_id)
+          ? current.destination_location_id
+          : locationList.find((x) => x.building_id === "hostel")?.id ||
+            locationList[1]?.id ||
+            "",
     }));
     setActive(
-      m.data.find((item) => !["COMPLETED", "DELIVERED"].includes(item.status)),
+      taskList.find((item) => !["COMPLETED", "DELIVERED"].includes(item.status)),
     );
-  };
+    const failed = [c, l, o, m, r].find((result) => result.status === "rejected");
+    if (failed) {
+      setNotice(
+        failed.reason?.response?.data?.error ||
+          "Some courier data could not be refreshed. Try again in a moment.",
+      );
+    }
+  }, [api]);
   useEffect(() => {
     load().catch((error) =>
       setNotice(
         error.response?.data?.error || "Could not load courier workspace.",
       ),
     );
-  }, []);
+  }, [load]);
   useEffect(() => {
     const socket = io(API, { auth: { token: localStorage.getItem("token") } });
     ["delivery:offer", "delivery:status", "delivery:assigned"].forEach(
       (event) => socket.on(event, load),
     );
     return () => socket.close();
-  }, []);
+  }, [load]);
   useEffect(() => {
-    if (!active?.pickup_location_id || !active?.destination_location_id)
+    const pickupId = active?.pickup_location_id;
+    const destinationId = active?.destination_location_id;
+    if (!pickupId || !destinationId)
       return setRoute();
+    let cancelled = false;
     api
       .get(
-        `/api/campus/route?from=${active.pickup_location_id}&to=${active.destination_location_id}`,
+        `/api/campus/route?from=${encodeURIComponent(pickupId)}&to=${encodeURIComponent(destinationId)}`,
       )
-      .then(({ data }) => setRoute(data))
-      .catch(() => setRoute());
-  }, [active?.id]);
+      .then(({ data }) => {
+        if (!cancelled) setRoute(data);
+      })
+      .catch(() => {
+        if (!cancelled) setRoute();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active?.id, active?.pickup_location_id, active?.destination_location_id, api]);
   const pickup = useMemo(
     () => locations.find((item) => item.id === active?.pickup_location_id),
     [locations, active],
@@ -114,11 +149,15 @@ export default function DeliveryPage() {
     }
   };
   const toggleOnline = async () => {
-    if (online) {
-      await api.delete("/api/courier/routes/current");
-      setOnline(false);
-      setNotice("You are offline.");
-    } else setNotice("Save a route to go online.");
+    try {
+      if (online) {
+        await api.delete("/api/courier/routes/current");
+        setOnline(false);
+        setNotice("You are offline.");
+      } else setNotice("Save a route to go online.");
+    } catch (error) {
+      setNotice(error.response?.data?.error || "Could not update courier availability.");
+    }
   };
   const accept = async (offer) => {
     try {
@@ -136,17 +175,21 @@ export default function DeliveryPage() {
     await load();
   };
   const checkpoint = async (target) => {
-    const location = target === "pickup" ? pickup : destination;
-    if (!location) return;
-    const point = {
-      x: Number(location.x),
-      y: Number(location.y),
-      speed: 5,
-      route_node_id: location.route_node_id,
-    };
-    await api.post(`/api/delivery/${active.id}/location`, point);
-    setPosition(point);
-    setNotice("Live checkpoint shared with the owner and renter.");
+    try {
+      const location = target === "pickup" ? pickup : destination;
+      if (!location) return;
+      const point = {
+        x: Number(location.x),
+        y: Number(location.y),
+        speed: 5,
+        route_node_id: location.route_node_id,
+      };
+      await api.post(`/api/delivery/${active.id}/location`, point);
+      setPosition(point);
+      setNotice("Live checkpoint shared with the owner and renter.");
+    } catch (error) {
+      setNotice(error.response?.data?.error || "Could not share this checkpoint.");
+    }
   };
   const advance = next[active?.status]
     ? async () => {
@@ -171,7 +214,16 @@ export default function DeliveryPage() {
         value,
       });
       setNotice(`${verify.stage.replaceAll("_", " ")} verified and recorded.`);
-      setVerify((current) => ({ ...current, value: "" }));
+      const followingStage = {
+        PICKUP: "DELIVERY",
+        XEROX_PICKUP: "DELIVERY",
+        RETURN_PICKUP: "RETURN_RECEIVED",
+      }[verify.stage];
+      setVerify((current) => ({
+        ...current,
+        stage: followingStage || current.stage,
+        value: "",
+      }));
       await load();
     } catch (error) {
       setNotice(

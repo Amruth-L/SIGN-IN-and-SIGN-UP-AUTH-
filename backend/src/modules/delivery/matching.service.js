@@ -40,7 +40,11 @@ async function matchDelivery(deliveryId, client = pool) {
     FROM courier_route_availability cra JOIN users u ON u.id = cra.courier_id
     JOIN campus_locations o ON o.id = cra.origin_location_id JOIN campus_locations d ON d.id = cra.destination_location_id
     WHERE cra.is_active AND cra.available_until > NOW() AND u.delivery_available
-      AND cra.courier_id NOT IN (SELECT courier_id FROM delivery_requests WHERE courier_id IS NOT NULL AND status IN ('ACCEPTED','PICKUP_VERIFIED','IN_TRANSIT','RETURN_PICKUP_VERIFIED','RETURN_IN_TRANSIT'))
+      AND cra.courier_id NOT IN (SELECT courier_id FROM delivery_requests WHERE courier_id IS NOT NULL AND status IN (
+        'COURIER_ASSIGNED','ACCEPTED','GOING_TO_PICKUP','ARRIVING_FOR_PICKUP','ARRIVED_AT_PICKUP',
+        'PICKUP_VERIFIED','ORDER_COLLECTED','PICKED_UP','GOING_TO_DESTINATION','IN_TRANSIT',
+        'ARRIVED_AT_DESTINATION','ARRIVED','RETURN_COURIER_ASSIGNED','RETURN_MATCHING','RETURN_PICKUP_VERIFIED','RETURN_IN_TRANSIT'
+      ))
       AND cra.courier_id NOT IN ($1, $2)`, [task.customer_id, task.seller_id]);
   const ranked = candidates.rows.map(candidate => {
     const scored = scoreCandidate({ ...candidate, origin: candidate.origin_node, destination: candidate.destination_node },
@@ -59,4 +63,3 @@ async function matchDelivery(deliveryId, client = pool) {
 }
 
 module.exports = { scoreCandidate, matchDelivery };
-
