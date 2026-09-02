@@ -1,6 +1,6 @@
 # CampusMesh
 
-CampusMesh is a student marketplace for listing, discovering, renting, and buying items within the campus community. Users can create listings, manage rentals, save items, use a cart, and complete payments through Razorpay.
+CampusMesh is a campus-only rental, route-matched courier, and private Xerox delivery platform. Lender, borrower, and courier are actions available to every verified student account.
 
 ## Features
 
@@ -15,6 +15,11 @@ CampusMesh is a student marketplace for listing, discovering, renting, and buyin
 - Payment verification, history, and deposit refunds
 - Email notifications through Nodemailer
 - Postman collection for backend API testing
+- Dijkstra campus routing with declared courier routes and transparent 100-point matching
+- Atomic, expiring courier offers delivered through authenticated Socket.IO user rooms
+- Single-use, hashed QR/OTP credentials for outbound, return, and Xerox handovers
+- Private PDF validation, ₹3/page pricing, Xerox Desk queue, and courier delivery
+- Trending and personalized marketplace recommendations from first-party interactions
 
 ## Project structure
 
@@ -62,6 +67,9 @@ JWT_SECRET=replace_with_a_long_random_secret
 
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your_supabase_anon_key
+SUPABASE_SERVICE_ROLE_KEY=server_only_service_role_key
+SUPABASE_XEROX_BUCKET=xerox-private
+XEROX_RETENTION_DAYS=7
 
 EMAIL_USER=your_email_address
 EMAIL_PASS=your_email_app_password
@@ -90,10 +98,11 @@ cd ../frontend
 npm install
 ```
 
-Initialize the database and seed sample data:
+Apply idempotent migrations, then seed the presentation accounts and activity:
 
 ```bash
 cd backend
+npm run migrate
 npm run seed
 ```
 
@@ -129,6 +138,12 @@ Vite will print the local frontend URL, normally [http://localhost:5173](http://
 | Cart | `/api/cart` | Add, update, remove, and view cart items |
 | Pricing | `/api/pricing` | Calculate rental pricing |
 | Wishlist | `/api/wishlist` | View, toggle, and remove saved items |
+| Courier routes/offers | `/api/courier` | Availability routes and scored offers |
+| Delivery tracking/handover | `/api/delivery` | Assignment, live checkpoints, QR/OTP verification |
+| Campus graph | `/api/campus` | Locations and computed shortest paths |
+| Xerox | `/api/xerox` | PDF preview, requests, desk queue, and private documents |
+
+Demo accounts are `studenta@dbit.co.in` through `studentl@dbit.co.in`, plus `xerox@dbit.co.in`. The presentation-only password is `CampusMesh@123`.
 
 Most user, rental, cart, wishlist, and payment endpoints require a JWT in the request authorization header.
 
@@ -143,6 +158,7 @@ Import `backend/Postman_Collection.json` into Postman. Set the backend URL to `h
 cd backend && npm run dev
 cd backend && npm start
 cd backend && npm run seed
+cd backend && npm test
 
 # Frontend
 cd frontend && npm run dev
