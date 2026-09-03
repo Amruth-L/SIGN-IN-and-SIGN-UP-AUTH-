@@ -1,5 +1,7 @@
 const pool = require('../../config/database');
 const razorpay = require('../../config/razorpay');
+const { matchDelivery } = require('../delivery/matching.service');
+const { emitUser } = require('../../shared/realtime');
 const crypto = require('crypto');
 require('dotenv').config();
 
@@ -305,11 +307,31 @@ class PaymentService {
         `, [bookingId]);
       }
 
-      // The owner-acceptance flow creates and matches the outbound task.
+      let deliveryId = null;
+      if (isRentalPaid) {
+        const deliveryRes = await client.query(
+          `UPDATE delivery_requests SET status='MATCHING_COURIER', updated_at=NOW()
+           WHERE rental_id=$1 AND task_type='RENTAL_OUTBOUND' AND status='WAITING_FOR_DEPOSIT'
+           RETURNING id`,
+          [bookingId],
+        );
+        deliveryId = deliveryRes.rows[0]?.id || null;
+      }
 
       console.log(`[PaymentService] Security deposit verified for booking ${bookingId}. Status → QR_GENERATED (Item pickup enabled)`);
 
       await client.query('COMMIT');
+
+      if (deliveryId) {
+        try {
+          await matchDelivery(deliveryId);
+        } catch (matchingError) {
+          console.error(`[PaymentService] Delivery matching deferred for ${deliveryId}:`, matchingError.message);
+        }
+        const deliveryEvent = { rental_id: bookingId, delivery_id: deliveryId, status: 'MATCHING_COURIER' };
+        emitUser(booking.borrower_id, 'delivery:created', deliveryEvent);
+        emitUser(booking.owner_id, 'delivery:created', deliveryEvent);
+      }
 
       return {
         message: 'Security deposit payment verified. QR code generated for handover.',

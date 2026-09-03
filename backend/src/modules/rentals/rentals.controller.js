@@ -1,5 +1,6 @@
 const pool = require('../../config/database');
 const { matchDelivery } = require('../delivery/matching.service');
+const { emitUser } = require('../../shared/realtime');
 
 // Helper: get system config value
 const getConfig = async (key) => {
@@ -221,6 +222,9 @@ exports.respondToBooking = async (req, res) => {
           [row.resolved_pickup, row.resolved_drop],
         ]);
         const byId = Object.fromEntries(locations.rows.map((item) => [item.id, item]));
+        if (!byId[row.resolved_pickup] || !byId[row.resolved_drop]) {
+          return res.status(422).json({ error: 'The selected campus locations are no longer available.' });
+        }
         const label = (item) =>
           [item.building_name, item.floor_name, item.room_name].filter(Boolean).join(' · ');
         const existing = await pool.query(
@@ -230,7 +234,7 @@ exports.respondToBooking = async (req, res) => {
         if (existing.rows[0]) {
           const updated = await pool.query(
             `UPDATE delivery_requests SET pickup_location_id=$1,destination_location_id=$2,
-            pickup_location=$3,drop_location=$4,status='MATCHING_COURIER',updated_at=NOW() WHERE id=$5 RETURNING *`,
+            pickup_location=$3,drop_location=$4,status='WAITING_FOR_DEPOSIT',updated_at=NOW() WHERE id=$5 RETURNING *`,
             [
               row.resolved_pickup,
               row.resolved_drop,
@@ -244,7 +248,7 @@ exports.respondToBooking = async (req, res) => {
           const created = await pool.query(
             `INSERT INTO delivery_requests (rental_id,listing_id,customer_id,seller_id,pickup_location,drop_location,
             pickup_location_id,destination_location_id,task_type,item_description,delivery_fee,courier_earning,status)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'RENTAL_OUTBOUND',$9,$10,$11,'MATCHING_COURIER') RETURNING *`,
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'RENTAL_OUTBOUND',$9,$10,$11,'WAITING_FOR_DEPOSIT') RETURNING *`,
             [
               rental_id,
               row.listing_id,
@@ -262,15 +266,17 @@ exports.respondToBooking = async (req, res) => {
           delivery = created.rows[0];
         }
         await pool.query(
-          "UPDATE rentals SET status='MATCHING_COURIER', outbound_delivery_id=$1 WHERE id=$2",
+          "UPDATE rentals SET status='DEPOSIT_PENDING', outbound_delivery_id=$1 WHERE id=$2",
           [delivery.id, rental_id],
         );
-        await matchDelivery(delivery.id);
+        const deliveryEvent = { rental_id: rental_id, delivery_id: delivery.id, status: delivery.status };
+        emitUser(rental.borrower_id, 'delivery:created', deliveryEvent);
+        emitUser(rental.owner_id, 'delivery:created', deliveryEvent);
       }
     }
     res.json({
       message: 'Booking accepted. Borrower must pay security deposit before deadline.',
-      status: delivery ? 'MATCHING_COURIER' : 'DEPOSIT_PENDING',
+      status: 'DEPOSIT_PENDING',
       deposit_deadline,
       deposit_amount: rental.deposit_amount,
       deposit_timeout_minutes: depositTimeoutMins,
@@ -344,52 +350,6 @@ exports.getHistory = async (req, res) => {
 exports.getRentalStatus = async (req, res) => {
   const { id } = req.params;
   const user_id = req.user.id;
-
-  if (id.startsWith('mock-rental-')) {
-    const mockRental = {
-      id: id,
-      listing_id: 'mock-listing-id',
-      borrower_id: user_id,
-      owner_id: 'mock-owner-id',
-      start_date: new Date().toISOString().split('T')[0],
-      end_date: new Date(Date.now() + 86400000).toISOString().split('T')[0],
-      rental_days: 1,
-      rental_fee: 15.0,
-      delivery_fee: 0.0,
-      platform_fee: 5.0,
-      booking_amount: 20.0,
-      deposit_amount: 200.0,
-      status: 'OWNER_PENDING',
-      booking_status: 'PENDING',
-      deposit_status: 'PENDING',
-      payment_status: 'PAID',
-      owner_response: 'PENDING',
-      listing_title: 'Core Java Volume I (Fundamentals)',
-      listing_image:
-        'https://images.unsplash.com/photo-1543002588-bfa74002ed7e?w=500&auto=format&fit=crop&q=60',
-      listing_category: 'Books',
-      listing_location: 'Central Library',
-      borrower_name: 'AMRuth',
-      borrower_email: '1DB23AD001@dbit.co.in',
-      owner_name: 'Priya Sharma',
-      owner_email: '1DB23AD003@dbit.co.in',
-    };
-
-    return res.json({
-      rental: mockRental,
-      payments: [
-        {
-          id: 'mock-payment-id',
-          payment_type: 'RENTAL',
-          amount: 20.0,
-          status: 'SUCCESS',
-          created_at: new Date().toISOString(),
-        },
-      ],
-      deposit_seconds_remaining: null,
-      qr_available: false,
-    });
-  }
 
   const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRegex.test(id)) {

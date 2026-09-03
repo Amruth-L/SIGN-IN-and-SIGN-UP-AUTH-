@@ -34,7 +34,11 @@ async function matchDelivery(deliveryId, client = pool) {
   const deliveryResult = await client.query(`SELECT dr.*, p.route_node_id pickup_node, d.route_node_id destination_node
     FROM delivery_requests dr JOIN campus_locations p ON p.id = dr.pickup_location_id
     JOIN campus_locations d ON d.id = dr.destination_location_id WHERE dr.id = $1`, [deliveryId]);
-  const task = deliveryResult.rows[0]; if (!task) return [];
+  const task = deliveryResult.rows[0];
+  const safeTask = { ...task };
+  delete safeTask.pickup_token;
+  delete safeTask.delivery_token;
+  if (!task || !['MATCHING_COURIER', 'RETURN_MATCHING', 'AVAILABLE', 'NO_COURIER_AVAILABLE'].includes(task.status)) return [];
   const candidates = await client.query(`SELECT cra.*, u.courier_reliability_score,
       o.route_node_id origin_node, d.route_node_id destination_node
     FROM courier_route_availability cra JOIN users u ON u.id = cra.courier_id
@@ -45,7 +49,9 @@ async function matchDelivery(deliveryId, client = pool) {
         'PICKUP_VERIFIED','ORDER_COLLECTED','PICKED_UP','GOING_TO_DESTINATION','IN_TRANSIT',
         'ARRIVED_AT_DESTINATION','ARRIVED','RETURN_COURIER_ASSIGNED','RETURN_MATCHING','RETURN_PICKUP_VERIFIED','RETURN_IN_TRANSIT'
       ))
-      AND cra.courier_id <> $1 AND ($2 IS NULL OR cra.courier_id <> $2)`, [task.customer_id, task.seller_id]);
+      AND ($1::uuid IS NULL OR cra.courier_id <> $1)
+      AND ($2::uuid IS NULL OR cra.courier_id <> $2)
+      AND NOT (cra.courier_id = ANY($3::uuid[]))`, [task.customer_id, task.seller_id, task.declined_by || []]);
   const ranked = candidates.rows.map(candidate => {
     const scored = scoreCandidate({ ...candidate, origin: candidate.origin_node, destination: candidate.destination_node },
       { pickup: task.pickup_node, destination: task.destination_node }, candidate.courier_reliability_score);
@@ -55,9 +61,12 @@ async function matchDelivery(deliveryId, client = pool) {
   for (const candidate of ranked) {
     const { rows } = await client.query(`INSERT INTO delivery_offers (delivery_id, courier_id, match_score, score_breakdown, expires_at)
       VALUES ($1,$2,$3,$4,NOW() + INTERVAL '5 minutes') ON CONFLICT (delivery_id, courier_id)
-      DO UPDATE SET match_score=EXCLUDED.match_score, score_breakdown=EXCLUDED.score_breakdown, status='PENDING', offered_at=NOW(), expires_at=EXCLUDED.expires_at
+      DO UPDATE SET match_score=EXCLUDED.match_score, score_breakdown=EXCLUDED.score_breakdown,
+        status=CASE WHEN delivery_offers.status='DECLINED' THEN delivery_offers.status ELSE 'PENDING' END,
+        offered_at=CASE WHEN delivery_offers.status='DECLINED' THEN delivery_offers.offered_at ELSE NOW() END,
+        expires_at=CASE WHEN delivery_offers.status='DECLINED' THEN delivery_offers.expires_at ELSE EXCLUDED.expires_at END
       RETURNING *`, [deliveryId, candidate.courier_id, candidate.score, candidate.breakdown]);
-    emitUser(candidate.courier_id, 'delivery:offer', { ...rows[0], delivery: task });
+    if (rows[0]?.status === 'PENDING') emitUser(candidate.courier_id, 'delivery:offer', { ...rows[0], delivery: safeTask });
   }
   if (!ranked.length) await client.query("UPDATE delivery_requests SET status = 'NO_COURIER_AVAILABLE' WHERE id = $1 AND status IN ('MATCHING_COURIER','RETURN_MATCHING','AVAILABLE','NO_COURIER_AVAILABLE')", [deliveryId]);
   return ranked;

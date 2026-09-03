@@ -282,17 +282,7 @@ export default function OwnerDashboard() {
                             Courier: <strong className="text-ink">{ds.courier_name}</strong>
                           </div>
                         )}
-                        {/* Seller's Pickup Token */}
-                        {ds.pickup_token && ['ACCEPTED','ARRIVING_FOR_PICKUP'].includes(ds.status) && (
-                          <div className="rounded-lg bg-ink p-4 text-center">
-                            <div className="mb-1 text-[.65rem] font-semibold uppercase tracking-widest text-white/60">Your Pickup Token</div>
-                            <div className="select-all font-mono text-2xl font-black tracking-[.25em] text-white">
-                              {ds.pickup_token}
-                            </div>
-                            <div className="mt-1 text-[.6rem] text-white/50">Show this token to the courier when they arrive for pickup</div>
-                          </div>
-                        )}
-                        {ds.delivery_id && ['COURIER_ASSIGNED','GOING_TO_PICKUP','RETURN_IN_TRANSIT'].includes(ds.status) && (
+                        {ds.delivery_id && ((ds.task_type === 'RENTAL_RETURN' && ds.status === 'RETURN_IN_TRANSIT') || (ds.task_type !== 'RENTAL_RETURN' && ds.status === 'ARRIVED_AT_PICKUP')) && (
                           <HandoverCredential deliveryId={ds.delivery_id} stage={ds.task_type === 'RENTAL_RETURN' ? 'RETURN_RECEIVED' : 'PICKUP'} title={ds.task_type === 'RENTAL_RETURN' ? 'Confirm returned item' : 'Owner pickup handover'} />
                         )}
                       </div>

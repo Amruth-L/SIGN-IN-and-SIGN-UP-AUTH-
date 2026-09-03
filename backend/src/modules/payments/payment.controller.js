@@ -60,16 +60,6 @@ exports.createDepositOrder = async (req, res) => {
     return res.status(400).json({ error: 'booking_id is required.' });
   }
 
-  if (targetId.startsWith('mock-rental-')) {
-    return res.status(201).json({
-      order_id: `sim_order_${Math.random().toString(36).substr(2, 9)}`,
-      amount: 200.00, // mock deposit amount
-      currency: 'INR',
-      razorpay_key: 'SIMULATION_MODE',
-      simulated: true
-    });
-  }
-
   try {
     const orderData = await paymentService.createDepositOrder(targetId, userId);
     res.status(201).json(orderData);
@@ -86,13 +76,6 @@ exports.verifyDeposit = async (req, res) => {
 
   if (!targetId || !gateway_order_id || !gateway_payment_id) {
     return res.status(400).json({ error: 'booking_id, gateway_order_id, and gateway_payment_id are required.' });
-  }
-
-  if (targetId.startsWith('mock-rental-')) {
-    return res.status(200).json({
-      message: 'Deposit payment verified successfully (Mock).',
-      status: 'QR_GENERATED'
-    });
   }
 
   try {

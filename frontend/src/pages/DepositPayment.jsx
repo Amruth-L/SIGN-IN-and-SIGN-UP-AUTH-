@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { openRazorpayCheckout } from '../utils/RazorpayService';
-import { mockProducts } from '../data/mockData';
 import PaymentSummary from '../components/PaymentSummary';
 
 const API_BASE = 'http://localhost:3003';
@@ -26,20 +25,6 @@ export default function DepositPayment() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to fetch booking details.');
-
-        // Resolve correct mock product details if mock rental
-        if (id && id.startsWith('mock-rental-')) {
-          const parts = id.split('-');
-          const mockProductId = parts.slice(2, parts.length - 1).join('-');
-          const mockItem = mockProducts.find(p => p.id === mockProductId);
-          if (mockItem) {
-            data.rental.listing_title = mockItem.title;
-            data.rental.listing_category = mockItem.category;
-            data.rental.listing_image = mockItem.image_url;
-            data.rental.listing_location = mockItem.location;
-            data.rental.deposit_amount = Number(mockItem.deposit || 0);
-          }
-        }
 
         setBooking(data.rental);
       } catch (err) {
@@ -104,9 +89,6 @@ export default function DepositPayment() {
             const verifyData = await verifyRes.json();
             if (!verifyRes.ok) throw new Error(verifyData.error || 'Signature verification failed.');
 
-            if (id.startsWith('mock-rental-')) {
-              localStorage.setItem(`mock_status_${id}`, 'QR_GENERATED');
-            }
 
             navigate(`/rent-details/${id}`, { state: { justBooked: true } });
           } catch (vErr) {

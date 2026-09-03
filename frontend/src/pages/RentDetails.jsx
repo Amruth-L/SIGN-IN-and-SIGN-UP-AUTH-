@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
+import { io } from 'socket.io-client';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../lib/api';
-import { mockProducts } from '../data/mockData';
 import QRCode from 'qrcode';
 import HandoverCredential from '../components/HandoverCredential';
 
@@ -93,35 +93,6 @@ export default function RentDetails() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      // Resolve correct mock product details if mock rental
-      if (rentalId && rentalId.startsWith('mock-rental-')) {
-        const parts = rentalId.split('-');
-        const mockProductId = parts.slice(2, parts.length - 1).join('-');
-        const mockItem = mockProducts.find(p => p.id === mockProductId);
-        if (mockItem) {
-          data.rental.listing_title = mockItem.title;
-          data.rental.listing_category = mockItem.category;
-          data.rental.listing_image = mockItem.image_url;
-          data.rental.listing_location = mockItem.location;
-          data.rental.deposit_amount = Number(mockItem.deposit || 0);
-        }
-
-        const persistedStatus = localStorage.getItem(`mock_status_${rentalId}`);
-        if (persistedStatus) {
-          data.rental.status = persistedStatus;
-          if (persistedStatus === 'DEPOSIT_PENDING') {
-            data.rental.booking_status = 'CONFIRMED';
-            data.rental.deposit_status = 'PENDING';
-            data.rental.deposit_deadline = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-          } else if (persistedStatus === 'QR_GENERATED') {
-            data.rental.booking_status = 'CONFIRMED';
-            data.rental.deposit_status = 'PAID';
-            data.rental.payment_status = 'PAID';
-            data.rental.qr_code_hash = `mock_qr_hash_${rentalId}`;
-          }
-        }
-      }
-
       setRental(data.rental);
       setPayments(data.payments || []);
       setDepositSeconds(data.deposit_seconds_remaining);
@@ -153,6 +124,14 @@ export default function RentDetails() {
     const interval = setInterval(fetchDeliveryStatus, 15000);
     return () => clearInterval(interval);
   }, [rentalId]);
+
+  useEffect(() => {
+    const socket = io(API_BASE, { auth: { token: localStorage.getItem('token') } });
+    const refresh = () => { fetchDeliveryStatus(); fetchStatus(); };
+    if (deliveryInfo?.delivery_id) socket.emit('delivery:join', deliveryInfo.delivery_id);
+    ['delivery:created', 'delivery:assigned', 'delivery:status', 'delivery:completed'].forEach((event) => socket.on(event, refresh));
+    return () => socket.close();
+  }, [deliveryInfo?.delivery_id, rentalId]);
 
   // Poll every 15s when waiting for owner
   useEffect(() => {
@@ -350,61 +329,26 @@ export default function RentDetails() {
 
             {/* Delivery Courier Status */}
             {deliveryInfo && deliveryInfo.has_delivery && (
-              <div className="mt-4 space-y-4 rounded-lg border border-ink/10 bg-mesh-50 p-4">
-                <h4 className="mb-3 flex items-center gap-1.5 text-sm font-bold">
-                  🚚 Delivery Status
-                </h4>
-                {deliveryInfo.status === 'AVAILABLE' && (
-                  <p className="text-xs text-ink/50">Finding a courier…</p>
-                )}
-                {deliveryInfo.status !== 'AVAILABLE' && (
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div>
-                      <div className="text-[.65rem] font-semibold uppercase text-ink/50">Status</div>
-                      <div className={`text-sm font-bold ${deliveryInfo.status === 'DELIVERED' ? 'text-green-600' : 'text-blue-600'}`}>
-                        {{
-                          MATCHING_COURIER: '🔎 Finding a Courier',
-                          COURIER_ASSIGNED: '✅ Courier Assigned',
-                          ACCEPTED: '✅ Courier Assigned',
-                          GOING_TO_PICKUP: '🚶 Heading to Seller',
-                          ARRIVING_FOR_PICKUP: '🚶 Heading to Seller',
-                          PICKUP_VERIFIED: '📋 Pickup Verified',
-                          ORDER_COLLECTED: '📋 Item Picked Up',
-                          PICKED_UP: '📋 Item Picked Up',
-                          GOING_TO_DESTINATION: '🚚 On the Way',
-                          IN_TRANSIT: '🚚 On the Way',
-                          ARRIVED_AT_DESTINATION: '📍 Courier Arrived',
-                          ARRIVED: '📍 Courier Arrived',
-                          DELIVERED: '🎉 Delivered!',
-                        }[deliveryInfo.status] || deliveryInfo.status}
-                      </div>
-                    </div>
-                    {deliveryInfo.courier_name && (
-                      <div>
-                        <div className="text-[.65rem] font-semibold uppercase text-ink/50">Courier</div>
-                        <div className="text-sm font-semibold">{deliveryInfo.courier_name}</div>
-                      </div>
-                    )}
-                  </div>
-                )}
-                {deliveryInfo.delivery_id && (
-                  <Link to={"/delivery/" + deliveryInfo.delivery_id + "/track"} className="inline-flex items-center rounded-xl bg-white px-3 py-2 text-xs font-bold text-mesh-700 shadow-sm hover:bg-mesh-100">
-                    Open live tracking →
-                  </Link>
-                )}
-                {/* Customer's Delivery Token — shown when courier needs to verify delivery */}
-                {isBorrower && deliveryInfo.delivery_token && ['PICKED_UP','IN_TRANSIT','ARRIVED'].includes(deliveryInfo.status) && (
-                  <div className="mt-3 rounded-xl bg-ink p-5 text-center">
-                    <div className="mb-1.5 text-xs font-semibold uppercase tracking-widest text-white/60">Your Delivery Token</div>
-                    <div className="select-all font-mono text-3xl font-black tracking-[.25em] text-white">
-                      {deliveryInfo.delivery_token}
-                    </div>
-                    <div className="mt-1.5 text-[.65rem] text-white/50">Show at delivery.</div>
-                  </div>
-                )}
-                {isBorrower && deliveryInfo.delivery_id && ['PICKUP_VERIFIED','IN_TRANSIT','ARRIVED_AT_DESTINATION','ARRIVED','RETURN_COURIER_ASSIGNED','RETURN_IN_TRANSIT','COURIER_ASSIGNED'].includes(deliveryInfo.status) && (
-                  <HandoverCredential deliveryId={deliveryInfo.delivery_id} stage={deliveryInfo.task_type === 'RENTAL_RETURN' ? 'RETURN_PICKUP' : 'DELIVERY'} title={deliveryInfo.task_type === 'RENTAL_RETURN' ? 'Return pickup handover' : 'Delivery handover'} />
-                )}
+              <div className="mt-4 space-y-4 rounded-2xl border border-mesh-900/10 bg-mesh-50 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div><span className="text-[.65rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Delivery handoff</span><h4 className="mt-1 text-base font-extrabold">{deliveryInfo.status === 'WAITING_FOR_DEPOSIT' ? 'Delivery request is ready' : 'Your courier is on the move'}</h4></div>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-mesh-800">{{
+                    WAITING_FOR_DEPOSIT: 'Deposit required', MATCHING_COURIER: 'Finding courier', COURIER_ASSIGNED: 'Courier assigned', GOING_TO_PICKUP: 'Going to pickup', ARRIVED_AT_PICKUP: 'At pickup', IN_TRANSIT: 'In transit', ARRIVED_AT_DESTINATION: 'At destination', COMPLETED: 'Completed',
+                  }[deliveryInfo.status] || deliveryInfo.status}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-xl bg-white p-3"><span className="block text-[.62rem] font-extrabold uppercase tracking-[.14em] text-ink/40">Owner</span><b className="mt-1 block truncate">{deliveryInfo.owner_name || 'Listing owner'}</b></div>
+                  <div className="rounded-xl bg-white p-3"><span className="block text-[.62rem] font-extrabold uppercase tracking-[.14em] text-ink/40">Renter</span><b className="mt-1 block truncate">{deliveryInfo.renter_name || 'Renter'}</b></div>
+                  <div className="rounded-xl bg-white p-3"><span className="block text-[.62rem] font-extrabold uppercase tracking-[.14em] text-ink/40">Pickup</span><b className="mt-1 block truncate">{deliveryInfo.pickup_location}</b></div>
+                  <div className="rounded-xl bg-white p-3"><span className="block text-[.62rem] font-extrabold uppercase tracking-[.14em] text-ink/40">Drop-off</span><b className="mt-1 block truncate">{deliveryInfo.drop_location}</b></div>
+                </div>
+                {deliveryInfo.courier_name && <p className="text-xs text-ink/55">Courier: <b className="text-ink">{deliveryInfo.courier_name}</b>{deliveryInfo.courier_phone ? ` · ${deliveryInfo.courier_phone}` : ''}</p>}
+                {deliveryInfo.next_handshake && <p className="rounded-xl border border-mesh-200 bg-white px-3 py-2 text-xs font-semibold text-mesh-800">Next secure step: {deliveryInfo.next_handshake.replaceAll('_', ' ').toLowerCase()} handover.</p>}
+                {deliveryInfo.delivery_id && <Link to={`/delivery/${deliveryInfo.delivery_id}/track`} className="inline-flex items-center rounded-xl bg-white px-3 py-2 text-xs font-bold text-mesh-700 shadow-sm hover:bg-mesh-100">Open live tracking →</Link>}
+                {isOwner && deliveryInfo.delivery_id && deliveryInfo.task_type !== 'RENTAL_RETURN' && deliveryInfo.status === 'ARRIVED_AT_PICKUP' && <HandoverCredential deliveryId={deliveryInfo.delivery_id} stage="PICKUP" title="Show pickup QR to the courier" />}
+                {isBorrower && deliveryInfo.delivery_id && deliveryInfo.task_type !== 'RENTAL_RETURN' && deliveryInfo.status === 'ARRIVED_AT_DESTINATION' && <HandoverCredential deliveryId={deliveryInfo.delivery_id} stage="DELIVERY" title="Show delivery QR to the courier" />}
+                {isBorrower && deliveryInfo.delivery_id && deliveryInfo.task_type === 'RENTAL_RETURN' && deliveryInfo.status === 'ARRIVED_AT_PICKUP' && <HandoverCredential deliveryId={deliveryInfo.delivery_id} stage="RETURN_PICKUP" title="Show return pickup QR to the courier" />}
+                {isOwner && deliveryInfo.delivery_id && deliveryInfo.task_type === 'RENTAL_RETURN' && deliveryInfo.status === 'RETURN_IN_TRANSIT' && <HandoverCredential deliveryId={deliveryInfo.delivery_id} stage="RETURN_RECEIVED" title="Confirm returned item" />}
               </div>
             )}
 

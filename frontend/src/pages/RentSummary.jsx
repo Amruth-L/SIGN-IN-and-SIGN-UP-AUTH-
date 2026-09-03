@@ -3,7 +3,6 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Calendar, AlertTriangle, Lock, CheckCircle2, ClipboardList, MapPin } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../lib/api';
-import { mockProducts, mockSellers } from '../data/mockData';
 import { openRazorpayCheckout } from '../utils/RazorpayService';
 
 
@@ -41,41 +40,18 @@ export default function RentSummary() {
   const [submitting, setSubmitting] = useState(false);
   const [breakdown, setBreakdown] = useState(null);
 
-  const isMock = id?.startsWith('mp-');
 
   useEffect(() => {
     const fetchListing = async () => {
       setLoading(true);
       try {
-        if (isMock) {
-          const mock = mockProducts.find((p) => p.id === id);
-          if (!mock) throw new Error('Mock product not found');
-          
-          // Find mock seller details to show the owner name properly
-          const mockSeller = mockSellers.find((s) => s.id === mock.sellerId);
-          
-          setListing({
-            id: mock.id,
-            title: mock.title || mock.name || 'Listing Item',
-            image_url: mock.image_url || mock.image || '',
-            category: mock.category || 'Item',
-            condition: mock.condition || 'Good',
-            location: mock.location || 'Campus',
-            rent_price: Number(mock.rentPrice || mock.rent_price || 0),
-            deposit: Number(mock.deposit || 0),
-            delivery_available: mock.deliveryAvailable || false,
-            delivery_charge: Number(mock.deliveryCharge || 0),
-            owner_name: mockSeller ? mockSeller.name : 'Student Seller',
-          });
-        } else {
-          const token = localStorage.getItem('token');
+                  const token = localStorage.getItem('token');
           const res = await fetch(`${API_BASE_URL}/listings/${id}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!res.ok) throw new Error('Failed to load listing');
           const data = await res.json();
           setListing(data);
-        }
       } catch (e) {
         setError(e.message);
       } finally {
@@ -110,7 +86,7 @@ export default function RentSummary() {
             Authorization: `Bearer ${token}`
           },
           body: JSON.stringify({
-            listing_id: isMock ? null : listing.id,
+            listing_id: listing.id,
             daily_rent: listing.rent_price || listing.rentPrice || 0,
             rental_days: days,
             delivery_type: rentalConfiguration.delivery_requested ? 'STANDARD' : 'SELF_PICKUP',
@@ -156,11 +132,7 @@ export default function RentSummary() {
       let rentalId = '';
       let bookingAmount = breakdown.bookingAmount;
       
-      if (isMock) {
-        // Generate simulated rental ID including the mock listing ID
-        rentalId = `mock-rental-${id}-${Date.now()}`;
-      } else {
-        console.log('[Frontend Debug] Requesting booking creation from backend...');
+              console.log('[Frontend Debug] Requesting booking creation from backend...');
         const res = await fetch(`${API_BASE_URL}/api/rentals/book`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -178,20 +150,9 @@ export default function RentSummary() {
         
         rentalId = data.rental.id;
         bookingAmount = Number(data.rental.booking_amount || breakdown.bookingAmount);
-      }
       
       console.log('[Frontend Debug] Requesting payment order details from backend...');
-      let orderData;
-      if (isMock) {
-        orderData = {
-          order_id: `sim_order_${Math.random().toString(36).substr(2, 9)}`,
-          amount: bookingAmount,
-          razorpay_key: 'SIMULATION_MODE',
-          simulated: true
-        };
-        console.log('[Frontend Debug] Mock product detected. Simulated orderData:', orderData);
-      } else {
-        const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-rental-order`, {
+      const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-rental-order`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -199,20 +160,17 @@ export default function RentSummary() {
           },
           body: JSON.stringify({ booking_id: rentalId })
         });
-        orderData = await orderRes.json();
+        const orderData = await orderRes.json();
         console.log('[Frontend Debug] Payment order creation response:', orderData);
         if (!orderRes.ok) throw new Error(orderData.error || 'Failed to create payment order.');
-      }
 
       if (orderData.simulated) {
-        if (!isMock) {
-          await api.post("/api/payment/verify-rental", {
+        await api.post("/api/payment/verify-rental", {
             booking_id: rentalId,
             gateway_order_id: orderData.order_id,
             gateway_payment_id: "sim_rental_" + Date.now(),
             gateway_signature: "sim_sig",
-          });
-        }
+        });
         navigate("/rent-details/" + rentalId, { state: { justBooked: true } });
         return;
       }
@@ -249,12 +207,6 @@ export default function RentSummary() {
         handler: async (resp) => {
           console.log('[Frontend Debug] Razorpay payment completed successfully. Response:', resp);
           try {
-            if (isMock) {
-              console.log('[Frontend Debug] Mock item detected, navigating directly to success page');
-              navigate(`/rent-details/${rentalId}`, { state: { justBooked: true } });
-              return;
-            }
-
             console.log('[Frontend Debug] Verifying signature with backend...');
             const verifyRes = await fetch(`${API_BASE_URL}/api/payment/verify-rental`, {
               method: 'POST',
@@ -287,9 +239,7 @@ export default function RentSummary() {
         }
       };
 
-      if (!orderData.simulated) {
-        razorpayOptions.order_id = orderData.order_id;
-      }
+      razorpayOptions.order_id = orderData.order_id;
 
       console.log('[Frontend Debug] Invoking openRazorpayCheckout with options:', razorpayOptions);
       await openRazorpayCheckout(razorpayOptions);
