@@ -32,8 +32,8 @@ exports.upsertRoute = async (req, res) => {
     await client.query("UPDATE users SET delivery_available=TRUE, active_mode='DELIVERY' WHERE id=$1", [req.user.id]);
     await client.query('COMMIT');
     try {
-      const openTasks = await pool.query("SELECT id FROM delivery_requests WHERE status IN ('MATCHING_COURIER','RETURN_MATCHING','AVAILABLE','NO_COURIER_AVAILABLE') AND (customer_id IS NULL OR customer_id <> $1) AND (seller_id IS NULL OR seller_id <> $1)", [req.user.id]);
-      await Promise.all(openTasks.rows.map((task) => matchDelivery(task.id)));
+      const openTasks = await client.query("SELECT id FROM delivery_requests WHERE status IN ('MATCHING_COURIER','RETURN_MATCHING','AVAILABLE','NO_COURIER_AVAILABLE') AND (customer_id IS NULL OR customer_id <> $1) AND (seller_id IS NULL OR seller_id <> $1)", [req.user.id]);
+      for (const task of openTasks.rows) await matchDelivery(task.id, client);
     } catch (rematchError) {
       console.error('[CourierController] route rematch error:', rematchError.message);
     }

@@ -13,7 +13,7 @@ async function ensureOutboundDelivery(client, rentalId, requestedStatus = 'WAITI
      LEFT JOIN campus_locations p ON p.id = l.pickup_location_id
      LEFT JOIN campus_locations d ON d.id = r.drop_location_id
      WHERE r.id = $1
-     FOR UPDATE`,
+     FOR UPDATE OF r`,
     [rentalId],
   );
   const rental = details.rows[0];

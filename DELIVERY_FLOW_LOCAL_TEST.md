@@ -22,3 +22,12 @@ The health response must contain `ok: true` and `database: true`. Open three iso
 Failure checks: stop the backend and confirm the UI says **Backend disconnected**, let a route expire and confirm **Offline**, attempt a second courier accept and expect `409`, and try an invalid/reused/out-of-order QR and expect rejection.
 
 Run the lightweight matcher checks with `cd backend && npm test`.
+
+Optional API integration coverage (uses the configured local database and creates one demonstration rental):
+
+```bash
+cd backend
+DELIVERY_E2E=1 npm test -- test/delivery-flow.contract.test.js
+```
+
+The contract test logs in the three configured users, verifies the paid owner queue, accepts the booking, pays the deposit, submits ten concurrent courier route saves, checks the real offer and participant data, performs both secure QR/OTP handovers, and verifies the unified renter history. Override `DELIVERY_E2E_OWNER_EMAIL`, `DELIVERY_E2E_RENTER_EMAIL`, `DELIVERY_E2E_COURIER_EMAIL`, `DELIVERY_E2E_PASSWORD`, or `DELIVERY_API_URL` when using different local accounts. The test is skipped by normal `npm test` unless `DELIVERY_E2E=1` is set.
