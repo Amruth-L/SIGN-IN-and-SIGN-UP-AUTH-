@@ -1,4 +1,5 @@
 const cors = require('cors');
+const pool = require('./config/database');
 const express = require('express');
 const authRoutes = require('./modules/auth/auth.routes');
 const campusRoutes = require('./modules/campus/campus.routes');
@@ -17,6 +18,19 @@ const app = express();
 app.disable('x-powered-by');
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN?.split(',') || true, credentials: true }));
 app.use(express.json({ limit: '50mb' }));
+app.get('/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true, database: true, serverTime: new Date().toISOString() });
+  } catch {
+    res.status(503).json({
+      ok: false,
+      database: false,
+      serverTime: new Date().toISOString(),
+      error: 'Database unavailable.',
+    });
+  }
+});
 app.use('/', authRoutes);
 app.use('/listings', listingRoutes);
 app.use('/api/profile', profileRoutes);

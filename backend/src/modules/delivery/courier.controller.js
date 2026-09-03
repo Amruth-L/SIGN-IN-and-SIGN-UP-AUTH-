@@ -10,6 +10,7 @@ const loadLocations = async (originId, destinationId) => {
 exports.upsertRoute = async (req, res) => {
   const { origin_location_id, destination_location_id, available_until, max_detour_meters = 250 } = req.body;
   if (!origin_location_id || !destination_location_id || !available_until) return res.status(400).json({ error: 'Origin, destination, and available-until time are required.' });
+  if (Number.isNaN(new Date(available_until).getTime()) || new Date(available_until) <= new Date()) return res.status(400).json({ error: 'Choose an available-until time in the future.' });
   if (origin_location_id === destination_location_id) return res.status(400).json({ error: 'Choose two different locations.' });
   const locations = await loadLocations(origin_location_id, destination_location_id);
   const route = routeFor(locations[origin_location_id], locations[destination_location_id]);
@@ -38,12 +39,17 @@ exports.upsertRoute = async (req, res) => {
 };
 
 exports.currentRoute = async (req, res) => {
-  const { rows } = await pool.query(`SELECT cra.*, o.building_name origin_name, d.building_name destination_name
-    FROM courier_route_availability cra JOIN campus_locations o ON o.id=cra.origin_location_id
-    JOIN campus_locations d ON d.id=cra.destination_location_id WHERE courier_id=$1 AND is_active ORDER BY created_at DESC LIMIT 1`, [req.user.id]);
-  if (!rows[0]) return res.json({ route: null });
+  await pool.query('UPDATE courier_route_availability SET is_active=FALSE WHERE courier_id=$1 AND is_active AND available_until <= NOW()', [req.user.id]);
+  const { rows } = await pool.query(`SELECT cra.*, u.delivery_available, o.building_name origin_name, d.building_name destination_name
+    FROM courier_route_availability cra JOIN users u ON u.id=cra.courier_id
+    JOIN campus_locations o ON o.id=cra.origin_location_id
+    JOIN campus_locations d ON d.id=cra.destination_location_id WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW() ORDER BY cra.created_at DESC LIMIT 1`, [req.user.id]);
+  if (!rows[0]) {
+    await pool.query('UPDATE users SET delivery_available=FALSE WHERE id=$1', [req.user.id]);
+    return res.json({ route: null, delivery_available: false });
+  }
   const locations = await loadLocations(rows[0].origin_location_id, rows[0].destination_location_id);
-  res.json({ route: rows[0], navigation: routeFor(locations[rows[0].origin_location_id], locations[rows[0].destination_location_id]) });
+  res.json({ route: rows[0], delivery_available: Boolean(rows[0].delivery_available), navigation: routeFor(locations[rows[0].origin_location_id], locations[rows[0].destination_location_id]) });
 };
 
 exports.deactivateRoute = async (req, res) => {

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../lib/api';
 import { openRazorpayCheckout } from '../utils/RazorpayService';
 import PaymentSummary from '../components/PaymentSummary';
 
-const API_BASE = 'http://localhost:3003';
+const API_BASE = API_BASE_URL;
 
 export default function DepositPayment() {
   const { id } = useParams(); // Booking/Rental ID

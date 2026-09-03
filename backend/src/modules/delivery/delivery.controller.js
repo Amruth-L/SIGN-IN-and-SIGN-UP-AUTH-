@@ -27,6 +27,7 @@ exports.getDeliveryStats = async (req, res) => {
        JOIN users courier ON courier.id = offer.courier_id
        WHERE offer.courier_id = $1
          AND courier.delivery_available
+         AND EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW())
          AND offer.status = 'PENDING' AND offer.expires_at > NOW()
          AND dr.status IN ('MATCHING_COURIER','AVAILABLE','NO_COURIER_AVAILABLE','RETURN_MATCHING')
          AND dr.customer_id IS DISTINCT FROM $1
@@ -68,32 +69,46 @@ exports.getDeliveryStats = async (req, res) => {
 exports.getAvailableDeliveries = async (req, res) => {
   const userId = req.user.id;
   try {
-    await pool.query("UPDATE delivery_offers SET status='EXPIRED' WHERE courier_id=$1 AND status='PENDING' AND expires_at <= NOW()", [userId]);
-    const result = await pool.query(
-      `SELECT offer.id AS offer_id, offer.delivery_id,
-              offer.match_score AS offer_match_score, offer.score_breakdown AS offer_score_breakdown,
-              offer.expires_at AS offer_expires_at,
-              dr.*,
-              l.title AS listing_title, l.image_url AS listing_image, l.category AS listing_category,
-              u_seller.name AS seller_name, u_seller.hostel AS seller_hostel,
-              u_customer.name AS customer_name, u_customer.hostel AS customer_hostel
-       FROM delivery_offers offer
-       JOIN delivery_requests dr ON dr.id = offer.delivery_id
-       JOIN users courier ON courier.id = offer.courier_id
-       LEFT JOIN listings l ON l.id = dr.listing_id
-       LEFT JOIN users u_seller ON u_seller.id = dr.seller_id
-       LEFT JOIN users u_customer ON u_customer.id = dr.customer_id
-       WHERE offer.courier_id = $1
-         AND courier.delivery_available
-         AND offer.status = 'PENDING' AND offer.expires_at > NOW()
-         AND dr.status IN ('MATCHING_COURIER','AVAILABLE','NO_COURIER_AVAILABLE','RETURN_MATCHING')
-         AND dr.customer_id IS DISTINCT FROM $1
-         AND dr.seller_id IS DISTINCT FROM $1
-         AND NOT ($1 = ANY(COALESCE(dr.declined_by, ARRAY[]::uuid[])))
-       ORDER BY offer.match_score DESC, dr.created_at DESC`,
+    const routeResult = await pool.query(
+      "SELECT cra.available_until, u.delivery_available FROM courier_route_availability cra JOIN users u ON u.id=cra.courier_id WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW() ORDER BY cra.created_at DESC LIMIT 1",
       [userId],
     );
-    res.json(result.rows.map(redactDelivery));
+    const route = routeResult.rows[0] || null;
+    const online = Boolean(route?.delivery_available);
+    if (!route) {
+      await pool.query('UPDATE courier_route_availability SET is_active=FALSE WHERE courier_id=$1 AND is_active AND available_until <= NOW()', [userId]);
+      await pool.query('UPDATE users SET delivery_available=FALSE WHERE id=$1', [userId]);
+    }
+    await pool.query(
+      "UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW() WHERE courier_id=$1 AND status='PENDING' AND expires_at <= NOW()",
+      [userId],
+    );
+
+    const result = await pool.query(
+      "SELECT offer.id AS offer_id, offer.delivery_id, offer.match_score AS offer_match_score, offer.score_breakdown AS offer_score_breakdown, offer.expires_at AS offer_expires_at, dr.*, l.title AS listing_title, l.image_url AS listing_image, l.category AS listing_category, u_seller.name AS seller_name, u_seller.hostel AS seller_hostel, u_customer.name AS customer_name, u_customer.hostel AS customer_hostel FROM delivery_offers offer JOIN delivery_requests dr ON dr.id=offer.delivery_id JOIN users courier ON courier.id=offer.courier_id LEFT JOIN listings l ON l.id=dr.listing_id LEFT JOIN users u_seller ON u_seller.id=dr.seller_id LEFT JOIN users u_customer ON u_customer.id=dr.customer_id WHERE offer.courier_id=$1 AND courier.delivery_available AND EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW()) AND offer.status='PENDING' AND offer.expires_at > NOW() AND dr.status IN ('MATCHING_COURIER','AVAILABLE','NO_COURIER_AVAILABLE','RETURN_MATCHING') AND dr.customer_id IS DISTINCT FROM $1 AND dr.seller_id IS DISTINCT FROM $1 AND NOT ($1 = ANY(COALESCE(dr.declined_by, ARRAY[]::uuid[]))) ORDER BY offer.match_score DESC, dr.created_at DESC",
+      [userId],
+    );
+
+    let reason = null;
+    if (!route) reason = 'ROUTE_EXPIRED';
+    else if (!result.rows.length) {
+      const open = await pool.query(
+        "SELECT COUNT(*)::int AS count FROM delivery_requests WHERE courier_id IS NULL AND status IN ('MATCHING_COURIER','AVAILABLE','NO_COURIER_AVAILABLE','RETURN_MATCHING') AND customer_id IS DISTINCT FROM $1 AND seller_id IS DISTINCT FROM $1",
+        [userId],
+      );
+      reason = open.rows[0].count > 0 ? 'NO_ROUTE_MATCH' : 'NO_OPEN_REQUESTS';
+    }
+
+    res.json({
+      deliveries: result.rows.map(redactDelivery),
+      availability: {
+        online,
+        routeActive: Boolean(route),
+        availableUntil: route?.available_until || null,
+        reason: online ? reason : route ? 'OFFLINE' : reason,
+      },
+      serverTime: new Date().toISOString(),
+    });
   } catch (error) {
     console.error('[DeliveryController] getAvailableDeliveries error:', error.message);
     res.status(500).json({ error: 'Failed to fetch available deliveries.' });
@@ -228,8 +243,8 @@ exports.acceptDelivery = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const availability = await client.query('SELECT delivery_available FROM users WHERE id = $1 FOR UPDATE', [userId]);
-    if (!availability.rows[0]?.delivery_available) {
+    const availability = await client.query("SELECT delivery_available, EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW()) AS route_active FROM users WHERE id=$1 FOR UPDATE", [userId]);
+    if (!availability.rows[0]?.delivery_available || !availability.rows[0]?.route_active) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Go online before accepting a delivery.' });
     }
@@ -291,6 +306,16 @@ exports.acceptDelivery = async (req, res) => {
     emitUser(userId, 'delivery:assigned', payload);
     emitUser(delivery.customer_id, 'delivery:assigned', payload);
     emitUser(delivery.seller_id, 'delivery:assigned', payload);
+    if (delivery.rental_id) {
+      const rentalEvent = {
+        rental_id: delivery.rental_id,
+        delivery_id: id,
+        status: 'COURIER_ASSIGNED',
+        courier_id: userId,
+      };
+      emitUser(delivery.customer_id, 'rental:status', rentalEvent);
+      emitUser(delivery.seller_id, 'rental:status', rentalEvent);
+    }
     res.json({ message: 'Delivery accepted successfully!', delivery_id: id, status: 'COURIER_ASSIGNED' });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -438,41 +463,51 @@ exports.getRentalDeliveryStatus = async (req, res) => {
 
   try {
     const access = await pool.query(
-      'SELECT id FROM rentals WHERE id=$1 AND (borrower_id=$2 OR owner_id=$2)',
+      'SELECT id,status,delivery_requested,deposit_status,owner_id,borrower_id FROM rentals WHERE id=$1 AND (borrower_id=$2 OR owner_id=$2)',
       [rentalId, userId],
     );
-    if (!access.rows[0]) return res.status(403).json({ error: 'You do not have access to this rental delivery.' });
+    const rental = access.rows[0];
+    if (!rental) return res.status(403).json({ error: 'You do not have access to this rental delivery.' });
 
     const result = await pool.query(
-      `SELECT dr.*,
-              l.title AS listing_title, l.image_url AS listing_image, l.category AS listing_category,
-              owner.name AS owner_name, owner.email AS owner_email,
-              renter.name AS renter_name, renter.email AS renter_email,
-              courier.name AS courier_name, courier.phone_number AS courier_phone
-       FROM delivery_requests dr
-       JOIN rentals r ON r.id = dr.rental_id
-       LEFT JOIN listings l ON l.id = dr.listing_id
-       LEFT JOIN users owner ON owner.id = dr.seller_id
-       LEFT JOIN users renter ON renter.id = dr.customer_id
-       LEFT JOIN users courier ON courier.id = dr.courier_id
-       WHERE dr.rental_id = $1
-       ORDER BY CASE
-         WHEN dr.status IN ('MATCHING_COURIER','COURIER_ASSIGNED','GOING_TO_PICKUP','ARRIVED_AT_PICKUP','IN_TRANSIT','ARRIVED_AT_DESTINATION','RETURN_MATCHING','RETURN_COURIER_ASSIGNED','RETURN_IN_TRANSIT') THEN 0
-         WHEN dr.id = r.outbound_delivery_id THEN 1
-         WHEN dr.id = r.return_delivery_id THEN 2
-         ELSE 3 END, dr.created_at DESC
-       LIMIT 1`,
+      "SELECT dr.*, l.title AS listing_title, l.image_url AS listing_image, l.category AS listing_category, owner.name AS owner_name, owner.hostel AS owner_hostel, renter.name AS renter_name, renter.hostel AS renter_hostel, courier.name AS courier_name, courier.phone_number AS courier_phone, courier.hostel AS courier_hostel FROM delivery_requests dr JOIN rentals r ON r.id=dr.rental_id LEFT JOIN listings l ON l.id=dr.listing_id LEFT JOIN users owner ON owner.id=dr.seller_id LEFT JOIN users renter ON renter.id=dr.customer_id LEFT JOIN users courier ON courier.id=dr.courier_id WHERE dr.rental_id=$1 ORDER BY CASE WHEN dr.status IN ('MATCHING_COURIER','COURIER_ASSIGNED','GOING_TO_PICKUP','ARRIVED_AT_PICKUP','IN_TRANSIT','ARRIVED_AT_DESTINATION','RETURN_MATCHING','RETURN_COURIER_ASSIGNED','RETURN_IN_TRANSIT') THEN 0 WHEN dr.id=r.outbound_delivery_id THEN 1 WHEN dr.id=r.return_delivery_id THEN 2 ELSE 3 END, dr.created_at DESC LIMIT 1",
       [rentalId],
     );
 
-    if (!result.rows[0]) return res.json({ has_delivery: false });
     const delivery = result.rows[0];
+    if (!delivery) {
+      const blockedBy = ['OWNER_PENDING', 'RENTAL_PAYMENT_COMPLETED'].includes(rental.status)
+        ? 'OWNER_APPROVAL'
+        : rental.status === 'DEPOSIT_PENDING'
+          ? 'SECURITY_DEPOSIT'
+          : 'DELIVERY_REQUEST';
+      return res.json({
+        has_delivery: false,
+        rental_status: rental.status,
+        blocked_by: blockedBy,
+        next_action: blockedBy === 'OWNER_APPROVAL'
+          ? 'Wait for the listing owner to accept the rental.'
+          : blockedBy === 'SECURITY_DEPOSIT'
+            ? 'Pay the security deposit to start courier matching.'
+            : 'Delivery details are being prepared.',
+        tracking: null,
+      });
+    }
+
     const handovers = await pool.query(
       'SELECT stage,status,expires_at,verified_at FROM handover_verifications WHERE delivery_id=$1 ORDER BY stage',
       [delivery.id],
     );
-    const pickupStage = delivery.task_type === 'XEROX_DELIVERY' ? 'XEROX_PICKUP' : delivery.task_type === 'RENTAL_RETURN' ? 'RETURN_PICKUP' : 'PICKUP';
+    const pickupStage = delivery.task_type === 'XEROX_DELIVERY'
+      ? 'XEROX_PICKUP'
+      : delivery.task_type === 'RENTAL_RETURN'
+        ? 'RETURN_PICKUP'
+        : 'PICKUP';
     const deliveryStage = delivery.task_type === 'RENTAL_RETURN' ? 'RETURN_RECEIVED' : 'DELIVERY';
+    const trackingResult = await pool.query(
+      'SELECT x, y, route_node_id, speed, created_at FROM delivery_location_updates WHERE delivery_id=$1 ORDER BY created_at DESC LIMIT 1',
+      [delivery.id],
+    );
     const pickupHandover = handovers.rows.find((item) => item.stage === pickupStage);
     const deliveryHandover = handovers.rows.find((item) => item.stage === deliveryStage);
     const nextHandshake = delivery.status === 'COMPLETED'
@@ -485,6 +520,23 @@ exports.getRentalDeliveryStatus = async (req, res) => {
             ? deliveryStage
             : null;
 
+    const blockedBy = delivery.status === 'WAITING_FOR_DEPOSIT'
+      ? 'SECURITY_DEPOSIT'
+      : delivery.status === 'NO_COURIER_AVAILABLE'
+        ? 'ROUTE_MATCH'
+        : null;
+    const nextAction = blockedBy === 'SECURITY_DEPOSIT'
+      ? 'Pay the security deposit before a courier can accept.'
+      : blockedBy === 'ROUTE_MATCH'
+        ? 'Waiting for an online courier with a matching route.'
+        : nextHandshake
+          ? 'Complete the ' + nextHandshake.replaceAll('_', ' ').toLowerCase() + ' handover.'
+          : delivery.status === 'MATCHING_COURIER'
+            ? 'Searching for an online courier.'
+            : delivery.status === 'COURIER_ASSIGNED'
+              ? 'Your courier is preparing to collect the item.'
+              : null;
+
     res.json({
       has_delivery: true,
       delivery_id: delivery.id,
@@ -494,12 +546,21 @@ exports.getRentalDeliveryStatus = async (req, res) => {
       listing_image: delivery.listing_image,
       task_type: delivery.task_type,
       status: delivery.status,
+      blocked_by: blockedBy,
+      next_action: nextAction,
+      owner: { id: delivery.seller_id, name: delivery.owner_name || null, hostel: delivery.owner_hostel || null },
+      renter: { id: delivery.customer_id, name: delivery.renter_name || null, hostel: delivery.renter_hostel || null },
+      courier: delivery.courier_id
+        ? { id: delivery.courier_id, name: delivery.courier_name || null, hostel: delivery.courier_hostel || null, phone: delivery.courier_phone || null }
+        : null,
       owner_name: delivery.owner_name || null,
       renter_name: delivery.renter_name || null,
       courier_name: delivery.courier_name || null,
       courier_phone: delivery.courier_phone || null,
       pickup_location: delivery.pickup_location,
       drop_location: delivery.drop_location,
+      pickup_location_id: delivery.pickup_location_id,
+      destination_location_id: delivery.destination_location_id,
       delivery_fee: delivery.delivery_fee,
       estimated_time: delivery.estimated_time,
       accepted_at: delivery.accepted_at,
@@ -509,10 +570,12 @@ exports.getRentalDeliveryStatus = async (req, res) => {
       arrived_destination_at: delivery.arrived_destination_at,
       pickup_verified_at: delivery.pickup_verified_at,
       delivery_verified_at: delivery.delivery_verified_at,
+      updated_at: delivery.updated_at,
       handovers: handovers.rows,
       pickup_handover_status: pickupHandover?.status || null,
       delivery_handover_status: deliveryHandover?.status || null,
       next_handshake: nextHandshake,
+      tracking: trackingResult.rows[0] || null,
     });
   } catch (error) {
     console.error('[DeliveryController] getRentalDeliveryStatus error:', error.message);

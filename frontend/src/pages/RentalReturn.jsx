@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../lib/api';
 
-const API_BASE = 'http://localhost:3003';
+const API_BASE = API_BASE_URL;
 const formatCurrency = (n) => `₹${parseFloat(n || 0).toFixed(2)}`;
 
 export default function RentalReturn() {

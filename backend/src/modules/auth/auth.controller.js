@@ -311,6 +311,13 @@ exports.setMode = async (req, res) => {
 
 exports.setDeliveryAvailability = async (req, res) => {
   const available = Boolean(req.body.available);
+  if (available) {
+    const route = await pool.query(
+      'SELECT id FROM courier_route_availability WHERE courier_id=$1 AND is_active AND available_until > NOW() LIMIT 1',
+      [req.user.id],
+    );
+    if (!route.rowCount) return res.status(409).json({ error: 'Save a future delivery route before going online.' });
+  }
   const { rows } = await pool.query('UPDATE users SET delivery_available = $1, active_mode = \'DELIVERY\' WHERE id = $2 RETURNING id, active_mode, delivery_available', [available, req.user.id]);
   res.json(rows[0]);
 };

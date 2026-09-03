@@ -1,12 +1,7 @@
 const pool = require('../../config/database');
 const { matchDelivery } = require('../delivery/matching.service');
+const { ensureOutboundDelivery } = require('../delivery/delivery-request.service');
 const { emitUser } = require('../../shared/realtime');
-
-// Helper: get system config value
-const getConfig = async (key) => {
-  const result = await pool.query('SELECT value FROM system_config WHERE key = $1', [key]);
-  return result.rows[0]?.value || null;
-};
 
 // POST /api/rentals/book
 exports.bookRental = async (req, res) => {
@@ -144,146 +139,96 @@ exports.respondToBooking = async (req, res) => {
     return res.status(400).json({ error: 'rental_id and response (ACCEPTED or REJECTED) are required.' });
   }
 
+  const client = await pool.connect();
   try {
-    const rentalRes = await pool.query('SELECT * FROM rentals WHERE id = $1', [rental_id]);
-    if (rentalRes.rows.length === 0) {
+    await client.query('BEGIN');
+    const rentalRes = await client.query('SELECT * FROM rentals WHERE id = $1 FOR UPDATE', [rental_id]);
+    if (!rentalRes.rows[0]) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Rental not found.' });
     }
     const rental = rentalRes.rows[0];
 
     if (rental.owner_id !== owner_id) {
-      return res
-        .status(403)
-        .json({ error: 'Forbidden: Only the listing owner can respond to this booking.' });
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Only the listing owner can respond to this booking.' });
     }
-
-    if (rental.status !== 'OWNER_PENDING' && rental.status !== 'RENTAL_PAYMENT_COMPLETED') {
+    if (!['OWNER_PENDING', 'RENTAL_PAYMENT_COMPLETED'].includes(rental.status)) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: `Cannot respond: rental is in status "${rental.status}".` });
     }
 
     if (response === 'REJECTED') {
-      await pool.query(
-        `
-        UPDATE rentals SET
-          status = 'CANCELLED',
-          booking_status = 'CANCELLED',
-          owner_response = 'REJECTED',
-          owner_responded_at = NOW(),
-          updated_at = NOW()
-        WHERE id = $1
-      `,
+      await client.query(
+        `UPDATE rentals SET status='CANCELLED', booking_status='CANCELLED',
+         owner_response='REJECTED', owner_responded_at=NOW(), updated_at=NOW()
+         WHERE id=$1`,
         [rental_id],
       );
-
-      console.log(`[RentalController] Owner rejected rental ${rental_id}`);
-      return res.json({
-        message: 'Booking rejected. Refund will be processed per platform policy.',
-        status: 'CANCELLED',
-      });
+      await client.query(
+        `UPDATE delivery_requests SET status='CANCELLED', updated_at=NOW()
+         WHERE rental_id=$1 AND courier_id IS NULL
+           AND status IN ('WAITING_FOR_DEPOSIT','MATCHING_COURIER','NO_COURIER_AVAILABLE','AVAILABLE')`,
+        [rental_id],
+      );
+      await client.query(
+        `UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW()
+         WHERE delivery_id IN (SELECT id FROM delivery_requests WHERE rental_id=$1)
+           AND status='PENDING'`,
+        [rental_id],
+      );
+      await client.query('COMMIT');
+      const event = { rental_id, owner_id: rental.owner_id, renter_id: rental.borrower_id, status: 'CANCELLED' };
+      emitUser(rental.borrower_id, 'rental:status', event);
+      emitUser(rental.owner_id, 'rental:status', event);
+      return res.json({ message: 'Booking rejected.', status: 'CANCELLED' });
     }
 
-    // Owner ACCEPTED — calculate deposit deadline
-    const depositTimeoutMins = parseInt((await getConfig('deposit_timeout_minutes')) || '30');
+    const config = await client.query(
+      "SELECT value FROM system_config WHERE key='deposit_timeout_minutes'",
+    );
+    const depositTimeoutMins = parseInt(config.rows[0]?.value || '30', 10);
     const deposit_deadline = new Date(Date.now() + depositTimeoutMins * 60 * 1000);
 
-    await pool.query(
-      `
-      UPDATE rentals SET
-        status = 'DEPOSIT_PENDING',
-        booking_status = 'CONFIRMED',
-        owner_response = 'ACCEPTED',
-        owner_responded_at = NOW(),
-        deposit_deadline = $1,
-        updated_at = NOW()
-      WHERE id = $2
-    `,
+    await client.query(
+      `UPDATE rentals SET status='DEPOSIT_PENDING', booking_status='CONFIRMED',
+       owner_response='ACCEPTED', owner_responded_at=NOW(), deposit_deadline=$1, updated_at=NOW()
+       WHERE id=$2`,
       [deposit_deadline, rental_id],
     );
 
-    console.log(
-      `[RentalController] Owner accepted rental ${rental_id}. Deposit deadline: ${deposit_deadline}`,
-    );
+    const delivery = await ensureOutboundDelivery(client, rental_id, 'WAITING_FOR_DEPOSIT');
+    await client.query('COMMIT');
 
-    let delivery = null;
-    if (rental.delivery_requested || Number(rental.delivery_fee) > 0) {
-      const details = await pool.query(
-        `SELECT r.*, l.title, l.location, l.pickup_location_id,
-        l.pickup_location_id resolved_pickup,
-        r.drop_location_id resolved_drop
-        FROM rentals r JOIN listings l ON l.id=r.listing_id WHERE r.id=$1`,
-        [rental_id],
-      );
-      const row = details.rows[0];
-      if (!row?.resolved_pickup || !row?.resolved_drop) {
-        return res.status(422).json({ error: 'Pickup and drop-off must be explicit campus locations.' });
-      }
-      if (row.resolved_pickup && row.resolved_drop) {
-        const locations = await pool.query('SELECT * FROM campus_locations WHERE id=ANY($1)', [
-          [row.resolved_pickup, row.resolved_drop],
-        ]);
-        const byId = Object.fromEntries(locations.rows.map((item) => [item.id, item]));
-        if (!byId[row.resolved_pickup] || !byId[row.resolved_drop]) {
-          return res.status(422).json({ error: 'The selected campus locations are no longer available.' });
-        }
-        const label = (item) =>
-          [item.building_name, item.floor_name, item.room_name].filter(Boolean).join(' · ');
-        const existing = await pool.query(
-          "SELECT id FROM delivery_requests WHERE rental_id=$1 AND task_type='RENTAL_OUTBOUND' ORDER BY created_at DESC LIMIT 1",
-          [rental_id],
-        );
-        if (existing.rows[0]) {
-          const updated = await pool.query(
-            `UPDATE delivery_requests SET pickup_location_id=$1,destination_location_id=$2,
-            pickup_location=$3,drop_location=$4,status='WAITING_FOR_DEPOSIT',updated_at=NOW() WHERE id=$5 RETURNING *`,
-            [
-              row.resolved_pickup,
-              row.resolved_drop,
-              label(byId[row.resolved_pickup]),
-              label(byId[row.resolved_drop]),
-              existing.rows[0].id,
-            ],
-          );
-          delivery = updated.rows[0];
-        } else {
-          const created = await pool.query(
-            `INSERT INTO delivery_requests (rental_id,listing_id,customer_id,seller_id,pickup_location,drop_location,
-            pickup_location_id,destination_location_id,task_type,item_description,delivery_fee,courier_earning,status)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'RENTAL_OUTBOUND',$9,$10,$11,'WAITING_FOR_DEPOSIT') RETURNING *`,
-            [
-              rental_id,
-              row.listing_id,
-              row.borrower_id,
-              row.owner_id,
-              label(byId[row.resolved_pickup]),
-              label(byId[row.resolved_drop]),
-              row.resolved_pickup,
-              row.resolved_drop,
-              row.title,
-              row.delivery_fee,
-              Number(row.delivery_fee) * 0.7,
-            ],
-          );
-          delivery = created.rows[0];
-        }
-        await pool.query(
-          "UPDATE rentals SET status='DEPOSIT_PENDING', outbound_delivery_id=$1 WHERE id=$2",
-          [delivery.id, rental_id],
-        );
-        const deliveryEvent = { rental_id: rental_id, delivery_id: delivery.id, status: delivery.status };
-        emitUser(rental.borrower_id, 'delivery:created', deliveryEvent);
-        emitUser(rental.owner_id, 'delivery:created', deliveryEvent);
-      }
-    }
-    res.json({
-      message: 'Booking accepted. Borrower must pay security deposit before deadline.',
+    const event = {
+      rental_id,
+      delivery_id: delivery?.id || null,
+      owner_id: rental.owner_id,
+      renter_id: rental.borrower_id,
       status: 'DEPOSIT_PENDING',
+      delivery_status: delivery?.status || null,
+    };
+    emitUser(rental.borrower_id, 'rental:status', event);
+    emitUser(rental.owner_id, 'rental:status', event);
+    if (delivery) {
+      emitUser(rental.borrower_id, 'delivery:created', { ...event, status: delivery.status });
+      emitUser(rental.owner_id, 'delivery:created', { ...event, status: delivery.status });
+    }
+
+    res.json({
+      message: 'Booking accepted. Borrower must pay security deposit before courier matching.',
+      status: 'DEPOSIT_PENDING',
+      delivery_id: delivery?.id || null,
       deposit_deadline,
       deposit_amount: rental.deposit_amount,
       deposit_timeout_minutes: depositTimeoutMins,
     });
   } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
     console.error('[RentalController] respondToBooking error:', error.message);
-    res.status(500).json({ error: 'Failed to respond to booking.' });
+    res.status(error.status || 500).json({ error: error.message || 'Failed to respond to booking.' });
+  } finally {
+    client.release();
   }
 };
 

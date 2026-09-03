@@ -2,6 +2,8 @@ const pool = require('../../config/database');
 const { routeFor } = require('../campus/campus.service');
 const { emitUser } = require('../../shared/realtime');
 
+const OPEN_STATUSES = ['MATCHING_COURIER', 'RETURN_MATCHING', 'AVAILABLE', 'NO_COURIER_AVAILABLE'];
+
 const overlapMeters = (courierNodes, taskNodes, taskDistance) => {
   const courierEdges = new Set(courierNodes.slice(1).map((node, i) => [courierNodes[i], node].sort().join(':')));
   const shared = taskNodes.slice(1).filter((node, i) => courierEdges.has([taskNodes[i], node].sort().join(':'))).length;
@@ -38,7 +40,7 @@ async function matchDelivery(deliveryId, client = pool) {
   const safeTask = { ...task };
   delete safeTask.pickup_token;
   delete safeTask.delivery_token;
-  if (!task || !['MATCHING_COURIER', 'RETURN_MATCHING', 'AVAILABLE', 'NO_COURIER_AVAILABLE'].includes(task.status)) return [];
+  if (!task || !OPEN_STATUSES.includes(task.status) || task.courier_id) return [];
   const candidates = await client.query(`SELECT cra.*, u.courier_reliability_score,
       o.route_node_id origin_node, d.route_node_id destination_node
     FROM courier_route_availability cra JOIN users u ON u.id = cra.courier_id
@@ -68,8 +70,32 @@ async function matchDelivery(deliveryId, client = pool) {
       RETURNING *`, [deliveryId, candidate.courier_id, candidate.score, candidate.breakdown]);
     if (rows[0]?.status === 'PENDING') emitUser(candidate.courier_id, 'delivery:offer', { ...rows[0], delivery: safeTask });
   }
-  if (!ranked.length) await client.query("UPDATE delivery_requests SET status = 'NO_COURIER_AVAILABLE' WHERE id = $1 AND status IN ('MATCHING_COURIER','RETURN_MATCHING','AVAILABLE','NO_COURIER_AVAILABLE')", [deliveryId]);
+  if (!ranked.length && task.status !== 'RETURN_MATCHING') {
+    await client.query("UPDATE delivery_requests SET status = 'NO_COURIER_AVAILABLE' WHERE id = $1 AND status IN ('MATCHING_COURIER','AVAILABLE','NO_COURIER_AVAILABLE')", [deliveryId]);
+  }
   return ranked;
 }
 
-module.exports = { scoreCandidate, matchDelivery };
+
+let refreshInFlight = false;
+async function refreshOpenDeliveries() {
+  if (refreshInFlight) return { skipped: true };
+  refreshInFlight = true;
+  const client = await pool.connect();
+  try {
+    await client.query("UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW() WHERE status='PENDING' AND expires_at <= NOW()");
+    await client.query("UPDATE courier_route_availability SET is_active=FALSE WHERE is_active AND available_until <= NOW()");
+    await client.query("UPDATE users SET delivery_available=FALSE WHERE delivery_available AND NOT EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=users.id AND cra.is_active AND cra.available_until > NOW())");
+    const openTasks = await client.query(
+      "SELECT id FROM delivery_requests WHERE courier_id IS NULL AND status = ANY($1::text[])",
+      [OPEN_STATUSES],
+    );
+    for (const task of openTasks.rows) await matchDelivery(task.id, client);
+    return { refreshed: openTasks.rowCount };
+  } finally {
+    client.release();
+    refreshInFlight = false;
+  }
+}
+
+module.exports = { scoreCandidate, matchDelivery, refreshOpenDeliveries };

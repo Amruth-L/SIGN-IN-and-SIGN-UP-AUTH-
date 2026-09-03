@@ -65,7 +65,7 @@ exports.createDepositOrder = async (req, res) => {
     res.status(201).json(orderData);
   } catch (error) {
     console.error('[PaymentController] createDepositOrder error:', error.message);
-    res.status(500).json({ error: error.message || 'Failed to create deposit payment order.' });
+    res.status(error.status || 500).json({ error: error.message || 'Failed to create deposit payment order.' });
   }
 };
 

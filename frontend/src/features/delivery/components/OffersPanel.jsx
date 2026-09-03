@@ -4,9 +4,9 @@ import { motion } from "motion/react";
 const human = (value) => String(value || "Delivery request").replaceAll("_", " ").toLowerCase();
 const money = (value) => `₹${Number(value || 0).toFixed(0)}`;
 
-export default function OffersPanel({ offers, onAccept, onDecline, online, busyId }) {
+export default function OffersPanel({ offers, onAccept, onDecline, online, reason, connection, busyId, className = "" }) {
   return (
-    <section className="overflow-hidden rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_12px_45px_rgba(35,58,40,.07)]">
+    <section className={className + " overflow-hidden rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_12px_45px_rgba(35,58,40,.07)]"}>
       <div className="border-b border-ink/10 bg-[linear-gradient(135deg,#f3f8ee,white)] p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
@@ -52,8 +52,8 @@ export default function OffersPanel({ offers, onAccept, onDecline, online, busyI
         {!offers.length && (
           <div className="py-10 text-center">
             <Sparkles className="mx-auto text-ink/20" />
-            <p className="mt-3 text-sm font-bold">{online ? "Watching for route matches" : "Go online to receive deliveries"}</p>
-            <p className="mx-auto mt-1 max-w-[14rem] text-xs leading-5 text-ink/40">Requests appear here only when your route is active and a renter needs this trip.</p>
+            <p className="mt-3 text-sm font-bold">{connection === "offline" ? "Backend disconnected" : !online ? "Go online to receive deliveries" : reason === "ROUTE_EXPIRED" ? "Your route has expired" : reason === "NO_ROUTE_MATCH" ? "No request matches this route" : "Watching for route matches"}</p>
+            <p className="mx-auto mt-1 max-w-[18rem] text-xs leading-5 text-ink/40">{connection === "offline" ? "Reconnect the API to refresh offers and live delivery status." : !online ? "Save a route and keep this account online to receive matched requests." : reason === "ROUTE_EXPIRED" ? "Save a new route with a future availability time." : reason === "NO_ROUTE_MATCH" ? "An open request exists, but its pickup and destination do not fit your current route." : "Requests appear here after owner approval and deposit payment."}</p>
           </div>
         )}
       </div>

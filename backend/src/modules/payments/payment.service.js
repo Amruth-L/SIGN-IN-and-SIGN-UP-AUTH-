@@ -1,6 +1,7 @@
 const pool = require('../../config/database');
 const razorpay = require('../../config/razorpay');
 const { matchDelivery } = require('../delivery/matching.service');
+const { ensureOutboundDelivery } = require('../delivery/delivery-request.service');
 const { emitUser } = require('../../shared/realtime');
 const crypto = require('crypto');
 require('dotenv').config();
@@ -138,6 +139,15 @@ class PaymentService {
 
       await client.query('COMMIT');
 
+      const rentalEvent = {
+        rental_id: bookingId,
+        owner_id: booking.owner_id,
+        renter_id: booking.borrower_id,
+        status: 'RENTAL_PAYMENT_COMPLETED',
+      };
+      emitUser(booking.owner_id, 'rental:request', rentalEvent);
+      emitUser(booking.borrower_id, 'rental:status', rentalEvent);
+
       return {
         message: 'Rental payment verified. Waiting for owner to accept.',
         status: 'RENTAL_PAYMENT_COMPLETED'
@@ -186,7 +196,18 @@ class PaymentService {
             updated_at = NOW()
           WHERE id = $1
         `, [bookingId]);
-        throw new Error('Deposit deadline expired. Booking has been cancelled.');
+        await client.query(`
+          UPDATE delivery_requests SET status='CANCELLED', updated_at=NOW()
+          WHERE rental_id=$1 AND courier_id IS NULL
+            AND status IN ('WAITING_FOR_DEPOSIT','MATCHING_COURIER','NO_COURIER_AVAILABLE','AVAILABLE')
+        `, [bookingId]);
+        await client.query(`
+          UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW()
+          WHERE delivery_id IN (SELECT id FROM delivery_requests WHERE rental_id=$1)
+            AND status='PENDING'
+        `, [bookingId]);
+        await client.query('COMMIT');
+        throw Object.assign(new Error('Deposit deadline expired. Booking has been cancelled.'), { status: 409 });
       }
 
       const amountPaise = Math.round(parseFloat(booking.deposit_amount) * 100);
@@ -240,87 +261,74 @@ class PaymentService {
     try {
       await client.query('BEGIN');
 
-      // Fetch the booking/rental
-      const res = await client.query(
-        'SELECT * FROM rentals WHERE id = $1',
-        [bookingId]
-      );
-      if (res.rows.length === 0) {
-        throw new Error('Booking not found.');
-      }
-
+      const res = await client.query('SELECT * FROM rentals WHERE id = $1 FOR UPDATE', [bookingId]);
+      if (!res.rows[0]) throw new Error('Booking not found.');
       const booking = res.rows[0];
+      if (booking.borrower_id !== userId) throw new Error('Unauthorized.');
 
-      if (booking.borrower_id !== userId) {
-        throw new Error('Unauthorized.');
-      }
-
-      // Check if already paid to prevent duplicate processing
       const payCheck = await client.query(
-        "SELECT id FROM payments WHERE rental_id = $1 AND payment_type = 'SECURITY_DEPOSIT' AND status = 'PAID'",
-        [bookingId]
+        "SELECT id FROM payments WHERE rental_id=$1 AND payment_type='SECURITY_DEPOSIT' AND status='PAID'",
+        [bookingId],
       );
-      if (payCheck.rows.length > 0) {
-        await client.query('COMMIT');
-        return { message: 'Deposit already processed.', status: booking.status };
+      const depositAlreadyPaid = payCheck.rows.length > 0;
+      if (!depositAlreadyPaid) {
+        const paymentUpdate = await client.query(
+          "UPDATE payments SET transaction_id=$1,status='PAID' WHERE rental_id=$2 AND payment_type='SECURITY_DEPOSIT' AND transaction_id=$3 AND status='PENDING'",
+          [gatewayPaymentId, bookingId, gatewayOrderId],
+        );
+        if (!paymentUpdate.rowCount) throw new Error('Payment order not found or already processed.');
       }
 
-      // Update deposit payment to PAID
-      const paymentUpdate = await client.query(
-        "UPDATE payments SET transaction_id = $1, status = 'PAID' WHERE rental_id = $2 AND payment_type = 'SECURITY_DEPOSIT' AND transaction_id = $3 AND status = 'PENDING'",
-        [gatewayPaymentId, bookingId, gatewayOrderId],
-      );
-      if (!paymentUpdate.rowCount) throw new Error('Payment order not found or already processed.');
-
-      // Check if both RENTAL and SECURITY_DEPOSIT payments are paid
       const rentalPaymentRes = await client.query(
-        "SELECT status FROM payments WHERE rental_id = $1 AND payment_type = 'RENTAL' AND status = 'PAID'",
-        [bookingId]
+        "SELECT status FROM payments WHERE rental_id=$1 AND payment_type='RENTAL' AND status='PAID'",
+        [bookingId],
       );
-
       const isRentalPaid = rentalPaymentRes.rows.length > 0;
-
-      // Generate secure QR hash (Step 7)
-      const qrCodeHash = crypto
-        .createHash('sha256')
-        .update(`${bookingId}:${Date.now()}:campusmesh`)
-        .digest('hex');
-
-      // Advance status only if both are paid, otherwise keep updating deposit status
-      if (isRentalPaid) {
-        await client.query(`
-          UPDATE rentals SET
-            status = 'QR_GENERATED',
-            deposit_status = 'HELD',
-            payment_status = 'FULLY_PAID',
-            qr_code_hash = $1,
-            qr_generated_at = NOW(),
-            updated_at = NOW()
-          WHERE id = $2
-        `, [qrCodeHash, bookingId]);
-      } else {
-        await client.query(`
-          UPDATE rentals SET
-            deposit_status = 'HELD',
-            updated_at = NOW()
-          WHERE id = $1
-        `, [bookingId]);
-      }
-
+      const isDelivery = Boolean(booking.delivery_requested || Number(booking.delivery_fee) > 0);
       let deliveryId = null;
-      if (isRentalPaid) {
-        const deliveryRes = await client.query(
-          `UPDATE delivery_requests SET status='MATCHING_COURIER', updated_at=NOW()
-           WHERE rental_id=$1 AND task_type='RENTAL_OUTBOUND' AND status='WAITING_FOR_DEPOSIT'
-           RETURNING id`,
+      let qrCodeHash = null;
+      let nextStatus = booking.status;
+
+      if (isRentalPaid && isDelivery) {
+        const delivery = await ensureOutboundDelivery(client, bookingId, 'MATCHING_COURIER');
+        deliveryId = delivery.id;
+        nextStatus = 'MATCHING_COURIER';
+        await client.query(
+          `UPDATE rentals SET status='MATCHING_COURIER', deposit_status='HELD',
+           payment_status='FULLY_PAID', qr_code_hash=NULL, qr_generated_at=NULL, updated_at=NOW()
+           WHERE id=$1`,
           [bookingId],
         );
-        deliveryId = deliveryRes.rows[0]?.id || null;
+      } else if (isRentalPaid) {
+        qrCodeHash = booking.qr_code_hash || crypto.createHash('sha256')
+          .update(`${bookingId}:${Date.now()}:campusmesh`)
+          .digest('hex');
+        nextStatus = 'QR_GENERATED';
+        await client.query(
+          `UPDATE rentals SET status='QR_GENERATED', deposit_status='HELD',
+           payment_status='FULLY_PAID', qr_code_hash=$1, qr_generated_at=NOW(), updated_at=NOW()
+           WHERE id=$2`,
+          [qrCodeHash, bookingId],
+        );
+      } else {
+        await client.query(
+          "UPDATE rentals SET deposit_status='HELD', updated_at=NOW() WHERE id=$1",
+          [bookingId],
+        );
       }
 
-      console.log(`[PaymentService] Security deposit verified for booking ${bookingId}. Status → QR_GENERATED (Item pickup enabled)`);
-
       await client.query('COMMIT');
+
+      const event = {
+        rental_id: bookingId,
+        delivery_id: deliveryId,
+        owner_id: booking.owner_id,
+        renter_id: booking.borrower_id,
+        status: nextStatus,
+        delivery_status: deliveryId ? 'MATCHING_COURIER' : null,
+      };
+      emitUser(booking.borrower_id, 'rental:status', event);
+      emitUser(booking.owner_id, 'rental:status', event);
 
       if (deliveryId) {
         try {
@@ -328,18 +336,19 @@ class PaymentService {
         } catch (matchingError) {
           console.error(`[PaymentService] Delivery matching deferred for ${deliveryId}:`, matchingError.message);
         }
-        const deliveryEvent = { rental_id: bookingId, delivery_id: deliveryId, status: 'MATCHING_COURIER' };
-        emitUser(booking.borrower_id, 'delivery:created', deliveryEvent);
-        emitUser(booking.owner_id, 'delivery:created', deliveryEvent);
+        emitUser(booking.borrower_id, 'delivery:created', event);
+        emitUser(booking.owner_id, 'delivery:created', event);
       }
 
       return {
-        message: 'Security deposit payment verified. QR code generated for handover.',
-        status: isRentalPaid ? 'QR_GENERATED' : booking.status,
-        qr_code_hash: qrCodeHash
+        message: isDelivery
+          ? (depositAlreadyPaid ? 'Deposit already verified. Finding an online courier.' : 'Security deposit verified. Finding an online courier.')
+          : 'Security deposit payment verified. QR code generated for handover.',
+        status: nextStatus,
+        qr_code_hash: qrCodeHash,
       };
     } catch (error) {
-      await client.query('ROLLBACK');
+      try { await client.query('ROLLBACK'); } catch {}
       throw error;
     } finally {
       client.release();

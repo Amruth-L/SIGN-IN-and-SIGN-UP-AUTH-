@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { io } from 'socket.io-client';
+import { API_BASE_URL } from '../lib/api';
 import HandoverCredential from '../components/HandoverCredential';
 
-const API_BASE = 'http://localhost:3003';
+const API_BASE = API_BASE_URL;
 const formatCurrency = (n) => `₹${parseFloat(n || 0).toFixed(2)}`;
 
 const STATUS_LABELS = {
@@ -23,16 +24,15 @@ const STATUS_LABELS = {
 
 export default function OwnerDashboard() {
   const navigate = useNavigate();
-  const { user } = useAuth();
-
   const [requests, setRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [responding, setResponding] = useState({});
   const [filterStatus, setFilterStatus] = useState('ALL');
   const [deliveryStatuses, setDeliveryStatuses] = useState({});
+  const [connection, setConnection] = useState('reconnecting');
 
-  const fetchRequests = async () => {
+  const fetchRequests = useCallback(async () => {
     const token = localStorage.getItem('token');
     try {
       const res = await fetch(`${API_BASE}/api/rentals/my-listings-requests`, {
@@ -41,18 +41,29 @@ export default function OwnerDashboard() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to load requests');
       setRequests(data);
+      setConnection('live');
     } catch (e) {
+      setConnection('offline');
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchRequests();
-    const interval = setInterval(fetchRequests, 20000);
+    const socket = io(API_BASE, { auth: { token: localStorage.getItem('token') }, reconnectionAttempts: 5 });
+    socket.on('connect', () => setConnection('live'));
+    socket.on('disconnect', () => setConnection('reconnecting'));
+    socket.on('connect_error', () => setConnection('offline'));
+    const refresh = () => fetchRequests();
+    ['rental:request', 'rental:status', 'delivery:created', 'delivery:assigned', 'delivery:status', 'delivery:completed'].forEach((event) => socket.on(event, refresh));
+    return () => socket.close();
+  }, [fetchRequests]);
+  useEffect(() => {
+    const interval = setInterval(fetchRequests, connection === 'live' ? 15000 : 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [connection, fetchRequests]);
 
   // Fetch delivery statuses for all rentals that have delivery_fee > 0
   const fetchDeliveryStatuses = useCallback(async () => {
@@ -74,7 +85,7 @@ export default function OwnerDashboard() {
 
   useEffect(() => {
     if (requests.length > 0) fetchDeliveryStatuses();
-  }, [requests]);
+  }, [requests, fetchDeliveryStatuses]);
 
   const handleRespond = async (rental_id, response) => {
     setResponding((prev) => ({ ...prev, [rental_id]: response }));
@@ -120,6 +131,10 @@ export default function OwnerDashboard() {
             <h1 className="font-display text-4xl font-semibold">Owner dashboard</h1>
             <p className="mt-1 text-sm text-ink/45">Rental requests</p>
           </div>
+          <span className={connection === 'live' ? 'rounded-full border border-mesh-200 bg-mesh-50 px-3 py-2 text-xs font-bold text-mesh-800' : connection === 'reconnecting' ? 'rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800' : 'rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700'}>
+            <i className={'mr-2 inline-block size-2 rounded-full ' + (connection === 'live' ? 'bg-mesh-500' : connection === 'reconnecting' ? 'bg-amber-500' : 'bg-red-500')} />
+            {connection === 'live' ? 'Live updates' : connection === 'reconnecting' ? 'Reconnecting' : 'Backend disconnected'}
+          </span>
           {pendingCount > 0 && (
             <div className="animate-pulse rounded-full border border-mesh-200 bg-mesh-50 px-4 py-2 text-sm font-bold text-mesh-700">
               🔔 {pendingCount} Request{pendingCount > 1 ? 's' : ''} Need Response
@@ -189,30 +204,28 @@ export default function OwnerDashboard() {
                     <div className="flex flex-col [gap:6px]">
                       <span className="[font-size:0.72rem] [color:#a78bfa] uppercase [letter-spacing:0.5px]">{rental.listing_category}</span>
                       <h3 className="m-0 text-sm font-bold text-ink">{rental.listing_title}</h3>
-                      <span className="w-fit rounded-full border border-mesh-200 bg-mesh-50 px-2.5 py-1 text-xs font-semibold text-mesh-700">
-                        {statusCfg.label}
-                      </span>
+                      <div className="flex flex-wrap gap-2"><span className="w-fit rounded-full border border-mesh-200 bg-mesh-50 px-2.5 py-1 text-xs font-semibold text-mesh-700">{statusCfg.label}</span>{rental.delivery_requested && <span className="w-fit rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">Delivery requested</span>}</div>
                     </div>
                   </div>
 
                   <div className="flex items-center [gap:8px] [font-size:0.83rem] [padding:10px_0] [border-top:1px_solid_rgba(255,_255,_255,_0.05)]">
                     <span className="[color:#6b7280]">Renter</span>
-                    <span className="[color:#d1d5db] font-medium">{rental.borrower_name}</span>
+                    <span className="text-ink/60 font-medium">{rental.borrower_name}</span>
                     <span className="[color:#6b7280] [font-size:0.76rem] [margin-left:auto]">{rental.borrower_email}</span>
                   </div>
 
                   <div className="flex [gap:16px] flex-wrap">
                     <div className="flex flex-col [gap:2px]">
                       <span className="[color:#6b7280]">Start</span>
-                      <span className="[color:#d1d5db] font-medium">{new Date(rental.start_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
+                      <span className="text-ink/60 font-medium">{new Date(rental.start_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
                     </div>
                     <div className="flex flex-col [gap:2px]">
                       <span className="[color:#6b7280]">End</span>
-                      <span className="[color:#d1d5db] font-medium">{new Date(rental.end_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
+                      <span className="text-ink/60 font-medium">{new Date(rental.end_date).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' })}</span>
                     </div>
                     <div className="flex flex-col [gap:2px]">
                       <span className="[color:#6b7280]">Duration</span>
-                      <span className="[color:#d1d5db] font-medium">{rental.rental_days} day{rental.rental_days > 1 ? 's' : ''}</span>
+                      <span className="text-ink/60 font-medium">{rental.rental_days} day{rental.rental_days > 1 ? 's' : ''}</span>
                     </div>
                   </div>
 
@@ -267,13 +280,15 @@ export default function OwnerDashboard() {
                           🚚 Delivery
                           <span className={`ml-auto rounded-full px-2 py-0.5 text-[.65rem] font-bold ${ds.status === 'DELIVERED' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
                             {{
-                              AVAILABLE: 'Waiting for Courier',
-                              ACCEPTED: 'Courier Assigned',
-                              ARRIVING_FOR_PICKUP: 'Courier Coming',
-                              PICKED_UP: 'Item Picked Up',
-                              IN_TRANSIT: 'In Transit',
-                              ARRIVED: 'Courier Arrived',
-                              DELIVERED: 'Delivered',
+                              WAITING_FOR_DEPOSIT: 'Deposit required',
+                              MATCHING_COURIER: 'Finding courier',
+                              NO_COURIER_AVAILABLE: 'Waiting for route',
+                              COURIER_ASSIGNED: 'Courier assigned',
+                              GOING_TO_PICKUP: 'Courier coming',
+                              ARRIVED_AT_PICKUP: 'At pickup',
+                              IN_TRANSIT: 'In transit',
+                              ARRIVED_AT_DESTINATION: 'At destination',
+                              COMPLETED: 'Delivered',
                             }[ds.status] || ds.status}
                           </span>
                         </div>

@@ -10,9 +10,10 @@ export default function RouteSetup({
   onSubmit,
   online,
   onToggle,
+  className = "",
 }) {
   return (
-    <form onSubmit={onSubmit} className="rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] p-5">
+    <form onSubmit={onSubmit} className={className + " rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] p-5"}>
       <div className="mb-4 flex items-center justify-between">
         <div>
           <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Your availability</span>
