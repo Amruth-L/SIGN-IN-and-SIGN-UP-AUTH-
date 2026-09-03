@@ -1,6 +1,7 @@
 import { createContext, useState, useEffect, useContext, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import { API_BASE_URL } from '../lib/api';
 
 const AuthContext = createContext();
 
@@ -16,7 +17,7 @@ export const AuthProvider = ({ children }) => {
   // Axios instance with default base URL
   const api = useMemo(() => {
     const instance = axios.create({
-      baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3003'
+      baseURL: API_BASE_URL
     });
     instance.interceptors.request.use((config) => {
       const activeToken = localStorage.getItem('token');

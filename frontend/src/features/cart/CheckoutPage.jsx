@@ -61,7 +61,7 @@ export default function Checkout() {
       if (order.simulated) {
         const { data } = await api.post('/api/payment/verify-checkout', {
           gateway_order_id: order.order_id,
-          gateway_payment_id: `pay_sim_${Math.random().toString(36).slice(2, 11)}`,
+          gateway_payment_id: "sim_checkout_" + Math.random().toString(36).slice(2, 11),
           gateway_signature: 'sim_sig',
         });
         goToRentalStatus(data?.rentals || []);

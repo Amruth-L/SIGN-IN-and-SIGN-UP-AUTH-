@@ -3,13 +3,14 @@ import { io } from "socket.io-client";
 import { Radio, Route } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { normalizeCampusLocations } from "../../lib/campus";
+import { API_BASE_URL } from "../../lib/api";
 import QrScanner from "../../components/QrScanner";
 import ActiveTask from "./components/ActiveTask";
 import CampusRouteMap from "./components/CampusRouteMap";
 import OffersPanel from "./components/OffersPanel";
 import RouteSetup from "./components/RouteSetup";
 
-const API = "http://localhost:3003";
+const API = API_BASE_URL;
 const next = {
   COURIER_ASSIGNED: "GOING_TO_PICKUP",
   ACCEPTED: "GOING_TO_PICKUP",
@@ -194,9 +195,13 @@ export default function DeliveryPage() {
   const advance = next[active?.status]
     ? async () => {
         const status = next[active.status];
-        await api.post(`/api/delivery/${active.id}/status`, { status });
-        setNotice(`Stage updated to ${status.replaceAll("_", " ")}.`);
-        await load();
+        try {
+          await api.post("/api/delivery/" + active.id + "/status", { status });
+          setNotice("Stage updated to " + status.replaceAll("_", " ") + ".");
+          await load();
+        } catch (error) {
+          setNotice(error.response?.data?.error || "Could not update delivery stage.");
+        }
       }
     : null;
   const confirm = async () => {

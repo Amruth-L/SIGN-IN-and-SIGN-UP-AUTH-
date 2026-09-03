@@ -64,7 +64,7 @@ export const openRazorpayCheckout = async ({
     prefill: {
       name: prefill.name || '',
       email: prefill.email || '',
-      contact: prefill.phone_number || ''
+      contact: prefill.contact || prefill.phone_number || ''
     },
     theme: {
       color: '#10b981' // CampusMesh Emerald Green theme

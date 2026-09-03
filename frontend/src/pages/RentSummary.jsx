@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Calendar, AlertTriangle, Lock, CheckCircle2, ClipboardList, MapPin } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../lib/api';
 import { mockProducts, mockSellers } from '../data/mockData';
 import { openRazorpayCheckout } from '../utils/RazorpayService';
 
-const API_BASE = 'http://localhost:3003';
 
 const formatCurrency = (n) => {
   const parsed = Number(n);
@@ -25,7 +25,7 @@ export default function RentSummary() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, api } = useAuth();
 
   const queryParams = new URLSearchParams(location.search);
   const paramStart = queryParams.get('start_date');
@@ -69,7 +69,7 @@ export default function RentSummary() {
           });
         } else {
           const token = localStorage.getItem('token');
-          const res = await fetch(`${API_BASE}/listings/${id}`, {
+          const res = await fetch(`${API_BASE_URL}/listings/${id}`, {
             headers: { Authorization: `Bearer ${token}` },
           });
           if (!res.ok) throw new Error('Failed to load listing');
@@ -96,14 +96,14 @@ export default function RentSummary() {
       start.setHours(0, 0, 0, 0);
       end.setHours(0, 0, 0, 0);
       const diffTime = end.getTime() - start.getTime();
-      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)) + 1;
       days = Math.max(1, diffDays);
     }
 
     const fetchPricingBreakdown = async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await fetch(`${API_BASE}/api/pricing/calculate`, {
+        const res = await fetch(`${API_BASE_URL}/api/pricing/calculate`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -161,7 +161,7 @@ export default function RentSummary() {
         rentalId = `mock-rental-${id}-${Date.now()}`;
       } else {
         console.log('[Frontend Debug] Requesting booking creation from backend...');
-        const res = await fetch(`${API_BASE}/api/rentals/book`, {
+        const res = await fetch(`${API_BASE_URL}/api/rentals/book`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({
@@ -191,7 +191,7 @@ export default function RentSummary() {
         };
         console.log('[Frontend Debug] Mock product detected. Simulated orderData:', orderData);
       } else {
-        const orderRes = await fetch(`${API_BASE}/api/payment/create-rental-order`, {
+        const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-rental-order`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -203,7 +203,20 @@ export default function RentSummary() {
         console.log('[Frontend Debug] Payment order creation response:', orderData);
         if (!orderRes.ok) throw new Error(orderData.error || 'Failed to create payment order.');
       }
-      
+
+      if (orderData.simulated) {
+        if (!isMock) {
+          await api.post("/api/payment/verify-rental", {
+            booking_id: rentalId,
+            gateway_order_id: orderData.order_id,
+            gateway_payment_id: "sim_rental_" + Date.now(),
+            gateway_signature: "sim_sig",
+          });
+        }
+        navigate("/rent-details/" + rentalId, { state: { justBooked: true } });
+        return;
+      }
+
       const paymentAmount = Number(orderData.amount || bookingAmount);
       console.log('[Frontend Debug] Parsed paymentAmount in INR:', paymentAmount);
       if (isNaN(paymentAmount) || paymentAmount <= 0) {
@@ -243,7 +256,7 @@ export default function RentSummary() {
             }
 
             console.log('[Frontend Debug] Verifying signature with backend...');
-            const verifyRes = await fetch(`${API_BASE}/api/payment/verify-rental`, {
+            const verifyRes = await fetch(`${API_BASE_URL}/api/payment/verify-rental`, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -314,11 +327,11 @@ export default function RentSummary() {
         {/* Header */}
         <div className="[margin-bottom:32px]">
           <button className="[background-color:var(--surface-color,_#ffffff)] [border:1px_solid_var(--border-color,_#e5e7eb)] [color:var(--text-dark,_#1f2937)] [padding:8px_20px] [border-radius:99px] cursor-pointer [font-size:0.9rem] font-medium [transition:all_0.2s_ease] [margin-bottom:16px] [box-shadow:var(--shadow-sm)] inline-flex items-center [gap:6px] hover:[background-color:#f3f4f6] hover:[border-color:#d1d5db] hover:[transform:translateX(-2px)]" onClick={() => navigate(-1)}>← Back</button>
-          <h1 className="[font-size:2.25rem] font-extrabold [color:var(--text-dark,_#1f2937)] [letter-spacing:-0.025em] [background:linear-gradient(135deg,_var(--text-dark,_#1f2937)_40%,_var(--primary-color,_#10b981)_100%)] [-webkit-background-clip:text] [-webkit-text-fill-color:transparent] [background-clip:text] [margin:0_0_6px]">Booking Summary</h1>
+          <h1 className="font-display text-5xl font-semibold tracking-tight text-ink">Booking Summary</h1>
           <p className="[color:var(--text-muted,_#6b7280)] [font-size:0.95rem] m-0">Review your rental before confirming payment</p>
         </div>
 
-        <div className="grid [grid-template-columns:1fr_420px] [gap:32px] [align-items:start] [grid-template-columns:1fr]">
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1fr_420px]">
           {/* Left Column — Item Details & Date Picker */}
           <div className="space-y-4">
             {/* Item Card */}
@@ -346,7 +359,7 @@ export default function RentSummary() {
               <h3 className="flex items-center gap-1.5">
                 <Calendar size={16} strokeWidth={2} /> Select Rental Period
               </h3>
-              <form onSubmit={handleBook} className="flex flex-col [gap:20px]">
+              <form id="rental-form" onSubmit={handleBook} className="flex flex-col [gap:20px]">
                 <div className="grid [grid-template-columns:1fr_1fr] [gap:20px]">
                   <div className="flex flex-col [gap:6px]">
                     <label htmlFor="start-date">Start Date</label>
@@ -386,10 +399,10 @@ export default function RentSummary() {
                 
                 <button
                   type="submit"
-                  className="disabled:[background-color:#d1d5db] disabled:[color:#9ca3af] disabled:[cursor:not-allowed] disabled:[transform:none] disabled:[box-shadow:none]"
+                  className="mt-2 inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-mesh-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg disabled:pointer-events-none disabled:bg-ink/15 disabled:text-ink/35 disabled:shadow-none"
                   disabled={isBtnDisabled}
                 >
-                  {submitting ? 'Processing…' : `Pay ${breakdown ? formatCurrency(breakdown.bookingAmount) : '₹0.00'} Now`}
+                  {submitting ? 'Processing…' : `Buy now · ${breakdown ? formatCurrency(breakdown.bookingAmount) : '₹0.00'}`}
                 </button>
               </form>
             </div>

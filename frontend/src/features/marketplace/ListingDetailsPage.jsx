@@ -10,6 +10,9 @@ export default function ListingDetailsPage() {
   const { api } = useAuth();
   const [item, setItem] = useState(null);
   const [rent, setRent] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [savingFavorite, setSavingFavorite] = useState(false);
+  const [favoriteNotice, setFavoriteNotice] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
     api
@@ -22,6 +25,35 @@ export default function ListingDetailsPage() {
         setError(error.response?.data?.error || "This listing is unavailable."),
       );
   }, [api, id]);
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/api/wishlist")
+      .then(({ data }) => {
+        if (!cancelled)
+          setSaved((data || []).some((savedItem) => String(savedItem.id) === String(id)));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [api, id]);
+
+  const toggleSaved = async () => {
+    if (savingFavorite) return;
+    setSavingFavorite(true);
+    setFavoriteNotice("");
+    try {
+      const { data } = await api.post("/api/wishlist/toggle", { item_id: item.id });
+      setSaved(Boolean(data.saved));
+      setFavoriteNotice(data.saved ? "Saved to favourites" : "Removed from favourites");
+      window.dispatchEvent(new Event("wishlist-updated"));
+    } catch (favoriteError) {
+      setFavoriteNotice(favoriteError.response?.data?.error || "Could not update your favourites.");
+    } finally {
+      setSavingFavorite(false);
+    }
+  };
   if (error)
     return (
       <main className="mx-auto w-full max-w-[1240px] px-5 sm:px-7 lg:px-10 py-20 text-center">
@@ -98,14 +130,20 @@ export default function ListingDetailsPage() {
               Rent now
             </button>
             <button
-              onClick={() =>
-                api.post("/api/wishlist/toggle", { item_id: item.id })
-              }
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-mesh-900/15 bg-white px-5 text-sm font-bold text-ink transition hover:-translate-y-0.5 hover:border-mesh-500 hover:bg-mesh-50 px-4"
+              onClick={toggleSaved}
+              disabled={savingFavorite}
+              aria-label={saved ? "Remove from favourites" : "Save to favourites"}
+              title={saved ? "Remove from favourites" : "Save to favourites"}
+              className={"inline-flex h-11 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-bold transition hover:-translate-y-0.5 disabled:pointer-events-none disabled:opacity-60 " + (saved ? "border-mesh-500 bg-mesh-50 text-mesh-700" : "border-mesh-900/15 bg-white text-ink hover:border-mesh-500 hover:bg-mesh-50")}
             >
-              <Heart size={17} />
+              <Heart size={17} fill={saved ? "currentColor" : "none"} />
             </button>
           </div>
+          {favoriteNotice && (
+            <p className="mt-3 text-sm font-semibold text-mesh-700" role="status">
+              {favoriteNotice}
+            </p>
+          )}
         </div>
       </div>
       {rent && <RentalDialog listing={item} onClose={() => setRent(false)} />}

@@ -221,7 +221,7 @@ export default function RentalDialog({ listing, onClose }) {
         <motion.section
           role="dialog"
           aria-modal="true"
-          className="max-h-[calc(100vh-2rem)] w-full max-w-5xl overflow-y-auto rounded-[28px] bg-paper shadow-2xl lg:overflow-hidden"
+          className="max-h-[calc(100vh-1.5rem)] w-full max-w-5xl overflow-y-auto overscroll-contain rounded-[28px] bg-paper shadow-2xl"
           initial={{ opacity: 0, y: 24, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 12, scale: 0.98 }}

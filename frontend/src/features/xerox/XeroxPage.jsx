@@ -12,6 +12,7 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { openRazorpayCheckout } from "../../utils/RazorpayService";
 import { campusLocationLabel, normalizeCampusLocations } from "../../lib/campus";
 
 const human = (value) =>
@@ -115,25 +116,69 @@ export default function XeroxRequest() {
       setBusy(false);
     }
   };
+  const completeRequest = async (paymentOrderId) => {
+    await api.post("/api/xerox/requests", file, {
+      headers: {
+        "Content-Type": "application/pdf",
+        "X-Copies": copies,
+        "X-Drop-Location": drop,
+        "X-Filename": encodeURIComponent(file.name),
+        "X-Payment-Order-Id": paymentOrderId,
+      },
+    });
+    setNotice("Payment received. Print request queued.");
+    setFile(undefined);
+    setPreview(undefined);
+    await load();
+  };
   const submit = async () => {
-    if (!file || !drop) return;
+    if (!file || !drop || !preview) return;
     setBusy(true);
+    setNotice("");
     try {
-      await api.post("/api/xerox/requests", file, {
-        headers: {
-          "Content-Type": "application/pdf",
-          "X-Copies": copies,
-          "X-Drop-Location": drop,
-          "X-Filename": encodeURIComponent(file.name),
-        },
+      const { data: order } = await api.post("/api/payment/create-xerox-order", {
+        page_count: preview.pageCount,
+        copies: preview.copies,
+        drop_location_id: drop,
+        document_hash: preview.sha256,
+        filename: file.name,
       });
-      setNotice("Payment confirmed and print request queued.");
-      setFile();
-      setPreview();
-      await load();
+      if (order.simulated) {
+        await api.post("/api/payment/verify-xerox", {
+          gateway_order_id: order.order_id,
+          gateway_payment_id: "sim_xerox_" + Date.now(),
+          gateway_signature: "sim_sig",
+        });
+        await completeRequest(order.order_id);
+        setBusy(false);
+        return;
+      }
+      await openRazorpayCheckout({
+        key: order.razorpay_key,
+        amount: order.amount,
+        currency: order.currency || "INR",
+        name: "CampusMesh",
+        description: "Xerox printing and campus delivery",
+        order_id: order.order_id,
+        prefill: { name: user?.name, email: user?.email, contact: user?.phone_number },
+        handler: async (response) => {
+          try {
+            await api.post("/api/payment/verify-xerox", {
+              gateway_order_id: response.gateway_order_id || order.order_id,
+              gateway_payment_id: response.gateway_payment_id,
+              gateway_signature: response.gateway_signature,
+            });
+            await completeRequest(order.order_id);
+          } catch (error) {
+            setNotice(error.response?.data?.error || "Payment verification failed. Please try again.");
+          } finally {
+            setBusy(false);
+          }
+        },
+        modalDismissHandler: () => setBusy(false),
+      });
     } catch (error) {
-      setNotice(error.response?.data?.error || "Could not create request.");
-    } finally {
+      setNotice(error.response?.data?.error || "Could not initialize payment.");
       setBusy(false);
     }
   };
@@ -323,7 +368,7 @@ export default function XeroxRequest() {
             onClick={submit}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg active:translate-y-0 disabled:pointer-events-none disabled:opacity-50 mt-5 w-full disabled:opacity-40"
           >
-            {busy ? "Working…" : "Pay & print"}
+            {busy ? "Working…" : preview ? "Pay ₹" + preview.totalAmount + " & print" : "Pay & print"}
           </button>
           <p className="mt-4 flex items-center justify-center gap-1 text-xs text-ink/45">
             <ShieldCheck size={14} className="text-mesh-600" />
