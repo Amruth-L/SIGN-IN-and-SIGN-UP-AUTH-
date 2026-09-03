@@ -10,6 +10,7 @@ export default function RouteSetup({
   onSubmit,
   online,
   onToggle,
+  routeSaving = false,
   className = "",
 }) {
   return (
@@ -24,6 +25,7 @@ export default function RouteSetup({
         <button
           type="button"
           onClick={onToggle}
+          disabled={routeSaving}
           className={`rounded-full px-3 py-2 text-xs font-extrabold ${online ? "bg-mesh-100 text-mesh-800" : "bg-slate-100 text-slate-600"}`}
         >
           <i
@@ -42,6 +44,7 @@ export default function RouteSetup({
             <select
               className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               value={form[name]}
+              disabled={routeSaving}
               onChange={(e) => setForm({ ...form, [name]: e.target.value })}
             >
               {locations.map((item) => (
@@ -58,6 +61,7 @@ export default function RouteSetup({
             className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
             type="datetime-local"
             value={form.available_until}
+            disabled={routeSaving}
             onChange={(e) =>
               setForm({ ...form, available_until: e.target.value })
             }
@@ -74,14 +78,15 @@ export default function RouteSetup({
             max="750"
             step="50"
             value={form.max_detour_meters}
+            disabled={routeSaving}
             onChange={(e) =>
               setForm({ ...form, max_detour_meters: Number(e.target.value) })
             }
           />
         </label>
       </div>
-      <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg active:translate-y-0 disabled:pointer-events-none disabled:opacity-50 mt-4 w-full">
-        Save route & go online
+      <button disabled={routeSaving} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg active:translate-y-0 disabled:pointer-events-none disabled:opacity-50 mt-4 w-full">
+        {routeSaving ? "Saving route…" : "Save route & go online"}
       </button>
     </form>
   );

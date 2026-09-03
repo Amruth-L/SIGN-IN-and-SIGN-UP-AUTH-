@@ -31,6 +31,7 @@ export default function DeliveryPage() {
   const [stats, setStats] = useState({ available: 0, active: 0, completed: 0, totalEarned: 0 });
   const [online, setOnline] = useState(Boolean(user?.delivery_available));
   const [busyId, setBusyId] = useState("");
+  const [routeSaving, setRouteSaving] = useState(false);
   const [notice, setNotice] = useState("Save a route to start receiving matched delivery requests.");
   const [connection, setConnection] = useState("reconnecting");
   const [availability, setAvailability] = useState({ online: false, routeActive: false, reason: "OFFLINE" });
@@ -121,10 +122,19 @@ export default function DeliveryPage() {
 
   const saveRoute = async (event) => {
     event.preventDefault();
+    if (routeSaving) return;
+    setRouteSaving(true);
     try {
       const { data } = await api.post("/api/courier/routes", { ...form, available_until: new Date(form.available_until).toISOString() });
-      setOnline(true); setDeclaredRoute(data.route); setNotice("You are online. Matching delivery requests in real time."); await load();
-    } catch (error) { setNotice(error.response?.data?.error || "Could not save route."); }
+      setOnline(Boolean(data.delivery_available));
+      setDeclaredRoute(data.navigation || data.route);
+      setNotice("You are online. Matching delivery requests in real time.");
+      await load();
+    } catch (error) {
+      setNotice(error.response?.data?.error || "Could not save route.");
+    } finally {
+      setRouteSaving(false);
+    }
   };
   const toggleOnline = async () => {
     try { if (online) { await api.delete("/api/courier/routes/current"); setOnline(false); setNotice("You are offline. New delivery requests are paused."); } else setNotice("Save a route to go online."); } catch (error) { setNotice(error.response?.data?.error || "Could not update availability."); }
@@ -171,7 +181,7 @@ export default function DeliveryPage() {
         </div>
       </header>
       <div className="mx-auto grid w-full max-w-[1240px] gap-5 px-5 py-6 sm:px-7 lg:px-10 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <RouteSetup className="order-2 xl:order-1" form={form} setForm={setForm} locations={locations} onSubmit={saveRoute} online={online} onToggle={toggleOnline} />
+        <RouteSetup className="order-2 xl:order-1" form={form} setForm={setForm} locations={locations} onSubmit={saveRoute} online={online} onToggle={toggleOnline} routeSaving={routeSaving} />
         <div className="order-1 grid items-start gap-5 xl:order-2 lg:grid-cols-[minmax(0,1fr)_minmax(340px,.9fr)]">
           <div className="space-y-4"><CampusRouteMap campus={campus} route={route} position={position} pickup={pickup} destination={destination} />{route?.instructions?.[0] && <div className="flex items-center justify-between gap-4 rounded-2xl bg-ink px-4 py-3 text-xs text-white"><span>{route.instructions[0]}</span><b className="shrink-0 text-mesh-200">{route.distanceMeters} m · {route.etaMinutes} min</b></div>}<ActiveTask task={active} route={route} verify={verify} setVerify={setVerify} onVerify={confirm} onAdvance={advance} onCheckpoint={checkpoint} onScan={() => setScanner(true)} /></div>
           <OffersPanel className="order-first lg:order-last" offers={offers} onAccept={accept} onDecline={decline} online={online} reason={availability.reason} connection={connection} busyId={busyId} />

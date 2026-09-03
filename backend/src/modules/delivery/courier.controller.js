@@ -18,6 +18,13 @@ exports.upsertRoute = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // Serialize route replacement per courier so rapid saves cannot race the
+    // partial one-active-route unique index.
+    const courier = await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [req.user.id]);
+    if (!courier.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Courier account not found.' });
+    }
     await client.query('UPDATE courier_route_availability SET is_active = FALSE WHERE courier_id = $1 AND is_active', [req.user.id]);
     const { rows } = await client.query(`INSERT INTO courier_route_availability
       (courier_id, origin_location_id, destination_location_id, route_node_ids, available_until, max_detour_meters)
@@ -30,10 +37,13 @@ exports.upsertRoute = async (req, res) => {
     } catch (rematchError) {
       console.error('[CourierController] route rematch error:', rematchError.message);
     }
-    res.status(201).json({ ...rows[0], route });
+    res.status(201).json({ route: rows[0], navigation: route, delivery_available: true });
   } catch (error) {
     try { await client.query('ROLLBACK'); } catch {}
     console.error('[CourierController] upsertRoute error:', error.message);
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'Your route was updated by another request. Please save again.' });
+    }
     res.status(500).json({ error: 'Could not save courier route.' });
   } finally { client.release(); }
 };
