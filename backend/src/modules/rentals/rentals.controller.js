@@ -397,20 +397,134 @@ exports.getMyRentals = async (req, res) => {
 exports.getOwnerRequests = async (req, res) => {
   const owner_id = req.user.id;
   try {
-    const res_ = await pool.query(
+    const result = await pool.query(
       `
       SELECT r.*,
-        l.title as listing_title, l.image_url as listing_image, l.category as listing_category,
-        bu.name as borrower_name, bu.email as borrower_email
+        l.title AS listing_title, l.image_url AS listing_image, l.category AS listing_category,
+        l.pickup_location_id AS listing_pickup_location_id,
+        bu.name AS borrower_name, bu.email AS borrower_email, bu.hostel AS borrower_hostel,
+        ou.name AS owner_name,
+        pickup.building_name AS pickup_building_name, pickup.floor_name AS pickup_floor_name,
+        pickup.room_name AS pickup_room_name,
+        dropoff.building_name AS drop_building_name, dropoff.floor_name AS drop_floor_name,
+        dropoff.room_name AS drop_room_name,
+        dr.id AS delivery_id, dr.status AS delivery_status, dr.courier_id,
+        dr.pickup_location AS delivery_pickup_location, dr.drop_location AS delivery_drop_location,
+        dr.pickup_location_id AS delivery_pickup_location_id,
+        dr.destination_location_id AS delivery_destination_location_id,
+        dr.courier_earning, dr.match_score, dr.accepted_at AS delivery_accepted_at,
+        dr.updated_at AS delivery_updated_at,
+        courier.name AS courier_name, courier.hostel AS courier_hostel
       FROM rentals r
       LEFT JOIN listings l ON r.listing_id = l.id
       LEFT JOIN users bu ON r.borrower_id = bu.id
+      LEFT JOIN users ou ON r.owner_id = ou.id
+      LEFT JOIN campus_locations pickup ON pickup.id = l.pickup_location_id
+      LEFT JOIN campus_locations dropoff ON dropoff.id = r.drop_location_id
+      LEFT JOIN LATERAL (
+        SELECT d.*
+        FROM delivery_requests d
+        WHERE d.rental_id = r.id AND d.task_type = 'RENTAL_OUTBOUND'
+        ORDER BY d.created_at DESC
+        LIMIT 1
+      ) dr ON TRUE
+      LEFT JOIN users courier ON courier.id = dr.courier_id
       WHERE r.owner_id = $1
       ORDER BY r.created_at DESC
-    `,
+      `,
       [owner_id],
     );
-    res.json(res_.rows);
+
+    const locationLabel = (building, floor, room) => [building, floor, room].filter(Boolean).join(' · ');
+    const requests = result.rows.map((row) => {
+      const actionable = ['OWNER_PENDING', 'RENTAL_PAYMENT_COMPLETED'].includes(row.status);
+      const activeRental = ['DEPOSIT_PENDING', 'MATCHING_COURIER', 'NO_COURIER_AVAILABLE', 'COURIER_ASSIGNED', 'RENTAL_ACTIVE', 'RETURN_MATCHING', 'RETURN_COURIER_ASSIGNED', 'RETURN_IN_TRANSIT'].includes(row.status);
+      const completedRental = ['COMPLETED', 'DEPOSIT_REFUNDED'].includes(row.status);
+      const delivery = row.delivery_id ? {
+        id: row.delivery_id,
+        status: row.delivery_status,
+        pickup: {
+          id: row.delivery_pickup_location_id || row.listing_pickup_location_id,
+          label: row.delivery_pickup_location || locationLabel(row.pickup_building_name, row.pickup_floor_name, row.pickup_room_name),
+        },
+        destination: {
+          id: row.delivery_destination_location_id || row.drop_location_id,
+          label: row.delivery_drop_location || locationLabel(row.drop_building_name, row.drop_floor_name, row.drop_room_name),
+        },
+        courier: row.courier_id ? { id: row.courier_id, name: row.courier_name, hostel: row.courier_hostel } : null,
+        payout: row.courier_earning,
+        match_score: row.match_score,
+        accepted_at: row.delivery_accepted_at,
+        updated_at: row.delivery_updated_at,
+      } : null;
+
+      let blocked_by = null;
+      let next_action = 'View rental details';
+      if (actionable) {
+        next_action = 'Review and respond to this booking';
+      } else if (row.status === 'DEPOSIT_PENDING') {
+        blocked_by = 'DEPOSIT';
+        next_action = 'Waiting for renter to pay the refundable deposit';
+      } else if (row.status === 'MATCHING_COURIER' || row.status === 'NO_COURIER_AVAILABLE') {
+        next_action = row.status === 'NO_COURIER_AVAILABLE' ? 'Waiting for a courier route that matches' : 'Searching for an online courier';
+      } else if (row.delivery_status === 'COURIER_ASSIGNED') {
+        next_action = 'Courier assigned; waiting for pickup';
+      } else if (row.delivery_status === 'ARRIVED_AT_PICKUP') {
+        next_action = 'Show the secure pickup QR or OTP to the courier';
+      } else if (row.delivery_status === 'ARRIVED_AT_DESTINATION') {
+        next_action = 'Waiting for delivery confirmation';
+      } else if (row.delivery_status === 'COMPLETED' || completedRental) {
+        next_action = 'Rental completed';
+      }
+
+      return {
+        id: row.id,
+        status: row.status,
+        listing_id: row.listing_id,
+        listing_title: row.listing_title,
+        listing_image: row.listing_image,
+        listing_category: row.listing_category,
+        borrower_id: row.borrower_id,
+        borrower_name: row.borrower_name,
+        borrower_email: row.borrower_email,
+        borrower_hostel: row.borrower_hostel,
+        owner_id: row.owner_id,
+        owner_name: row.owner_name,
+        start_date: row.start_date,
+        end_date: row.end_date,
+        rental_days: row.rental_days,
+        rental_fee: row.rental_fee,
+        delivery_fee: row.delivery_fee,
+        platform_fee: row.platform_fee,
+        booking_amount: row.booking_amount,
+        deposit_amount: row.deposit_amount,
+        delivery_requested: row.delivery_requested,
+        drop_location_id: row.drop_location_id,
+        drop_location_label: locationLabel(row.drop_building_name, row.drop_floor_name, row.drop_room_name),
+        payment_status: row.payment_status,
+        booking_status: row.booking_status,
+        deposit_status: row.deposit_status,
+        owner_response: row.owner_response,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        delivery,
+        blocked_by,
+        next_action,
+        actionable,
+        phase: actionable ? 'PENDING' : activeRental ? 'ACTIVE' : completedRental ? 'COMPLETED' : 'HISTORY',
+      };
+    });
+
+    res.json({
+      requests,
+      summary: {
+        pending: requests.filter((request) => request.phase === 'PENDING').length,
+        active: requests.filter((request) => request.phase === 'ACTIVE').length,
+        completed: requests.filter((request) => request.phase === 'COMPLETED').length,
+        total: requests.length,
+      },
+      serverTime: new Date().toISOString(),
+    });
   } catch (error) {
     console.error('[RentalController] getOwnerRequests error:', error.message);
     res.status(500).json({ error: 'Failed to fetch owner requests.' });

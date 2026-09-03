@@ -106,7 +106,8 @@ exports.getListings = async (req, res) => {
 exports.getMyListings = async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT l.*, COUNT(r.id)::int AS request_count
+      `SELECT l.*, COUNT(r.id)::int AS request_count,
+        COUNT(r.id) FILTER (WHERE r.status IN ('OWNER_PENDING','RENTAL_PAYMENT_COMPLETED'))::int AS pending_request_count
       FROM listings l LEFT JOIN rentals r ON r.listing_id=l.id
       WHERE l.owner_id=$1 GROUP BY l.id ORDER BY l.created_at DESC`,
       [req.user.id],

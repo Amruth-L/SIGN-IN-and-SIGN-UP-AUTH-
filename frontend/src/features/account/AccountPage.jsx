@@ -1,26 +1,33 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
+import { io } from "socket.io-client";
 import {
+  AlertCircle,
   Bookmark,
   Check,
   ChevronRight,
   CirclePlus,
   Clock3,
+  History,
   ListChecks,
+  MapPin,
   Package,
   Pencil,
   Settings,
   Trash2,
+  Truck,
   UserRound,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { listingFallback } from "../../lib/assets";
+import { API_BASE_URL } from "../../lib/api";
 
 const tabs = [
   ["rentals", "My rentals", Package],
   ["listings", "My listings", ListChecks],
   ["saved", "Saved", Bookmark],
+  ["history", "History", History],
   ["settings", "Settings", Settings],
 ];
 const statusStyle = (status) =>
@@ -165,7 +172,117 @@ function RentalsTab({ rentals }) {
   );
 }
 
-function ListingsTab({ listings, onDelete, onToggle }) {
+
+const ownerStatusLabel = (request) => {
+  if (request.actionable) return "Needs your response";
+  if (request.status === "DEPOSIT_PENDING") return "Deposit pending";
+  if (request.status === "MATCHING_COURIER") return "Finding courier";
+  if (request.status === "NO_COURIER_AVAILABLE") return "Waiting for courier";
+  if (request.delivery?.status === "COURIER_ASSIGNED") return "Courier assigned";
+  if (request.delivery?.status === "ARRIVED_AT_PICKUP") return "Pickup verification";
+  if (request.delivery?.status === "ARRIVED_AT_DESTINATION") return "Delivery verification";
+  if (request.delivery?.status === "COMPLETED" || request.phase === "COMPLETED") return "Completed";
+  return friendlyStatus(request.status);
+};
+
+const formatDate = (value) => value
+  ? new Date(value).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+  : "—";
+
+function ConnectionBadge({ state }) {
+  const live = state === "live";
+  const reconnecting = state === "reconnecting";
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-extrabold ${live ? "border-mesh-200 bg-mesh-50 text-mesh-800" : reconnecting ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-700"}`}>
+      <i className={`size-1.5 rounded-full ${live ? "bg-mesh-500" : reconnecting ? "bg-amber-500" : "bg-red-500"}`} />
+      {live ? "Live" : reconnecting ? "Reconnecting" : "Backend disconnected"}
+    </span>
+  );
+}
+
+function OwnerRequestQueue({ requests, summary, loading, connection, error, responding, onRespond, selectedListingId, onClearFilter }) {
+  const pending = requests.filter((request) => request.actionable);
+  const visible = selectedListingId
+    ? requests.filter((request) => request.listing_id === selectedListingId)
+    : pending.length > 0 ? pending : requests;
+
+  return (
+    <section id="incoming-rental-requests" className="mb-6 scroll-mt-6 rounded-[1.6rem] border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)] sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Owner inbox</span>
+          <h2 className="mt-1 text-xl font-extrabold">Incoming rental requests</h2>
+          <p className="mt-1 max-w-2xl text-sm text-ink/50">Paid bookings appear here automatically. Accepting one starts the deposit and courier flow.</p>
+        </div>
+        <ConnectionBadge state={connection} />
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {[[summary.pending, "Needs response", "text-amber-700"], [summary.active, "In progress", "text-mesh-700"], [summary.completed, "Completed", "text-ink/60"], [summary.total, "All requests", "text-ink"]].map(([value, label, color]) => (
+          <div key={label} className="rounded-2xl bg-paper px-3 py-3">
+            <strong className={`block text-xl font-extrabold ${color}`}>{value || 0}</strong>
+            <span className="text-[11px] font-bold text-ink/45">{label}</span>
+          </div>
+        ))}
+      </div>
+
+      {error && (
+        <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
+          <AlertCircle size={15} className="mt-0.5 shrink-0" />
+          <span>{error}. Existing requests are still shown.</span>
+        </div>
+      )}
+      {selectedListingId && (
+        <button onClick={onClearFilter} className="mt-4 text-xs font-extrabold text-mesh-700 hover:text-mesh-900">
+          Showing requests for one listing · Show all
+        </button>
+      )}
+      {loading && requests.length === 0 ? (
+        <div className="mt-5 h-28 animate-pulse rounded-2xl bg-ink/5" />
+      ) : visible.length === 0 ? (
+        <div className="mt-5 rounded-2xl border border-dashed border-ink/15 bg-paper/60 p-6 text-center">
+          <Check className="mx-auto text-mesh-600" size={22} />
+          <p className="mt-2 text-sm font-extrabold">No incoming requests yet</p>
+          <p className="mt-1 text-xs text-ink/45">When a renter completes booking payment, the request will land here.</p>
+        </div>
+      ) : (
+        <div className="mt-5 space-y-3">
+          {visible.map((request) => (
+            <article key={request.id} className={`rounded-2xl border p-4 ${request.actionable ? "border-amber-200 bg-amber-50/45" : "border-ink/10 bg-paper/35"}`}>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                <img src={request.listing_image || listingFallback} alt="" className="size-16 shrink-0 rounded-xl object-cover" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-extrabold">{request.listing_title || "Campus rental"}</h3>
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold ${request.actionable ? "bg-amber-100 text-amber-800" : "bg-white text-ink/55"}`}>{ownerStatusLabel(request)}</span>
+                    {request.delivery_requested && <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-extrabold text-sky-700">Delivery requested</span>}
+                  </div>
+                  <p className="mt-1 text-sm text-ink/60">Requested by <strong className="text-ink">{request.borrower_name || "Verified student"}</strong>{request.borrower_hostel ? ` · ${request.borrower_hostel}` : ""}</p>
+                  <div className="mt-3 grid gap-2 text-xs text-ink/55 sm:grid-cols-2">
+                    <span><b className="text-ink/75">Dates:</b> {formatDate(request.start_date)} → {formatDate(request.end_date)} · {request.rental_days || 0} days</span>
+                    <span><b className="text-ink/75">Booking:</b> ₹{Number(request.booking_amount || 0).toLocaleString("en-IN")} · <b className="text-ink/75">Deposit:</b> ₹{Number(request.deposit_amount || 0).toLocaleString("en-IN")}</span>
+                    {request.delivery_requested && <span className="flex items-start gap-1"><MapPin size={14} className="mt-0.5 shrink-0 text-mesh-600" /><span><b className="text-ink/75">Route:</b> {request.delivery?.pickup?.label || "Pickup location"} → {request.delivery?.destination?.label || request.drop_location_label || "Drop location"}</span></span>}
+                    {request.delivery?.courier && <span className="flex items-center gap-1"><Truck size={14} className="text-mesh-600" /> Courier: <b className="text-ink/75">{request.delivery.courier.name}</b></span>}
+                  </div>
+                  <p className="mt-3 text-xs font-semibold text-mesh-800">Next: {request.next_action}</p>
+                </div>
+                <div className="flex shrink-0 flex-row gap-2 sm:flex-col">
+                  {request.actionable && <>
+                    <button onClick={() => onRespond(request.id, "ACCEPTED")} disabled={!!responding[request.id]} className="rounded-xl bg-mesh-600 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-mesh-700 disabled:opacity-50">{responding[request.id] === "ACCEPTED" ? "Accepting…" : "Accept"}</button>
+                    <button onClick={() => onRespond(request.id, "REJECTED")} disabled={!!responding[request.id]} className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-extrabold text-red-700 transition hover:bg-red-50 disabled:opacity-50">{responding[request.id] === "REJECTED" ? "Rejecting…" : "Reject"}</button>
+                  </>}
+                  <Link to={`/rent-details/${request.id}`} className="rounded-xl border border-ink/10 bg-white px-3 py-2 text-center text-xs font-extrabold text-ink/65 transition hover:border-mesh-300 hover:bg-mesh-50">Details</Link>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ListingsTab({ listings, onDelete, onToggle, onFocusRequests }) {
   return (
     <div>
       {listings.length === 0 ? (
@@ -202,7 +319,9 @@ function ListingsTab({ listings, onDelete, onToggle }) {
                 </div>
                 <p className="mt-1 text-sm text-ink/50">
                   ₹{Number(item.rent_price || item.price || 0)}/day ·{" "}
-                  {item.request_count || 0} requests
+                  <button type="button" onClick={() => onFocusRequests(item.id)} className="font-extrabold text-mesh-700 underline-offset-2 hover:underline">
+                    {item.request_count || 0} requests
+                  </button>
                 </p>
                 <div className="mt-3 flex gap-2">
                   <Link
@@ -372,7 +491,31 @@ export default function AccountPage() {
   const active = tabs.some(([id]) => id === tab) ? tab : "rentals";
   const paymentConfirmation = location.state?.paymentConfirmation;
   const [data, setData] = useState({ rentals: [], listings: [], saved: [] });
+  const [ownerRequests, setOwnerRequests] = useState([]);
+  const [ownerSummary, setOwnerSummary] = useState({ pending: 0, active: 0, completed: 0, total: 0 });
+  const [ownerLoading, setOwnerLoading] = useState(true);
+  const [ownerError, setOwnerError] = useState("");
+  const [ownerConnection, setOwnerConnection] = useState("reconnecting");
+  const [responding, setResponding] = useState({});
+  const [selectedListingId, setSelectedListingId] = useState("");
   const [loading, setLoading] = useState(true);
+  const loadOwnerRequests = useCallback(async () => {
+    try {
+      const response = await api.get("/api/rentals/my-listings-requests");
+      const payload = response.data;
+      const requests = Array.isArray(payload) ? payload : payload.requests || [];
+      const pending = requests.filter((request) => request.actionable || ["OWNER_PENDING", "RENTAL_PAYMENT_COMPLETED"].includes(request.status)).length;
+      setOwnerRequests(requests);
+      setOwnerSummary(payload.summary || { pending, active: 0, completed: 0, total: requests.length });
+      setOwnerError("");
+      setOwnerConnection("live");
+    } catch (error) {
+      setOwnerConnection("offline");
+      setOwnerError(error.response?.data?.error || "Could not load incoming rental requests");
+    } finally {
+      setOwnerLoading(false);
+    }
+  }, [api]);
   const load = async () => {
     setLoading(true);
     const [rentals, listings, saved] = await Promise.allSettled([
@@ -380,16 +523,47 @@ export default function AccountPage() {
       api.get("/listings/mine"),
       api.get("/api/wishlist"),
     ]);
-    setData({
-      rentals: rentals.status === "fulfilled" ? rentals.value.data : [],
-      listings: listings.status === "fulfilled" ? listings.value.data : [],
-      saved: saved.status === "fulfilled" ? saved.value.data : [],
-    });
+    setData((current) => ({
+      rentals: rentals.status === "fulfilled" ? rentals.value.data : current.rentals,
+      listings: listings.status === "fulfilled" ? listings.value.data : current.listings,
+      saved: saved.status === "fulfilled" ? saved.value.data : current.saved,
+    }));
     setLoading(false);
   };
   useEffect(() => {
     load();
-  }, [api]);
+    loadOwnerRequests();
+  }, [api, loadOwnerRequests]);
+  useEffect(() => {
+    const socket = io(API_BASE_URL, { auth: { token: localStorage.getItem("token") }, reconnectionAttempts: 5 });
+    socket.on("connect", () => setOwnerConnection("live"));
+    socket.on("disconnect", () => setOwnerConnection("reconnecting"));
+    socket.on("connect_error", () => setOwnerConnection("offline"));
+    const refresh = () => loadOwnerRequests();
+    ["rental:request", "rental:status", "delivery:assigned", "delivery:status"].forEach((event) => socket.on(event, refresh));
+    return () => socket.close();
+  }, [loadOwnerRequests]);
+  useEffect(() => {
+    const interval = setInterval(loadOwnerRequests, ownerSummary.pending > 0 || ownerConnection !== "live" ? 5000 : 15000);
+    return () => clearInterval(interval);
+  }, [loadOwnerRequests, ownerSummary.pending, ownerConnection]);
+  const respondToRequest = async (rentalId, response) => {
+    setResponding((current) => ({ ...current, [rentalId]: response }));
+    try {
+      await api.post("/api/rentals/respond", { rental_id: rentalId, response });
+      await loadOwnerRequests();
+      setOwnerError("");
+    } catch (error) {
+      setOwnerError(error.response?.data?.error || "Could not update this rental request");
+    } finally {
+      setResponding((current) => ({ ...current, [rentalId]: null }));
+    }
+  };
+  const focusRequests = (listingId = "") => {
+    setSelectedListingId(listingId);
+    navigate("/account/listings");
+    window.setTimeout(() => document.getElementById("incoming-rental-requests")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
   const removeSaved = async (id) => {
     await api.delete(`/api/wishlist/${id}`);
     setData((old) => ({
@@ -418,11 +592,28 @@ export default function AccountPage() {
       ({
         rentals: <RentalsTab rentals={data.rentals} />,
         listings: (
-          <ListingsTab
-            listings={data.listings}
-            onDelete={deleteListing}
-            onToggle={toggleListing}
-          />
+          <>
+            <OwnerRequestQueue
+              requests={ownerRequests}
+              summary={ownerSummary}
+              loading={ownerLoading}
+              connection={ownerConnection}
+              error={ownerError}
+              responding={responding}
+              onRespond={respondToRequest}
+              selectedListingId={selectedListingId}
+              onClearFilter={() => setSelectedListingId("")}
+            />
+            <ListingsTab
+              listings={data.listings}
+              onDelete={deleteListing}
+              onToggle={toggleListing}
+              onFocusRequests={focusRequests}
+            />
+          </>
+        ),
+        history: (
+          <Empty icon={History} title="History is being prepared" copy="Your completed rentals, owner earnings, courier payouts, and delivery events will appear here." />
         ),
         saved: (
           <SavedTab
@@ -433,7 +624,7 @@ export default function AccountPage() {
         ),
         settings: <SettingsTab user={user} save={updateProfile} />,
       })[active],
-    [active, data, user],
+    [active, data, user, ownerRequests, ownerSummary, ownerLoading, ownerConnection, ownerError, responding, selectedListingId],
   );
   return (
     <main className="min-h-screen bg-paper">
