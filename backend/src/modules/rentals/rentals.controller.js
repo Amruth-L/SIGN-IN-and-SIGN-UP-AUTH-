@@ -470,7 +470,7 @@ exports.getMyRentals = async (req, res) => {
   try {
     const res_ = await pool.query(
       `
-      SELECT r.*,
+      SELECT r.*, COALESCE(r.outbound_delivery_id, r.return_delivery_id) AS delivery_id,
         l.title as listing_title, l.image_url as listing_image, l.category as listing_category,
         ou.name as owner_name
       FROM rentals r

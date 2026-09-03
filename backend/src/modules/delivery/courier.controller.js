@@ -1,5 +1,6 @@
 const pool = require('../../config/database');
 const { routeFor } = require('../campus/campus.service');
+const { matchDelivery } = require('./matching.service');
 
 const loadLocations = async (originId, destinationId) => {
   const { rows } = await pool.query('SELECT * FROM campus_locations WHERE id = ANY($1)', [[originId, destinationId]]);
@@ -21,7 +22,10 @@ exports.upsertRoute = async (req, res) => {
       (courier_id, origin_location_id, destination_location_id, route_node_ids, available_until, max_detour_meters)
       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`, [req.user.id, origin_location_id, destination_location_id, route.nodes, available_until, Math.max(50, Number(max_detour_meters))]);
     await client.query("UPDATE users SET delivery_available=TRUE, active_mode='DELIVERY' WHERE id=$1", [req.user.id]);
-    await client.query('COMMIT'); res.status(201).json({ ...rows[0], route });
+    await client.query('COMMIT');
+    const openTasks = await pool.query("SELECT id FROM delivery_requests WHERE status IN ('MATCHING_COURIER','RETURN_MATCHING','AVAILABLE','NO_COURIER_AVAILABLE') AND (customer_id IS NULL OR customer_id <> $1) AND (seller_id IS NULL OR seller_id <> $1)", [req.user.id]);
+    await Promise.all(openTasks.rows.map((task) => matchDelivery(task.id)));
+    res.status(201).json({ ...rows[0], route });
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
 };
 

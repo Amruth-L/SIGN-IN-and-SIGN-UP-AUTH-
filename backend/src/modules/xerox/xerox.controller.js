@@ -25,6 +25,14 @@ exports.createRequest = async (req, res) => {
   const copies = Math.max(1, Math.min(20, Number(req.headers['x-copies']) || 1));
   const dropLocationId = req.headers['x-drop-location'];
   const filename = decodeURIComponent(String(req.headers['x-filename'] || 'document.pdf')).slice(0, 180);
+  const paymentOrderId = req.headers["x-payment-order-id"];
+  const pendingRes = await pool.query("SELECT * FROM pending_orders WHERE id=$1 AND user_id=$2", [paymentOrderId, req.user.id]);
+  const pending = pendingRes.rows[0];
+  const payment = pending?.booking_data;
+  if (!payment?.verified) return res.status(402).json({ error: "Complete Xerox payment before submitting the print request." });
+  if (payment.type !== "XEROX" || Number(payment.page_count) !== info.pageCount || Number(payment.copies) !== copies || payment.drop_location_id !== dropLocationId || payment.document_hash !== info.sha256) {
+    return res.status(409).json({ error: "The paid Xerox order does not match this document or delivery selection." });
+  }
   const location = await pool.query('SELECT id FROM campus_locations WHERE id=$1', [dropLocationId]);
   if (!location.rowCount) return res.status(400).json({ error: 'Choose a valid campus delivery location.' });
   const provider = await pool.query("SELECT id FROM users WHERE account_type='XEROX_DESK' ORDER BY created_at LIMIT 1");
@@ -36,6 +44,7 @@ exports.createRequest = async (req, res) => {
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'RECEIVED') RETURNING id,original_filename,page_count,copies,price_per_page,total_amount,status,created_at`,
     [req.user.id,provider.rows[0]?.id || null,storagePath,usingSupabaseStorage?null:req.body,filename,info.pageCount,copies,info.pageCount*copies*3,pickup.rows[0]?.id || null,dropLocationId]);
   await pool.query(`INSERT INTO transaction_events(xerox_request_id,event_type,actor_user_id,metadata) VALUES($1,'XEROX_RECEIVED',$2,$3)`, [rows[0].id, req.user.id, { filename, pageCount: info.pageCount, copies }]);
+  await pool.query("DELETE FROM pending_orders WHERE id=$1 AND user_id=$2", [paymentOrderId, req.user.id]);
   res.status(201).json(rows[0]);
 };
 

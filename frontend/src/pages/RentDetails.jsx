@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { API_BASE_URL } from '../lib/api';
 import { mockProducts } from '../data/mockData';
 import QRCode from 'qrcode';
 import HandoverCredential from '../components/HandoverCredential';
 
-const API_BASE = 'http://localhost:3003';
+const API_BASE = API_BASE_URL;
 const formatCurrency = (n) => `₹${parseFloat(n || 0).toFixed(2)}`;
 
 const STATUS_CONFIG = {
@@ -15,6 +16,8 @@ const STATUS_CONFIG = {
   DEPOSIT_PENDING:         { label: 'Deposit Required', color: '#f59e0b', icon: '🔒' },
   QR_GENERATED:            { label: 'QR Ready', color: '#10b981', icon: '✅' },
   COURIER_PICKUP:          { label: 'Courier Pickup', color: '#3b82f6', icon: '🚚' },
+  MATCHING_COURIER:         { label: 'Finding a courier', color: '#3b82f6', icon: '🔎' },
+  COURIER_ASSIGNED:        { label: 'Courier Assigned', color: '#3b82f6', icon: '🚚' },
   BORROWER_RECEIVED:       { label: 'Item Received', color: '#10b981', icon: '📦' },
   RENTAL_ACTIVE:           { label: 'Rental Active', color: '#22c55e', icon: '🟢' },
   RETURN_REQUESTED:        { label: 'Return Requested', color: '#f97316', icon: '↩️' },
@@ -360,10 +363,17 @@ export default function RentDetails() {
                       <div className="text-[.65rem] font-semibold uppercase text-ink/50">Status</div>
                       <div className={`text-sm font-bold ${deliveryInfo.status === 'DELIVERED' ? 'text-green-600' : 'text-blue-600'}`}>
                         {{
+                          MATCHING_COURIER: '🔎 Finding a Courier',
+                          COURIER_ASSIGNED: '✅ Courier Assigned',
                           ACCEPTED: '✅ Courier Assigned',
+                          GOING_TO_PICKUP: '🚶 Heading to Seller',
                           ARRIVING_FOR_PICKUP: '🚶 Heading to Seller',
+                          PICKUP_VERIFIED: '📋 Pickup Verified',
+                          ORDER_COLLECTED: '📋 Item Picked Up',
                           PICKED_UP: '📋 Item Picked Up',
+                          GOING_TO_DESTINATION: '🚚 On the Way',
                           IN_TRANSIT: '🚚 On the Way',
+                          ARRIVED_AT_DESTINATION: '📍 Courier Arrived',
                           ARRIVED: '📍 Courier Arrived',
                           DELIVERED: '🎉 Delivered!',
                         }[deliveryInfo.status] || deliveryInfo.status}
@@ -377,6 +387,11 @@ export default function RentDetails() {
                     )}
                   </div>
                 )}
+                {deliveryInfo.delivery_id && (
+                  <Link to={"/delivery/" + deliveryInfo.delivery_id + "/track"} className="inline-flex items-center rounded-xl bg-white px-3 py-2 text-xs font-bold text-mesh-700 shadow-sm hover:bg-mesh-100">
+                    Open live tracking →
+                  </Link>
+                )}
                 {/* Customer's Delivery Token — shown when courier needs to verify delivery */}
                 {isBorrower && deliveryInfo.delivery_token && ['PICKED_UP','IN_TRANSIT','ARRIVED'].includes(deliveryInfo.status) && (
                   <div className="mt-3 rounded-xl bg-ink p-5 text-center">
@@ -387,7 +402,7 @@ export default function RentDetails() {
                     <div className="mt-1.5 text-[.65rem] text-white/50">Show at delivery.</div>
                   </div>
                 )}
-                {isBorrower && deliveryInfo.delivery_id && ['PICKUP_VERIFIED','IN_TRANSIT','RETURN_COURIER_ASSIGNED','RETURN_IN_TRANSIT','COURIER_ASSIGNED'].includes(deliveryInfo.status) && (
+                {isBorrower && deliveryInfo.delivery_id && ['PICKUP_VERIFIED','IN_TRANSIT','ARRIVED_AT_DESTINATION','ARRIVED','RETURN_COURIER_ASSIGNED','RETURN_IN_TRANSIT','COURIER_ASSIGNED'].includes(deliveryInfo.status) && (
                   <HandoverCredential deliveryId={deliveryInfo.delivery_id} stage={deliveryInfo.task_type === 'RENTAL_RETURN' ? 'RETURN_PICKUP' : 'DELIVERY'} title={deliveryInfo.task_type === 'RENTAL_RETURN' ? 'Return pickup handover' : 'Delivery handover'} />
                 )}
               </div>

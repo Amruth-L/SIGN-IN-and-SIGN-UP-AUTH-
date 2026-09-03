@@ -44,7 +44,7 @@ async function verifyCredential(deliveryId, courierId, { stage, method, value })
     if (!delivery || delivery.courier_id !== courierId) throw Object.assign(new Error('Only the assigned courier can verify this handover.'), { status: 403 });
     if (!validStages(delivery).includes(stage)) throw Object.assign(new Error('Incorrect handover stage.'), { status: 400 });
     const pickupStage = ['PICKUP','RETURN_PICKUP','XEROX_PICKUP'].includes(stage);
-    const allowedStatuses = pickupStage ? ['ARRIVED_AT_PICKUP'] : stage === 'RETURN_RECEIVED' ? ['RETURN_IN_TRANSIT'] : ['IN_TRANSIT'];
+    const allowedStatuses = pickupStage ? ['ARRIVED_AT_PICKUP'] : stage === 'RETURN_RECEIVED' ? ['RETURN_IN_TRANSIT'] : ['IN_TRANSIT', 'ARRIVED_AT_DESTINATION', 'ARRIVED'];
     if (!allowedStatuses.includes(delivery.status)) throw Object.assign(new Error(`The delivery is not ready for ${stage.replaceAll('_',' ').toLowerCase()} verification.`), { status: 409 });
     const credential = await client.query(`SELECT * FROM handover_verifications WHERE delivery_id=$1 AND stage=$2 FOR UPDATE`, [deliveryId, stage]);
     const record = credential.rows[0];
@@ -69,7 +69,8 @@ async function verifyCredential(deliveryId, courierId, { stage, method, value })
       VALUES ($1,$2,$3,$4,$5,$6)`, [delivery.rental_id, deliveryId, delivery.xerox_request_id, `${stage}_VERIFIED`, courierId, { method }]);
     await client.query('COMMIT');
     const payload = { id: deliveryId, status: nextStatus, stage };
-    emitDelivery(deliveryId, isFinal ? 'delivery:completed' : 'delivery:status', payload);
+    emitDelivery(deliveryId, 'delivery:status', payload);
+    if (isFinal) emitDelivery(deliveryId, 'delivery:completed', payload);
     emitUser(delivery.customer_id, 'delivery:status', payload); emitUser(delivery.seller_id, 'delivery:status', payload);
     return payload;
   } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }

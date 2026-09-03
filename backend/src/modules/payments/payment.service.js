@@ -1,14 +1,13 @@
 const pool = require('../../config/database');
 const razorpay = require('../../config/razorpay');
 const crypto = require('crypto');
-const { createDeliveryRequest } = require('../delivery/delivery.controller');
 require('dotenv').config();
 
 // Helper to check if Razorpay is running in real or simulation mode
 const isSimulationMode = () => {
   const key_id = process.env.RAZORPAY_KEY_ID;
   const key_secret = process.env.RAZORPAY_KEY_SECRET;
-  return !key_id || !key_secret || key_id === 'your_razorpay_key_id' || key_secret === 'your_key_secret';
+  return !key_id || !key_secret || String(key_id).includes('your_') || String(key_secret).includes('your_');
 };
 
 class PaymentService {
@@ -62,8 +61,8 @@ class PaymentService {
 
       // Insert pending payment record
       await client.query(`
-        INSERT INTO payments (booking_id, rental_id, payment_type, amount, gateway, gateway_order_id, status)
-        VALUES ($1, $1, 'RENTAL', $2, 'razorpay', $3, 'PENDING')
+        INSERT INTO payments (rental_id, payment_type, amount, transaction_id, status)
+        VALUES ($1, 'RENTAL', $2, $3, 'PENDING')
       `, [bookingId, booking.booking_amount, orderId]);
 
       await client.query('COMMIT');
@@ -108,7 +107,7 @@ class PaymentService {
 
       // Check if already paid to prevent duplicate processing
       const payCheck = await client.query(
-        "SELECT id FROM payments WHERE booking_id = $1 AND payment_type = 'RENTAL' AND status = 'PAID'",
+        "SELECT id FROM payments WHERE rental_id = $1 AND payment_type = 'RENTAL' AND status = 'PAID'",
         [bookingId]
       );
       if (payCheck.rows.length > 0) {
@@ -117,13 +116,11 @@ class PaymentService {
       }
 
       // Update payment record to PAID
-      await client.query(`
-        UPDATE payments SET
-          gateway_payment_id = $1,
-          gateway_signature = $2,
-          status = 'PAID'
-        WHERE booking_id = $3 AND payment_type = 'RENTAL' AND gateway_order_id = $4
-      `, [gatewayPaymentId, gatewaySignature || 'sim_sig', bookingId, gatewayOrderId]);
+      const paymentUpdate = await client.query(
+        "UPDATE payments SET transaction_id = $1, status = 'PAID' WHERE rental_id = $2 AND payment_type = 'RENTAL' AND transaction_id = $3 AND status = 'PENDING'",
+        [gatewayPaymentId, bookingId, gatewayOrderId],
+      );
+      if (!paymentUpdate.rowCount) throw new Error('Payment order not found or already processed.');
 
       // Update booking status to RENTAL_PAYMENT_COMPLETED, reserve listing, notify owner
       await client.query(`
@@ -181,10 +178,10 @@ class PaymentService {
       // Check deposit deadline
       if (booking.deposit_deadline && new Date(booking.deposit_deadline) < new Date()) {
         await client.query(`
-          UPDATE rentals SET 
-            status = 'CANCELLED', 
-            deposit_status = 'TIMEOUT', 
-            updated_at = NOW() 
+          UPDATE rentals SET
+            status = 'CANCELLED',
+            deposit_status = 'TIMEOUT',
+            updated_at = NOW()
           WHERE id = $1
         `, [bookingId]);
         throw new Error('Deposit deadline expired. Booking has been cancelled.');
@@ -212,8 +209,8 @@ class PaymentService {
 
       // Store pending payment record
       await client.query(`
-        INSERT INTO payments (booking_id, rental_id, payment_type, amount, gateway, gateway_order_id, status)
-        VALUES ($1, $1, 'SECURITY_DEPOSIT', $2, 'razorpay', $3, 'PENDING')
+        INSERT INTO payments (rental_id, payment_type, amount, transaction_id, status)
+        VALUES ($1, 'SECURITY_DEPOSIT', $2, $3, 'PENDING')
       `, [bookingId, booking.deposit_amount, orderId]);
 
       await client.query('COMMIT');
@@ -258,7 +255,7 @@ class PaymentService {
 
       // Check if already paid to prevent duplicate processing
       const payCheck = await client.query(
-        "SELECT id FROM payments WHERE booking_id = $1 AND payment_type = 'SECURITY_DEPOSIT' AND status = 'PAID'",
+        "SELECT id FROM payments WHERE rental_id = $1 AND payment_type = 'SECURITY_DEPOSIT' AND status = 'PAID'",
         [bookingId]
       );
       if (payCheck.rows.length > 0) {
@@ -267,20 +264,18 @@ class PaymentService {
       }
 
       // Update deposit payment to PAID
-      await client.query(`
-        UPDATE payments SET
-          gateway_payment_id = $1,
-          gateway_signature = $2,
-          status = 'PAID'
-        WHERE booking_id = $3 AND payment_type = 'SECURITY_DEPOSIT' AND gateway_order_id = $4
-      `, [gatewayPaymentId, gatewaySignature || 'sim_sig', bookingId, gatewayOrderId]);
+      const paymentUpdate = await client.query(
+        "UPDATE payments SET transaction_id = $1, status = 'PAID' WHERE rental_id = $2 AND payment_type = 'SECURITY_DEPOSIT' AND transaction_id = $3 AND status = 'PENDING'",
+        [gatewayPaymentId, bookingId, gatewayOrderId],
+      );
+      if (!paymentUpdate.rowCount) throw new Error('Payment order not found or already processed.');
 
       // Check if both RENTAL and SECURITY_DEPOSIT payments are paid
       const rentalPaymentRes = await client.query(
-        "SELECT status FROM payments WHERE booking_id = $1 AND payment_type = 'RENTAL' AND status = 'PAID'",
+        "SELECT status FROM payments WHERE rental_id = $1 AND payment_type = 'RENTAL' AND status = 'PAID'",
         [bookingId]
       );
-      
+
       const isRentalPaid = rentalPaymentRes.rows.length > 0;
 
       // Generate secure QR hash (Step 7)
@@ -310,28 +305,7 @@ class PaymentService {
         `, [bookingId]);
       }
 
-      // Auto-create delivery request if delivery_fee > 0
-      if (parseFloat(booking.delivery_fee) > 0 && isRentalPaid) {
-        try {
-          // Fetch listing location for pickup
-          const listingRes = await client.query('SELECT location FROM listings WHERE id = $1', [booking.listing_id]);
-          const pickupLocation = listingRes.rows.length > 0 ? listingRes.rows[0].location : 'Campus';
-          
-          await createDeliveryRequest(client, {
-            rental_id: bookingId,
-            listing_id: booking.listing_id,
-            customer_id: booking.borrower_id,
-            seller_id: booking.owner_id,
-            pickup_location: pickupLocation,
-            drop_location: 'Campus',
-            delivery_fee: booking.delivery_fee,
-            distance: 1.0,
-            estimated_time: '10 mins'
-          });
-        } catch (delErr) {
-          console.error('[PaymentService] Failed to create delivery request:', delErr.message);
-        }
-      }
+      // The owner-acceptance flow creates and matches the outbound task.
 
       console.log(`[PaymentService] Security deposit verified for booking ${bookingId}. Status → QR_GENERATED (Item pickup enabled)`);
 
@@ -353,7 +327,7 @@ class PaymentService {
   /**
    * Refund security deposit (Step 8)
    */
-  async refundDeposit(bookingId, damageAmount, damageDescription, adminId) {
+  async refundDeposit(bookingId, damageAmount, damageDescription, _adminId) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -369,8 +343,8 @@ class PaymentService {
 
       // Find the paid security deposit
       const paymentRes = await client.query(
-        `SELECT id, gateway_payment_id FROM payments 
-         WHERE booking_id = $1 AND payment_type = 'SECURITY_DEPOSIT' AND status = 'PAID'`,
+        `SELECT id, transaction_id FROM payments
+         WHERE rental_id = $1 AND payment_type = 'SECURITY_DEPOSIT' AND status = 'PAID'`,
         [bookingId]
       );
 
@@ -382,9 +356,9 @@ class PaymentService {
       let gatewayRefundId = `sim_refund_${crypto.randomBytes(8).toString('hex')}`;
 
       // In real mode, call Razorpay refund API
-      if (!isSimulationMode() && !payment.gateway_payment_id.startsWith('sim_')) {
+      if (!isSimulationMode() && !String(payment.transaction_id || '').startsWith('sim_')) {
         try {
-          const refund = await razorpay.payments.refund(payment.gateway_payment_id, {
+          const refund = await razorpay.payments.refund(payment.transaction_id, {
             amount: Math.round(refundAmt * 100),
             notes: { booking_id: bookingId, refund_type: 'DEPOSIT_REFUND' }
           });
@@ -397,15 +371,15 @@ class PaymentService {
 
       // Record refund
       await client.query(`
-        INSERT INTO refunds (payment_id, rental_id, deposit_amount, damage_amount, refund_amount, refund_status, damage_description, approved_by, gateway_refund_id)
-        VALUES ($1, $2, $3, $4, $5, 'PROCESSED', $6, $7, $8)
-      `, [payment.id, bookingId, booking.deposit_amount, dmgAmt, refundAmt, damageDescription || null, adminId || null, gatewayRefundId]);
+        INSERT INTO refunds (payment_id, rental_id, deposit_amount, damage_amount, refund_amount, refund_status, damage_description)
+        VALUES ($1, $2, $3, $4, $5, 'PROCESSED', $6)
+      `, [payment.id, bookingId, booking.deposit_amount, dmgAmt, refundAmt, damageDescription || null]);
 
       // Update booking status
       await client.query(`
-        UPDATE rentals SET 
-          status = 'DEPOSIT_REFUNDED', 
-          deposit_status = 'REFUNDED', 
+        UPDATE rentals SET
+          status = 'DEPOSIT_REFUNDED',
+          deposit_status = 'REFUNDED',
           updated_at = NOW()
         WHERE id = $1
       `, [bookingId]);
@@ -434,7 +408,7 @@ class PaymentService {
     const result = await pool.query(`
       SELECT p.*, r.status as rental_status, l.title as listing_title
       FROM payments p
-      JOIN rentals r ON p.booking_id = r.id
+      JOIN rentals r ON p.rental_id = r.id
       LEFT JOIN listings l ON r.listing_id = l.id
       WHERE r.borrower_id = $1 OR r.owner_id = $1
       ORDER BY p.created_at DESC

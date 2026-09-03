@@ -45,12 +45,13 @@ async function matchDelivery(deliveryId, client = pool) {
         'PICKUP_VERIFIED','ORDER_COLLECTED','PICKED_UP','GOING_TO_DESTINATION','IN_TRANSIT',
         'ARRIVED_AT_DESTINATION','ARRIVED','RETURN_COURIER_ASSIGNED','RETURN_MATCHING','RETURN_PICKUP_VERIFIED','RETURN_IN_TRANSIT'
       ))
-      AND cra.courier_id NOT IN ($1, $2)`, [task.customer_id, task.seller_id]);
+      AND cra.courier_id <> $1 AND ($2 IS NULL OR cra.courier_id <> $2)`, [task.customer_id, task.seller_id]);
   const ranked = candidates.rows.map(candidate => {
     const scored = scoreCandidate({ ...candidate, origin: candidate.origin_node, destination: candidate.destination_node },
       { pickup: task.pickup_node, destination: task.destination_node }, candidate.courier_reliability_score);
     return scored && { ...candidate, ...scored };
   }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 3);
+  if (ranked.length) await client.query("UPDATE delivery_requests SET status = 'MATCHING_COURIER' WHERE id = $1 AND status IN ('AVAILABLE', 'NO_COURIER_AVAILABLE')", [deliveryId]);
   for (const candidate of ranked) {
     const { rows } = await client.query(`INSERT INTO delivery_offers (delivery_id, courier_id, match_score, score_breakdown, expires_at)
       VALUES ($1,$2,$3,$4,NOW() + INTERVAL '5 minutes') ON CONFLICT (delivery_id, courier_id)
@@ -58,7 +59,7 @@ async function matchDelivery(deliveryId, client = pool) {
       RETURNING *`, [deliveryId, candidate.courier_id, candidate.score, candidate.breakdown]);
     emitUser(candidate.courier_id, 'delivery:offer', { ...rows[0], delivery: task });
   }
-  if (!ranked.length) await client.query("UPDATE delivery_requests SET status = 'NO_COURIER_AVAILABLE' WHERE id = $1 AND status IN ('MATCHING_COURIER','RETURN_MATCHING')", [deliveryId]);
+  if (!ranked.length) await client.query("UPDATE delivery_requests SET status = 'NO_COURIER_AVAILABLE' WHERE id = $1 AND status IN ('MATCHING_COURIER','RETURN_MATCHING','AVAILABLE','NO_COURIER_AVAILABLE')", [deliveryId]);
   return ranked;
 }
 

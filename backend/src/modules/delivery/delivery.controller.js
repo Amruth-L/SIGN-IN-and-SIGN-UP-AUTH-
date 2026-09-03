@@ -2,6 +2,7 @@ const pool = require('../../config/database');
 const crypto = require('crypto');
 const { emitDelivery, emitUser } = require('../../shared/realtime');
 const { routeFor } = require('../campus/campus.service');
+const { matchDelivery } = require('./matching.service');
 
 /**
  * CampusMesh Delivery Controller
@@ -427,7 +428,7 @@ exports.createStandaloneOrder = async (req, res) => {
   const dropLabel = [drop.building_name, drop.floor_name, drop.room_name].filter(Boolean).join(' · ');
   const result = await pool.query(
     `INSERT INTO delivery_requests (customer_id, seller_id, pickup_location, drop_location, pickup_location_id, destination_location_id, order_type, item_description, special_instructions, distance, estimated_time, delivery_fee, courier_earning, status, delivery_otp, qr_token)
-    VALUES ($1,$1,$2,$3,$4,$5,'CAMPUS_ORDER',$6,$7,0.425,'6 min',$8,$9,'AVAILABLE',$10,$11) RETURNING *`,
+    VALUES ($1,$1,$2,$3,$4,$5,'CAMPUS_ORDER',$6,$7,0.425,'6 min',$8,$9,'MATCHING_COURIER',$10,$11) RETURNING *`,
     [
       req.user.id,
       pickupLabel,
@@ -442,6 +443,7 @@ exports.createStandaloneOrder = async (req, res) => {
       crypto.randomBytes(24).toString('hex'),
     ],
   );
+  await matchDelivery(result.rows[0].id);
   res.status(201).json(result.rows[0]);
 };
 
@@ -693,10 +695,10 @@ exports.getRentalDeliveryStatus = async (req, res) => {
     const result = await pool.query(
       `SELECT dr.*,
               u_courier.name as courier_name, u_courier.phone_number as courier_phone
-       FROM delivery_requests dr
+       FROM delivery_requests dr JOIN rentals r ON r.id = dr.rental_id
        LEFT JOIN users u_courier ON dr.courier_id = u_courier.id
        WHERE dr.rental_id = $1
-       ORDER BY dr.created_at DESC
+       ORDER BY CASE WHEN dr.id = r.outbound_delivery_id OR dr.id = r.return_delivery_id THEN 0 WHEN dr.status IN ('MATCHING_COURIER', 'COURIER_ASSIGNED', 'GOING_TO_PICKUP', 'IN_TRANSIT') THEN 1 ELSE 2 END, dr.created_at DESC
        LIMIT 1`,
       [rentalId],
     );

@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const isSimulationMode = () => {
   const key_id = process.env.RAZORPAY_KEY_ID;
   const key_secret = process.env.RAZORPAY_KEY_SECRET;
-  return !key_id || !key_secret || key_id === 'your_razorpay_key_id' || key_secret === 'your_key_secret';
+  return !key_id || !key_secret || String(key_id).includes('your_') || String(key_secret).includes('your_');
 };
 
 exports.createRentalOrder = async (req, res) => {
@@ -156,9 +156,9 @@ exports.createCheckoutOrder = async (req, res) => {
 
   try {
     // 1. Fetch active user's cart joined with listings details
-    let query = `SELECT c.*, l.rent_price, l.delivery_charge, l.deposit, l.owner_id 
-                 FROM cart c 
-                 JOIN listings l ON c.item_id = l.id 
+    let query = `SELECT c.*, l.rent_price, l.delivery_charge, l.deposit, l.owner_id, l.pickup_location_id
+                 FROM cart c
+                 JOIN listings l ON c.item_id = l.id
                  WHERE c.user_id = $1`;
     let queryParams = [userId];
 
@@ -230,6 +230,8 @@ exports.createCheckoutOrder = async (req, res) => {
           rental_days: item.days,
           rental_fee: subtotal,
           delivery_fee: delFee,
+          delivery_requested: Boolean(isDeliveryOpted),
+          drop_location_id: item.drop_location_id || null,
           platform_fee: distributedPlatformFee,
           booking_amount: subtotal + distributedPlatformFee + delFee,
           deposit_amount: parseFloat(item.deposit || 0)
@@ -279,7 +281,7 @@ exports.verifyCheckout = async (req, res) => {
     await client.query('BEGIN');
 
     // 1. Fetch pending order
-    const pendingRes = await client.query('SELECT * FROM pending_orders WHERE id = $1', [gateway_order_id]);
+    const pendingRes = await client.query('SELECT * FROM pending_orders WHERE id = $1 AND user_id = $2', [gateway_order_id, userId]);
     if (pendingRes.rows.length === 0) {
       throw new Error('Pending order not found for this transaction.');
     }
@@ -302,8 +304,8 @@ exports.verifyCheckout = async (req, res) => {
            listing_id, borrower_id, owner_id, start_date, end_date,
            rental_days, rental_fee, delivery_fee, platform_fee, booking_amount,
            deposit_amount, status, booking_status, deposit_status, payment_status,
-           qr_code_hash, qr_generated_at, delivery_requested
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'OWNER_PENDING', 'CONFIRMED', 'PENDING', 'PAID', $12, NOW(), $13)
+           qr_code_hash, qr_generated_at, delivery_requested, drop_location_id
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'OWNER_PENDING', 'CONFIRMED', 'PENDING', 'PAID', $12, NOW(), $13, $14)
          RETURNING id`,
         [
           item.listing_id,
@@ -318,7 +320,7 @@ exports.verifyCheckout = async (req, res) => {
           item.booking_amount,
           item.deposit_amount,
           qrCodeHash,
-          parseFloat(item.delivery_fee) > 0
+          Boolean(item.delivery_requested || parseFloat(item.delivery_fee) > 0), item.drop_location_id || null
         ]
       );
 
@@ -328,7 +330,7 @@ exports.verifyCheckout = async (req, res) => {
       // Insert into payments history table
       await client.query(
         `INSERT INTO payments (rental_id, amount, status, transaction_id)
-         VALUES ($1, $2, 'SUCCESS', $3)`,
+         VALUES ($1, $2, 'PAID', $3)`,
         [rentalId, item.booking_amount, gateway_payment_id]
       );
 
@@ -351,7 +353,7 @@ exports.verifyCheckout = async (req, res) => {
     }
 
     // 3. Clear pending order cache
-    await client.query('DELETE FROM pending_orders WHERE id = $1', [gateway_order_id]);
+    await client.query('DELETE FROM pending_orders WHERE id = $1 AND user_id = $2', [gateway_order_id, userId]);
 
     await client.query('COMMIT');
 
@@ -369,3 +371,57 @@ exports.verifyCheckout = async (req, res) => {
   }
 };
 
+
+
+exports.createXeroxOrder = async (req, res) => {
+  const body = req.body || {};
+  const pages = Number(body.page_count);
+  const copyCount = Number(body.copies);
+  const dropLocationId = String(body.drop_location_id || "");
+  const documentHash = String(body.document_hash || "");
+  const filename = String(body.filename || "document.pdf").slice(0, 180);
+  if (!Number.isInteger(pages) || pages < 1 || pages > 10000 || !Number.isInteger(copyCount) || copyCount < 1 || copyCount > 20 || !dropLocationId || !documentHash) {
+    return res.status(400).json({ error: "Valid page count, copies, drop location, and document hash are required." });
+  }
+  const location = await pool.query("SELECT id FROM campus_locations WHERE id = $1", [dropLocationId]);
+  if (!location.rowCount) return res.status(400).json({ error: "Choose a valid campus delivery location." });
+  const amount = pages * copyCount * 3;
+  let orderId;
+  let simulated = false;
+  try {
+    if (isSimulationMode()) {
+      orderId = "sim_order_" + crypto.randomBytes(8).toString("hex");
+      simulated = true;
+    } else {
+      const order = await razorpay.orders.create({
+        amount: Math.round(amount * 100),
+        currency: "INR",
+        receipt: "xerox_" + crypto.randomBytes(4).toString("hex"),
+        notes: { user_id: req.user.id, payment_type: "XEROX" },
+      });
+      orderId = order.id;
+    }
+    const bookingData = { type: "XEROX", page_count: pages, copies: copyCount, drop_location_id: dropLocationId, document_hash: documentHash, filename, total_amount: amount, verified: false };
+    await pool.query("INSERT INTO pending_orders (id, user_id, booking_data) VALUES ($1, $2, $3)", [orderId, req.user.id, JSON.stringify(bookingData)]);
+    return res.status(201).json({ order_id: orderId, amount, currency: "INR", razorpay_key: process.env.RAZORPAY_KEY_ID || "SIMULATION_MODE", simulated });
+  } catch (error) {
+    console.error("[PaymentController] createXeroxOrder error:", error.message);
+    return res.status(500).json({ error: "Could not initialize Xerox payment." });
+  }
+};
+
+exports.verifyXerox = async (req, res) => {
+  const { gateway_order_id, gateway_payment_id } = req.body || {};
+  if (!gateway_order_id || !gateway_payment_id) return res.status(400).json({ error: "gateway_order_id and gateway_payment_id are required." });
+  try {
+    const pendingRes = await pool.query("SELECT * FROM pending_orders WHERE id = $1 AND user_id = $2", [gateway_order_id, req.user.id]);
+    const pending = pendingRes.rows[0];
+    if (!pending || pending.booking_data?.type !== "XEROX") return res.status(404).json({ error: "Xerox payment order not found." });
+    if (pending.booking_data.verified) return res.json({ success: true, order_id: gateway_order_id });
+    await pool.query("UPDATE pending_orders SET booking_data = booking_data || $1::jsonb WHERE id = $2 AND user_id = $3", [JSON.stringify({ verified: true, payment_id: gateway_payment_id }), gateway_order_id, req.user.id]);
+    return res.json({ success: true, order_id: gateway_order_id });
+  } catch (error) {
+    console.error("[PaymentController] verifyXerox error:", error.message);
+    return res.status(500).json({ error: "Could not verify Xerox payment." });
+  }
+};
