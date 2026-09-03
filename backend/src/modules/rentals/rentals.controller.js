@@ -103,6 +103,11 @@ exports.bookRental = async (req, res) => {
     );
 
     const rental = rentalRes.rows[0];
+    await pool.query(
+      `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+       VALUES ($1, 'BOOKING_CREATED', $2, $3)`,
+      [rental.id, borrower_id, { deliveryRequested: Boolean(delivery_requested) }],
+    );
 
     console.log(`[RentalController] Rental created: ${rental.id} for listing ${listing_id}`);
 
@@ -177,6 +182,11 @@ exports.respondToBooking = async (req, res) => {
            AND status='PENDING'`,
         [rental_id],
       );
+      await client.query(
+        `INSERT INTO transaction_events (rental_id, event_type, actor_user_id)
+         VALUES ($1, 'OWNER_REJECTED', $2)`,
+        [rental_id, owner_id],
+      );
       await client.query('COMMIT');
       const event = { rental_id, owner_id: rental.owner_id, renter_id: rental.borrower_id, status: 'CANCELLED' };
       emitUser(rental.borrower_id, 'rental:status', event);
@@ -198,6 +208,11 @@ exports.respondToBooking = async (req, res) => {
     );
 
     const delivery = await ensureOutboundDelivery(client, rental_id, 'WAITING_FOR_DEPOSIT');
+    await client.query(
+      `INSERT INTO transaction_events (rental_id, delivery_id, event_type, actor_user_id, metadata)
+       VALUES ($1, $2, 'OWNER_ACCEPTED', $3, $4)`,
+      [rental_id, delivery?.id || null, owner_id, { deliveryRequested: Boolean(rental.delivery_requested) }],
+    );
     await client.query('COMMIT');
 
     const event = {

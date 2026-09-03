@@ -400,6 +400,90 @@ function SavedTab({ items, onRemove, onRent }) {
   );
 }
 
+
+function HistoryTab({ api }) {
+  const [role, setRole] = useState("ALL");
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: "20" });
+      if (role !== "ALL") {
+        if (role === "COMPLETED") params.set("status", "COMPLETED");
+        else params.set("role", role);
+      }
+      const response = await api.get(`/api/activity/history?${params.toString()}`);
+      setRecords(response.data?.records || []);
+      setError("");
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || "Could not load your activity history.");
+    } finally {
+      setLoading(false);
+    }
+  }, [api, role]);
+  useEffect(() => { load(); }, [load]);
+
+  const amountFor = (record) => {
+    if (record.role === "OWNER") return ["Income", record.amounts.ownerEarning];
+    if (record.role === "COURIER") return ["Payout", record.amounts.courierPayout];
+    return ["Paid", record.amounts.renterPaid];
+  };
+  return (
+    <div>
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Activity ledger</span>
+          <h2 className="mt-1 font-display text-3xl font-semibold">Your rental history</h2>
+          <p className="mt-1 text-sm text-ink/50">One timeline for things you rented, listed, or delivered.</p>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-ink/45"><span className="size-2 rounded-full bg-mesh-500" /> Live from CampusMesh</div>
+      </div>
+      <div className="mb-5 flex flex-wrap gap-2">
+        {["ALL", "RENTER", "OWNER", "COURIER", "COMPLETED"].map((filter) => (
+          <button key={filter} onClick={() => setRole(filter)} className={`rounded-full px-3.5 py-2 text-xs font-extrabold ${role === filter ? "bg-ink text-white" : "border border-ink/10 bg-white text-ink/55 hover:bg-mesh-50"}`}>
+            {filter === "ALL" ? "All" : filter[0] + filter.slice(1).toLowerCase()}
+          </button>
+        ))}
+      </div>
+      {error && <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700"><AlertCircle size={15} /> {error}</div>}
+      {loading ? (
+        <div className="grid gap-3"><div className="h-40 animate-pulse rounded-3xl bg-ink/5" /><div className="h-40 animate-pulse rounded-3xl bg-ink/5" /></div>
+      ) : records.length === 0 ? (
+        <Empty icon={History} title="No activity in this view" copy="Completed rentals and delivery milestones will be kept here automatically." />
+      ) : (
+        <div className="space-y-4">
+          {records.map((record) => {
+            const [amountLabel, amount] = amountFor(record);
+            return (
+              <article key={record.id} className="overflow-hidden rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)]">
+                <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start">
+                  <img src={record.item.image || listingFallback} alt="" className="size-16 shrink-0 rounded-xl object-cover" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-extrabold">{record.item.title}</h3>
+                      <span className="rounded-full bg-mesh-50 px-2.5 py-1 text-[10px] font-extrabold uppercase text-mesh-700">{record.role}</span>
+                      <span className="rounded-full bg-paper px-2.5 py-1 text-[10px] font-extrabold text-ink/55">{friendlyStatus(record.status)}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-ink/50">Owner: {record.participants.owner.name} · Renter: {record.participants.renter.name}{record.participants.courier ? ` · Courier: ${record.participants.courier.name}` : ""}</p>
+                    <div className="mt-3 grid gap-2 text-xs text-ink/55 sm:grid-cols-3">
+                      <span><b className="text-ink/75">{amountLabel}:</b> ₹{Number(amount || 0).toLocaleString("en-IN")}</span>
+                      <span><b className="text-ink/75">Deposit:</b> ₹{Number(record.amounts.depositAmount || 0).toLocaleString("en-IN")}</span>
+                      <span><b className="text-ink/75">Updated:</b> {formatDate(record.completed_at || record.created_at)}</span>
+                    </div>
+                  </div>
+                </div>
+                {record.events?.length > 0 && <div className="border-t border-ink/10 bg-paper/45 px-5 py-4"><p className="mb-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-mesh-600">Timeline</p><div className="grid gap-2 sm:grid-cols-2">{record.events.map((event) => <div key={event.id} className="flex items-center gap-2 text-xs text-ink/60"><span className="size-2 shrink-0 rounded-full bg-mesh-500" /><span className="font-bold text-ink/75">{event.label}</span><span className="truncate">· {formatDate(event.at)}</span></div>)}</div></div>}
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SettingsTab({ user, save }) {
   const [form, setForm] = useState({
     name: user?.name || "",
@@ -516,7 +600,7 @@ export default function AccountPage() {
       setOwnerLoading(false);
     }
   }, [api]);
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     const [rentals, listings, saved] = await Promise.allSettled([
       api.get("/api/rentals/my-rentals"),
@@ -529,11 +613,11 @@ export default function AccountPage() {
       saved: saved.status === "fulfilled" ? saved.value.data : current.saved,
     }));
     setLoading(false);
-  };
+  }, [api]);
   useEffect(() => {
     load();
     loadOwnerRequests();
-  }, [api, loadOwnerRequests]);
+  }, [load, loadOwnerRequests]);
   useEffect(() => {
     const socket = io(API_BASE_URL, { auth: { token: localStorage.getItem("token") }, reconnectionAttempts: 5 });
     socket.on("connect", () => setOwnerConnection("live"));
@@ -547,7 +631,7 @@ export default function AccountPage() {
     const interval = setInterval(loadOwnerRequests, ownerSummary.pending > 0 || ownerConnection !== "live" ? 5000 : 15000);
     return () => clearInterval(interval);
   }, [loadOwnerRequests, ownerSummary.pending, ownerConnection]);
-  const respondToRequest = async (rentalId, response) => {
+  const respondToRequest = useCallback(async (rentalId, response) => {
     setResponding((current) => ({ ...current, [rentalId]: response }));
     try {
       await api.post("/api/rentals/respond", { rental_id: rentalId, response });
@@ -558,35 +642,35 @@ export default function AccountPage() {
     } finally {
       setResponding((current) => ({ ...current, [rentalId]: null }));
     }
-  };
-  const focusRequests = (listingId = "") => {
+  }, [api, loadOwnerRequests]);
+  const focusRequests = useCallback((listingId = "") => {
     setSelectedListingId(listingId);
     navigate("/account/listings");
     window.setTimeout(() => document.getElementById("incoming-rental-requests")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
-  };
-  const removeSaved = async (id) => {
+  }, [navigate]);
+  const removeSaved = useCallback(async (id) => {
     await api.delete(`/api/wishlist/${id}`);
     setData((old) => ({
       ...old,
       saved: old.saved.filter((item) => item.id !== id),
     }));
-  };
-  const deleteListing = async (id) => {
+  }, [api]);
+  const deleteListing = useCallback(async (id) => {
     if (!window.confirm("Delete this listing?")) return;
     await api.delete(`/listings/${id}`);
     setData((old) => ({
       ...old,
       listings: old.listings.filter((item) => item.id !== id),
     }));
-  };
-  const toggleListing = async (item) => {
+  }, [api]);
+  const toggleListing = useCallback(async (item) => {
     const updated = { ...item, is_active: item.is_active === false };
     await api.put(`/listings/${item.id}`, { is_active: updated.is_active });
     setData((old) => ({
       ...old,
       listings: old.listings.map((row) => (row.id === item.id ? updated : row)),
     }));
-  };
+  }, [api]);
   const content = useMemo(
     () =>
       ({
@@ -612,9 +696,7 @@ export default function AccountPage() {
             />
           </>
         ),
-        history: (
-          <Empty icon={History} title="History is being prepared" copy="Your completed rentals, owner earnings, courier payouts, and delivery events will appear here." />
-        ),
+        history: <HistoryTab api={api} />,
         saved: (
           <SavedTab
             items={data.saved}
@@ -624,7 +706,7 @@ export default function AccountPage() {
         ),
         settings: <SettingsTab user={user} save={updateProfile} />,
       })[active],
-    [active, data, user, ownerRequests, ownerSummary, ownerLoading, ownerConnection, ownerError, responding, selectedListingId],
+    [active, data, user, ownerRequests, ownerSummary, ownerLoading, ownerConnection, ownerError, responding, selectedListingId, api, respondToRequest, focusRequests, removeSaved, deleteListing, toggleListing, navigate, updateProfile],
   );
   return (
     <main className="min-h-screen bg-paper">

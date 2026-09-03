@@ -2,6 +2,7 @@ const cors = require('cors');
 const pool = require('./config/database');
 const express = require('express');
 const authRoutes = require('./modules/auth/auth.routes');
+const activityRoutes = require('./modules/activity/activity.routes');
 const campusRoutes = require('./modules/campus/campus.routes');
 const cartRoutes = require('./modules/cart/cart.routes');
 const courierRoutes = require('./modules/delivery/courier.routes');
@@ -34,6 +35,7 @@ app.get('/health', async (req, res) => {
 app.use('/', authRoutes);
 app.use('/listings', listingRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/activity', activityRoutes);
 app.use('/api/rentals', rentalRoutes);
 app.use('/api/payment', paymentRoutes);
 app.use('/api/cart', cartRoutes);

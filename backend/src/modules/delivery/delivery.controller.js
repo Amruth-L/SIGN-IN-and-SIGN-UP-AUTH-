@@ -347,28 +347,48 @@ const normalizeStatus = (status) =>
 exports.updateStatus = async (req, res) => {
   const { id } = req.params;
   const next = String(req.body.status || '').toUpperCase();
-  const { rows } = await pool.query('SELECT * FROM delivery_requests WHERE id = $1 AND courier_id = $2', [
-    id,
-    req.user.id,
-  ]);
-  const delivery = rows[0];
-  if (!delivery) return res.status(404).json({ error: 'Delivery not found.' });
-  const current = normalizeStatus(delivery.status);
-  if (!TRANSITIONS[current]?.includes(next))
-    return res.status(400).json({ error: `Cannot move from ${current} to ${next}.` });
-  const timestamp =
-    next === 'ARRIVED_AT_PICKUP'
-      ? ', arrived_pickup_at = NOW()'
-      : next === 'ARRIVED_AT_DESTINATION'
-        ? ', arrived_destination_at = NOW()'
-        : next === 'COMPLETED'
-          ? ', completed_at = NOW()'
-          : '';
-  await pool.query(`UPDATE delivery_requests SET status = $1, updated_at = NOW()${timestamp} WHERE id = $2`, [
-    next,
-    id,
-  ]);
-  const payload = { id, delivery_id: id, status: next, courier_id: req.user.id };
+  const client = await pool.connect();
+  let delivery;
+  let current;
+  try {
+    await client.query('BEGIN');
+    const result = await client.query('SELECT * FROM delivery_requests WHERE id = $1 AND courier_id = $2 FOR UPDATE', [id, req.user.id]);
+    delivery = result.rows[0];
+    if (!delivery) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Delivery not found.' });
+    }
+    current = normalizeStatus(delivery.status);
+    if (!TRANSITIONS[current]?.includes(next)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Cannot move from ${current} to ${next}.` });
+    }
+    const timestamp =
+      next === 'ARRIVED_AT_PICKUP'
+        ? ', arrived_pickup_at = NOW()'
+        : next === 'ARRIVED_AT_DESTINATION'
+          ? ', arrived_destination_at = NOW()'
+          : next === 'COMPLETED'
+            ? ', completed_at = NOW()'
+            : '';
+    await client.query(`UPDATE delivery_requests SET status = $1, updated_at = NOW()${timestamp} WHERE id = $2`, [next, id]);
+    if (delivery.rental_id) {
+      await client.query(
+        `INSERT INTO transaction_events (rental_id, delivery_id, xerox_request_id, event_type, actor_user_id, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [delivery.rental_id, id, delivery.xerox_request_id, `DELIVERY_${next}`, req.user.id, { from: current, to: next }],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    console.error('[DeliveryController] updateStatus error:', error.message);
+    return res.status(error.status || 500).json({ error: error.message || 'Could not update delivery status.' });
+  } finally {
+    client.release();
+  }
+
+  const payload = { id, delivery_id: id, rental_id: delivery.rental_id, status: next, courier_id: req.user.id };
   emitDelivery(id, 'delivery:status', payload);
   emitUser(req.user.id, 'delivery:status', payload);
   emitUser(delivery.customer_id, 'delivery:status', payload);

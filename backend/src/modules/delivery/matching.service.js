@@ -59,7 +59,16 @@ async function matchDelivery(deliveryId, client = pool) {
       { pickup: task.pickup_node, destination: task.destination_node }, candidate.courier_reliability_score);
     return scored && { ...candidate, ...scored };
   }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 3);
-  if (ranked.length) await client.query("UPDATE delivery_requests SET status = 'MATCHING_COURIER' WHERE id = $1 AND status IN ('AVAILABLE', 'NO_COURIER_AVAILABLE')", [deliveryId]);
+  if (ranked.length) {
+    const movedToMatching = await client.query("UPDATE delivery_requests SET status = 'MATCHING_COURIER', updated_at=NOW() WHERE id = $1 AND status IN ('AVAILABLE', 'NO_COURIER_AVAILABLE')", [deliveryId]);
+    if (movedToMatching.rowCount && task.rental_id) {
+      await client.query(
+        `INSERT INTO transaction_events (rental_id, delivery_id, event_type, metadata)
+         VALUES ($1, $2, 'COURIER_MATCHING', $3)`,
+        [task.rental_id, deliveryId, { offerCount: ranked.length }],
+      );
+    }
+  }
   for (const candidate of ranked) {
     const { rows } = await client.query(`INSERT INTO delivery_offers (delivery_id, courier_id, match_score, score_breakdown, expires_at)
       VALUES ($1,$2,$3,$4,NOW() + INTERVAL '5 minutes') ON CONFLICT (delivery_id, courier_id)
@@ -71,7 +80,14 @@ async function matchDelivery(deliveryId, client = pool) {
     if (rows[0]?.status === 'PENDING') emitUser(candidate.courier_id, 'delivery:offer', { ...rows[0], delivery: safeTask });
   }
   if (!ranked.length && task.status !== 'RETURN_MATCHING') {
-    await client.query("UPDATE delivery_requests SET status = 'NO_COURIER_AVAILABLE' WHERE id = $1 AND status IN ('MATCHING_COURIER','AVAILABLE','NO_COURIER_AVAILABLE')", [deliveryId]);
+    const noCourier = await client.query("UPDATE delivery_requests SET status = 'NO_COURIER_AVAILABLE', updated_at=NOW() WHERE id = $1 AND status IN ('MATCHING_COURIER','AVAILABLE')", [deliveryId]);
+    if (noCourier.rowCount && task.rental_id) {
+      await client.query(
+        `INSERT INTO transaction_events (rental_id, delivery_id, event_type)
+         VALUES ($1, $2, 'NO_COURIER_AVAILABLE')`,
+        [task.rental_id, deliveryId],
+      );
+    }
   }
   return ranked;
 }

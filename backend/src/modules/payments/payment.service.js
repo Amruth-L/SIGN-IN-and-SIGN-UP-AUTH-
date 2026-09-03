@@ -136,6 +136,11 @@ class PaymentService {
       `, [bookingId]);
 
       console.log(`[PaymentService] Rental verified for booking ${bookingId}. Status → RENTAL_PAYMENT_COMPLETED`);
+      await client.query(
+        `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+         VALUES ($1, 'RENTAL_PAYMENT_COMPLETED', $2, $3)`,
+        [bookingId, userId, { amount: Number(booking.booking_amount || 0) }],
+      );
 
       await client.query('COMMIT');
 
@@ -206,6 +211,11 @@ class PaymentService {
           WHERE delivery_id IN (SELECT id FROM delivery_requests WHERE rental_id=$1)
             AND status='PENDING'
         `, [bookingId]);
+        await client.query(
+          `INSERT INTO transaction_events (rental_id, event_type, actor_user_id)
+           VALUES ($1, 'DEPOSIT_TIMEOUT', $2)`,
+          [bookingId, userId],
+        );
         await client.query('COMMIT');
         throw Object.assign(new Error('Deposit deadline expired. Booking has been cancelled.'), { status: 409 });
       }
@@ -316,6 +326,11 @@ class PaymentService {
           [bookingId],
         );
       }
+      await client.query(
+        `INSERT INTO transaction_events (rental_id, delivery_id, event_type, actor_user_id, metadata)
+         VALUES ($1, $2, 'DEPOSIT_PAID', $3, $4)`,
+        [bookingId, deliveryId, userId, { delivery: isDelivery }],
+      );
 
       await client.query('COMMIT');
 
@@ -414,6 +429,11 @@ class PaymentService {
           updated_at = NOW()
         WHERE id = $1
       `, [bookingId]);
+      await client.query(
+        `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+         VALUES ($1, 'DEPOSIT_REFUNDED', $2, $3)`,
+        [bookingId, _adminId, { refundAmount: refundAmt, damageAmount: dmgAmt }],
+      );
 
       console.log(`[PaymentService] Deposit refund processed for booking ${bookingId}. Refunded: ₹${refundAmt}`);
 
