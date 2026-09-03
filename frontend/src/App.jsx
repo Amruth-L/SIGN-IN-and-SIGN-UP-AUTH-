@@ -199,7 +199,7 @@ export default function App() {
           }
         />
         <Route
-          path="/"
+          path="/payment-success"
           element={
             <Protected>
               <PaymentSuccess />
@@ -207,7 +207,7 @@ export default function App() {
           }
         />
         <Route
-          path="/"
+          path="/payment-failed"
           element={
             <Protected>
               <PaymentFailed />

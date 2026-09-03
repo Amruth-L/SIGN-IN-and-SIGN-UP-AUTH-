@@ -13,7 +13,7 @@ import {
   Trash2,
   UserRound,
 } from "lucide-react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { listingFallback } from "../../lib/assets";
 
@@ -25,7 +25,9 @@ const tabs = [
 ];
 const statusStyle = (status) =>
   ({
+    BOOKING_PAYMENT_PENDING: "bg-amber-50 text-amber-700",
     BOOKING_REQUESTED: "bg-blue-50 text-blue-700",
+    RENTAL_PAYMENT_COMPLETED: "bg-blue-50 text-blue-700",
     OWNER_PENDING: "bg-amber-50 text-amber-700",
     DEPOSIT_PENDING: "bg-amber-50 text-amber-700",
     ACTIVE: "bg-mesh-50 text-mesh-700",
@@ -115,6 +117,9 @@ function RentalsTab({ rentals }) {
                     {rental.end_date?.slice(0, 10)} · Owner:{" "}
                     {rental.owner_name || "Verified student"}
                   </p>
+                  <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase ${["PAID", "RENTAL_PAID", "FULLY_PAID"].includes(String(rental.payment_status || "").toUpperCase()) ? "bg-mesh-50 text-mesh-700" : "bg-amber-50 text-amber-700"}`}>
+                    {["PAID", "RENTAL_PAID", "FULLY_PAID"].includes(String(rental.payment_status || "").toUpperCase()) ? "Payment received" : "Payment pending"}
+                  </span>
                   <div className="mt-4 flex items-center gap-1.5 text-xs font-bold text-ink/55">
                     <span className="size-2 rounded-full bg-mesh-500" />
                     Request <span className="h-px w-8 bg-ink/15" />
@@ -361,9 +366,11 @@ function SettingsTab({ user, save }) {
 
 export default function AccountPage() {
   const { tab = "rentals" } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const { user, api, updateProfile } = useAuth();
   const active = tabs.some(([id]) => id === tab) ? tab : "rentals";
+  const paymentConfirmation = location.state?.paymentConfirmation;
   const [data, setData] = useState({ rentals: [], listings: [], saved: [] });
   const [loading, setLoading] = useState(true);
   const load = async () => {
@@ -437,6 +444,20 @@ export default function AccountPage() {
             Your CampusMesh.
           </h1>
         </div>
+        {paymentConfirmation && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 flex items-start gap-3 rounded-2xl border border-mesh-200 bg-mesh-50 p-4 text-sm"
+            role="status"
+          >
+            <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-mesh-600 text-white"><Check size={17} /></span>
+            <div>
+              <p className="font-extrabold text-mesh-800">Payment received</p>
+              <p className="mt-1 text-mesh-700">{paymentConfirmation.message || "Your rental request is now visible below."}</p>
+            </div>
+          </motion.div>
+        )}
         <div className="grid items-start gap-6 lg:grid-cols-[220px_1fr]">
           <aside className="rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] p-2">
             <nav className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-1">

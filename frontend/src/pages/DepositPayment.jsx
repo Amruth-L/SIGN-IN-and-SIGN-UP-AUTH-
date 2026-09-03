@@ -108,15 +108,9 @@ export default function DepositPayment() {
               localStorage.setItem(`mock_status_${id}`, 'QR_GENERATED');
             }
 
-            navigate('/', {
-              state: {
-                message: 'Security deposit text-mesh-700 successfully! Secure Handover QR Code has been generated.',
-                actionText: 'Get Pickup QR Code',
-                nextPath: `/rent-details/${id}`
-              }
-            });
+            navigate(`/rent-details/${id}`, { state: { justBooked: true } });
           } catch (vErr) {
-            navigate('/', {
+            navigate('/payment-failed', {
               state: { error: vErr.message, retryPath: `/deposit-payment/${id}` }
             });
           }
@@ -134,7 +128,7 @@ export default function DepositPayment() {
     } catch (err) {
       setError(err.message);
       setPaying(false);
-      navigate('/', {
+      navigate('/payment-failed', {
         state: { error: err.message, retryPath: `/deposit-payment/${id}` }
       });
     }

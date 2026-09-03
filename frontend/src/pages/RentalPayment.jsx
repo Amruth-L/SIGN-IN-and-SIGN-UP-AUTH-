@@ -87,15 +87,9 @@ export default function RentalPayment() {
             const verifyData = await verifyRes.json();
             if (!verifyRes.ok) throw new Error(verifyData.error || 'Signature verification failed.');
 
-            navigate('/', {
-              state: {
-                message: 'Rental charges text-mesh-700 successfully! Booking request submitted to owner.',
-                actionText: 'Track Rental Status',
-                nextPath: `/rent-details/${id}`
-              }
-            });
+            navigate(`/rent-details/${id}`, { state: { justBooked: true } });
           } catch (vErr) {
-            navigate('/', {
+            navigate('/payment-failed', {
               state: { error: vErr.message, retryPath: `/rental-payment/${id}` }
             });
           }
@@ -113,7 +107,7 @@ export default function RentalPayment() {
     } catch (err) {
       setError(err.message);
       setPaying(false);
-      navigate('/', {
+      navigate('/payment-failed', {
         state: { error: err.message, retryPath: `/rental-payment/${id}` }
       });
     }

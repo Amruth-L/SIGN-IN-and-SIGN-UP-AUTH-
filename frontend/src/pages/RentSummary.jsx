@@ -238,13 +238,7 @@ export default function RentSummary() {
           try {
             if (isMock) {
               console.log('[Frontend Debug] Mock item detected, navigating directly to success page');
-              navigate('/', {
-                state: {
-                  message: 'Rental charges text-mesh-700 successfully! Booking request submitted to owner.',
-                  actionText: 'Track Rental Status',
-                  nextPath: `/rent-details/${rentalId}`
-                }
-              });
+              navigate(`/rent-details/${rentalId}`, { state: { justBooked: true } });
               return;
             }
 
@@ -266,16 +260,10 @@ export default function RentSummary() {
             console.log('[Frontend Debug] Verification response:', verifyData);
             if (!verifyRes.ok) throw new Error(verifyData.error || 'Signature verification failed.');
             
-            navigate('/', {
-              state: {
-                message: 'Rental charges text-mesh-700 successfully! Booking request submitted to owner.',
-                actionText: 'Track Rental Status',
-                nextPath: `/rent-details/${rentalId}`
-              }
-            });
+            navigate(`/rent-details/${rentalId}`, { state: { justBooked: true } });
           } catch (vErr) {
             console.error('[Frontend Debug] Verification failed:', vErr);
-            navigate('/', {
+            navigate('/payment-failed', {
               state: { error: vErr.message, retryPath: `/rent-summary/${id}` }
             });
           }
