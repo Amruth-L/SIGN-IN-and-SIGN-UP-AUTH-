@@ -9,6 +9,7 @@ import ActiveTask from "./components/ActiveTask";
 import CampusRouteMap from "./components/CampusRouteMap";
 import OffersPanel from "./components/OffersPanel";
 import RouteSetup from "./components/RouteSetup";
+import CompletedDeliveries from "./components/CompletedDeliveries";
 
 const API = API_BASE_URL;
 const listFrom = (result, key) => {
@@ -186,6 +187,10 @@ export default function DeliveryPage() {
           <div className="space-y-4"><CampusRouteMap campus={campus} route={route} position={position} pickup={pickup} destination={destination} />{route?.instructions?.[0] && <div className="flex items-center justify-between gap-4 rounded-2xl bg-ink px-4 py-3 text-xs text-white"><span>{route.instructions[0]}</span><b className="shrink-0 text-mesh-200">{route.distanceMeters} m · {route.etaMinutes} min</b></div>}<ActiveTask task={active} route={route} verify={verify} setVerify={setVerify} onVerify={confirm} onAdvance={advance} onCheckpoint={checkpoint} onScan={() => setScanner(true)} /></div>
           <OffersPanel className="order-first lg:order-last" offers={offers} onAccept={accept} onDecline={decline} online={online} reason={availability.reason} connection={connection} busyId={busyId} />
         </div>
+      </div>
+
+      <div className="mx-auto w-full max-w-[1240px] px-5 sm:px-7 lg:px-10">
+        <CompletedDeliveries deliveries={tasks} />
       </div>
     </main>
   );

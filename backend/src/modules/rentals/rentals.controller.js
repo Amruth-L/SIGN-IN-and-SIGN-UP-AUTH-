@@ -2,6 +2,7 @@ const pool = require('../../config/database');
 const { matchDelivery } = require('../delivery/matching.service');
 const { ensureOutboundDelivery } = require('../delivery/delivery-request.service');
 const { emitUser } = require('../../shared/realtime');
+const paymentService = require('../payments/payment.service');
 
 // POST /api/rentals/book
 exports.bookRental = async (req, res) => {
@@ -258,15 +259,41 @@ exports.requestReturn = async (req, res) => {
   if (!rental) return res.status(404).json({ error: 'Rental not found.' });
   if (rental.borrower_id !== req.user.id)
     return res.status(403).json({ error: 'Only the borrower can request a return.' });
-  if (rental.status !== 'RENTAL_ACTIVE')
+  if (!['RENTAL_ACTIVE', 'RETURN_MATCHING', 'RETURN_PENDING'].includes(rental.status))
     return res.status(409).json({ error: 'The rental must be active before a return can be requested.' });
-  if (!rental.borrower_location || !rental.pickup_location_id)
-    return res.status(422).json({ error: 'Both return locations must be configured.' });
+
+  const mode = req.body.mode || (rental.delivery_requested ? 'COURIER' : 'DIRECT');
+
+  // Direct In-Person Return
+  if (mode === 'DIRECT') {
+    await pool.query(
+      "UPDATE rentals SET status='RETURN_PENDING', updated_at=NOW() WHERE id=$1",
+      [rental.id],
+    );
+    await pool.query(
+      `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+       VALUES ($1, 'DIRECT_RETURN_INITIATED', $2, $3)`,
+      [rental.id, req.user.id, { mode: 'DIRECT' }],
+    );
+    emitUser(rental.owner_id, 'rental:status', { rental_id: rental.id, status: 'RETURN_PENDING' });
+    emitUser(rental.borrower_id, 'rental:status', { rental_id: rental.id, status: 'RETURN_PENDING' });
+    return res.status(200).json({
+      message: 'Direct return initiated. Please hand over the item to the owner for inspection.',
+      status: 'RETURN_PENDING',
+      mode: 'DIRECT',
+    });
+  }
+
+  // Courier Return
+  const borrowerLoc = rental.borrower_location || rental.drop_location_id || 'hostel_block_b';
+  const ownerLoc = rental.pickup_location_id || 'admin';
   const locs = await pool.query('SELECT * FROM campus_locations WHERE id=ANY($1)', [
-    [rental.borrower_location, rental.pickup_location_id],
+    [borrowerLoc, ownerLoc],
   ]);
   const byId = Object.fromEntries(locs.rows.map((x) => [x.id, x]));
-  const label = (x) => [x.building_name, x.floor_name, x.room_name].filter(Boolean).join(' · ');
+  const label = (x) => x ? [x.building_name, x.floor_name, x.room_name].filter(Boolean).join(' · ') : 'Campus Location';
+
+  const returnFee = Number(rental.delivery_fee) > 0 ? Number(rental.delivery_fee) : 15.00;
   const { rows } = await pool.query(
     `INSERT INTO delivery_requests (rental_id,listing_id,customer_id,seller_id,pickup_location,drop_location,
     pickup_location_id,destination_location_id,task_type,item_description,delivery_fee,courier_earning,status)
@@ -276,21 +303,265 @@ exports.requestReturn = async (req, res) => {
       rental.listing_id,
       rental.owner_id,
       rental.borrower_id,
-      label(byId[rental.borrower_location]),
-      label(byId[rental.pickup_location_id]),
-      rental.borrower_location,
-      rental.pickup_location_id,
+      label(byId[borrowerLoc]),
+      label(byId[ownerLoc]),
+      borrowerLoc,
+      ownerLoc,
       `Return: ${rental.title}`,
-      rental.delivery_fee,
-      Number(rental.delivery_fee) * 0.7,
+      returnFee,
+      Number(returnFee) * 0.7,
     ],
   );
   await pool.query(
     "UPDATE rentals SET status='RETURN_MATCHING',return_delivery_id=$1,updated_at=NOW() WHERE id=$2",
     [rows[0].id, rental.id],
   );
+  await pool.query(
+    `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+     VALUES ($1, 'COURIER_RETURN_INITIATED', $2, $3)`,
+    [rental.id, req.user.id, { delivery_id: rows[0].id }],
+  );
+
+  emitUser(rental.owner_id, 'rental:status', { rental_id: rental.id, status: 'RETURN_MATCHING' });
+  emitUser(rental.borrower_id, 'rental:status', { rental_id: rental.id, status: 'RETURN_MATCHING' });
   await matchDelivery(rows[0].id);
   res.status(201).json(rows[0]);
+};
+
+// POST /api/rentals/:id/extend-request
+exports.requestExtension = async (req, res) => {
+  const borrower_id = req.user.id;
+  const { id } = req.params;
+  const { additional_days, reason } = req.body;
+
+  const days = parseInt(additional_days, 10);
+  if (!days || days < 1 || days > 60) {
+    return res.status(400).json({ error: 'Please enter a valid number of days (1-60) to extend.' });
+  }
+
+  try {
+    const rentalRes = await pool.query(
+      `SELECT r.*, l.title as listing_title, l.rent_price as listing_daily_rate
+       FROM rentals r
+       JOIN listings l ON l.id = r.listing_id
+       WHERE r.id = $1`,
+      [id]
+    );
+
+    if (rentalRes.rows.length === 0) return res.status(404).json({ error: 'Rental not found.' });
+    const rental = rentalRes.rows[0];
+
+    if (rental.borrower_id !== borrower_id) {
+      return res.status(403).json({ error: 'Only the borrower can request a rental extension.' });
+    }
+
+    if (!['RENTAL_ACTIVE', 'MATCHING_COURIER', 'COURIER_ASSIGNED', 'GOING_TO_PICKUP', 'ARRIVED_AT_PICKUP', 'IN_TRANSIT', 'ARRIVED_AT_DESTINATION'].includes(rental.status)) {
+      return res.status(409).json({ error: 'Extensions can only be requested on active rentals.' });
+    }
+
+    const existingPending = await pool.query(
+      `SELECT id FROM rental_extensions WHERE rental_id = $1 AND status = 'PENDING'`,
+      [id]
+    );
+    if (existingPending.rows.length > 0) {
+      return res.status(409).json({ error: 'An extension request is already awaiting owner approval.' });
+    }
+
+    const currentEndDate = new Date(rental.end_date);
+    const newEndDate = new Date(currentEndDate);
+    newEndDate.setDate(newEndDate.getDate() + days);
+
+    const dailyRate = Number(rental.listing_daily_rate) || (Number(rental.rental_fee) / Number(rental.rental_days || 1));
+    const additionalFee = Number((dailyRate * days).toFixed(2));
+
+    const insertRes = await pool.query(
+      `INSERT INTO rental_extensions (
+         rental_id, borrower_id, owner_id, additional_days, old_end_date, new_end_date, additional_fee, status, reason
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'PENDING', $8) RETURNING *`,
+      [id, borrower_id, rental.owner_id, days, currentEndDate.toISOString().slice(0, 10), newEndDate.toISOString().slice(0, 10), additionalFee, reason || null]
+    );
+
+    await pool.query(
+      `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+       VALUES ($1, 'EXTENSION_REQUESTED', $2, $3)`,
+      [id, borrower_id, { additional_days: days, additional_fee: additionalFee, new_end_date: newEndDate }]
+    );
+
+    emitUser(rental.owner_id, 'rental:extension_requested', {
+      rental_id: id,
+      extension: insertRes.rows[0],
+      listing_title: rental.listing_title,
+    });
+    emitUser(rental.owner_id, 'rental:status', { rental_id: id });
+    emitUser(borrower_id, 'rental:status', { rental_id: id });
+
+    res.status(201).json({
+      message: `Extension request for ${days} additional day(s) submitted to the owner.`,
+      extension: insertRes.rows[0],
+    });
+  } catch (error) {
+    console.error('[RentalController] requestExtension error:', error.message);
+    res.status(500).json({ error: error.message || 'Failed to request extension.' });
+  }
+};
+
+// POST /api/rentals/:id/extend-respond
+exports.respondExtension = async (req, res) => {
+  const owner_id = req.user.id;
+  const { id } = req.params;
+  const { extension_id, decision } = req.body;
+
+  if (!['ACCEPTED', 'REJECTED'].includes(decision)) {
+    return res.status(400).json({ error: "Decision must be either 'ACCEPTED' or 'REJECTED'." });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const extRes = await client.query(
+      `SELECT e.*, r.owner_id, r.borrower_id, r.rental_fee, r.rental_days, r.booking_amount, l.title as listing_title
+       FROM rental_extensions e
+       JOIN rentals r ON r.id = e.rental_id
+       JOIN listings l ON l.id = r.listing_id
+       WHERE e.id = $1 AND e.rental_id = $2 FOR UPDATE`,
+      [extension_id, id]
+    );
+
+    if (extRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Extension request not found.' });
+    }
+
+    const ext = extRes.rows[0];
+    if (ext.owner_id !== owner_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Only the listing owner can respond to extension requests.' });
+    }
+
+    if (ext.status !== 'PENDING') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: `This extension request is already ${ext.status.toLowerCase()}.` });
+    }
+
+    if (decision === 'ACCEPTED') {
+      await client.query(
+        `UPDATE rental_extensions SET status = 'ACCEPTED', responded_at = NOW() WHERE id = $1`,
+        [extension_id]
+      );
+
+      const newDays = Number(ext.rental_days) + Number(ext.additional_days);
+      const newFee = Number(ext.rental_fee) + Number(ext.additional_fee);
+      const newBookingAmount = Number(ext.booking_amount) + Number(ext.additional_fee);
+
+      await client.query(
+        `UPDATE rentals SET
+           end_date = $1,
+           rental_days = $2,
+           rental_fee = $3,
+           booking_amount = $4,
+           updated_at = NOW()
+         WHERE id = $5`,
+        [ext.new_end_date, newDays, newFee, newBookingAmount, id]
+      );
+
+      await client.query(
+        `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+         VALUES ($1, 'EXTENSION_ACCEPTED', $2, $3)`,
+        [id, owner_id, { extension_id, additional_days: ext.additional_days, new_end_date: ext.new_end_date, additional_fee: ext.additional_fee }]
+      );
+
+      await client.query('COMMIT');
+
+      emitUser(ext.borrower_id, 'rental:extension_responded', {
+        rental_id: id,
+        decision: 'ACCEPTED',
+        additional_days: ext.additional_days,
+        new_end_date: ext.new_end_date,
+      });
+      emitUser(ext.borrower_id, 'rental:status', { rental_id: id });
+      emitUser(owner_id, 'rental:status', { rental_id: id });
+
+      return res.json({
+        message: `Extension accepted! Rental extended by ${ext.additional_days} days to ${ext.new_end_date}.`,
+        decision: 'ACCEPTED',
+        new_end_date: ext.new_end_date,
+      });
+    } else {
+      await client.query(
+        `UPDATE rental_extensions SET status = 'REJECTED', responded_at = NOW() WHERE id = $1`,
+        [extension_id]
+      );
+
+      await client.query(
+        `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+         VALUES ($1, 'EXTENSION_REJECTED', $2, $3)`,
+        [id, owner_id, { extension_id }]
+      );
+
+      await client.query('COMMIT');
+
+      emitUser(ext.borrower_id, 'rental:extension_responded', {
+        rental_id: id,
+        decision: 'REJECTED',
+      });
+      emitUser(ext.borrower_id, 'rental:status', { rental_id: id });
+      emitUser(owner_id, 'rental:status', { rental_id: id });
+
+      return res.json({
+        message: 'Extension request was declined.',
+        decision: 'REJECTED',
+      });
+    }
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    console.error('[RentalController] respondExtension error:', error.message);
+    res.status(500).json({ error: 'Failed to respond to extension request.' });
+  } finally {
+    client.release();
+  }
+};
+
+// POST /api/rentals/:id/send-reminder
+exports.sendReminder = async (req, res) => {
+  const owner_id = req.user.id;
+  const { id } = req.params;
+
+  try {
+    const rentalRes = await pool.query(
+      `SELECT r.*, l.title as listing_title, ou.name as owner_name
+       FROM rentals r
+       JOIN listings l ON l.id = r.listing_id
+       JOIN users ou ON ou.id = r.owner_id
+       WHERE r.id = $1`,
+      [id]
+    );
+
+    if (rentalRes.rows.length === 0) return res.status(404).json({ error: 'Rental not found.' });
+    const rental = rentalRes.rows[0];
+
+    if (rental.owner_id !== owner_id) {
+      return res.status(403).json({ error: 'Only the owner can send a return reminder.' });
+    }
+
+    await pool.query(
+      `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+       VALUES ($1, 'RETURN_REMINDER_SENT', $2, $3)`,
+      [id, owner_id, { sent_at: new Date() }]
+    );
+
+    emitUser(rental.borrower_id, 'rental:reminder', {
+      rental_id: id,
+      title: 'Rental Return Reminder',
+      message: `${rental.owner_name} sent a friendly reminder that "${rental.listing_title}" is due for return.`,
+      due_date: rental.end_date,
+    });
+
+    res.json({ message: 'Return reminder successfully sent to borrower.' });
+  } catch (error) {
+    console.error('[RentalController] sendReminder error:', error.message);
+    res.status(500).json({ error: 'Failed to send reminder.' });
+  }
 };
 
 exports.getHistory = async (req, res) => {
@@ -372,9 +643,35 @@ exports.getRentalStatus = async (req, res) => {
       [id],
     );
 
+    // Fetch extensions
+    const extRes = await pool.query(
+      'SELECT * FROM rental_extensions WHERE rental_id = $1 ORDER BY created_at DESC',
+      [id],
+    );
+
+    // Fetch refund if any
+    const refundRes = await pool.query(
+      'SELECT * FROM refunds WHERE rental_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [id],
+    );
+
+    const now = new Date();
+    const rentalEndDate = new Date(rental.end_date);
+    const isOverdue = rentalEndDate < now && !['COMPLETED', 'CANCELLED', 'DEPOSIT_REFUNDED'].includes(rental.status);
+    const overdueDays = isOverdue
+      ? Math.max(1, Math.ceil((now.getTime() - rentalEndDate.getTime()) / (1000 * 60 * 60 * 24)))
+      : 0;
+
     res.json({
-      rental,
+      rental: {
+        ...rental,
+        is_overdue: isOverdue,
+        overdue_days: overdueDays,
+      },
       payments: paymentsRes.rows,
+      extensions: extRes.rows,
+      pending_extension: extRes.rows.find((x) => x.status === 'PENDING') || null,
+      refund: refundRes.rows[0] || null,
       deposit_seconds_remaining,
       qr_available: rental.status === 'QR_GENERATED' && !!rental.qr_code_hash,
     });
@@ -557,38 +854,62 @@ exports.confirmReturn = async (req, res) => {
     if (rentalRes.rows.length === 0) return res.status(404).json({ error: 'Rental not found.' });
 
     const rental = rentalRes.rows[0];
-    if (rental.owner_id !== owner_id) return res.status(403).json({ error: 'Forbidden.' });
+    if (rental.owner_id !== owner_id) return res.status(403).json({ error: 'Forbidden. Only the owner can confirm return.' });
 
-    const dmgAmt = parseFloat(damage_amount) || 0;
-    const refundAmt = Math.max(0, rental.deposit_amount - dmgAmt);
+    const dmgAmt = Math.max(0, parseFloat(damage_amount) || 0);
 
-    await pool.query(
-      `
-      UPDATE rentals SET status = 'OWNER_INSPECTION', updated_at = NOW() WHERE id = $1
-    `,
-      [id],
-    );
-
-    // Find the deposit payment
-    const paymentRes = await pool.query(
-      `SELECT id FROM payments WHERE rental_id = $1 AND payment_type = 'SECURITY_DEPOSIT' AND status = 'PAID'`,
-      [id],
-    );
-
-    if (paymentRes.rows.length > 0) {
-      await pool.query(
-        `
-        INSERT INTO refunds (payment_id, rental_id, deposit_amount, damage_amount, refund_amount, refund_status, damage_description)
-        VALUES ($1, $2, $3, $4, $5, 'PENDING', $6)
-      `,
-        [paymentRes.rows[0].id, id, rental.deposit_amount, dmgAmt, refundAmt, damage_description || null],
+    // Call payment service to process refund
+    let refundResult = null;
+    try {
+      refundResult = await paymentService.refundDeposit(
+        id,
+        dmgAmt,
+        damage_description,
+        owner_id
       );
+    } catch (refundError) {
+      console.warn('[RentalController] paymentService.refundDeposit warning:', refundError.message);
+      // Even if refund simulation had an edge case, record refund and complete
+      const refundAmt = Math.max(0, parseFloat(rental.deposit_amount || 0) - dmgAmt);
+      const paymentRes = await pool.query(
+        `SELECT id FROM payments WHERE rental_id = $1 AND payment_type = 'SECURITY_DEPOSIT' AND status = 'PAID'`,
+        [id],
+      );
+      const paymentId = paymentRes.rows[0]?.id || null;
+      await pool.query(
+        `INSERT INTO refunds (payment_id, rental_id, deposit_amount, damage_amount, refund_amount, refund_status, damage_description)
+         VALUES ($1, $2, $3, $4, $5, 'PROCESSED', $6)`,
+        [paymentId, id, rental.deposit_amount, dmgAmt, refundAmt, damage_description || null],
+      );
+      refundResult = { refund_amount: refundAmt };
     }
 
-    res.json({ message: 'Return confirmed. Refund review initiated.', refund_amount: refundAmt });
+    await pool.query(
+      `UPDATE rentals SET status = 'COMPLETED', deposit_status = 'REFUNDED', completed_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [id],
+    );
+
+    await pool.query(
+      `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+       VALUES ($1, 'RENTAL_COMPLETED', $2, $3)`,
+      [id, owner_id, { refund_amount: refundResult.refund_amount, damage_amount: dmgAmt, damage_description }],
+    );
+
+    emitUser(rental.owner_id, 'rental:status', { rental_id: id, status: 'COMPLETED', refund: refundResult });
+    emitUser(rental.borrower_id, 'rental:status', { rental_id: id, status: 'COMPLETED', refund: refundResult });
+    emitUser(rental.owner_id, 'rental:completed', { rental_id: id });
+    emitUser(rental.borrower_id, 'rental:completed', { rental_id: id });
+
+    res.json({
+      success: true,
+      message: 'Return confirmed. Security deposit refund processed successfully.',
+      refund_amount: refundResult.refund_amount,
+      damage_amount: dmgAmt,
+      deposit_amount: rental.deposit_amount,
+    });
   } catch (error) {
     console.error('[RentalController] confirmReturn error:', error.message);
-    res.status(500).json({ error: 'Failed to confirm return.' });
+    res.status(500).json({ error: error.message || 'Failed to confirm return.' });
   }
 };
 

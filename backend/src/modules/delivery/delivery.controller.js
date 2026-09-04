@@ -123,7 +123,8 @@ exports.getMyDeliveries = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT dr.*,
-              l.title as listing_title, l.image_url as listing_image, l.category as listing_category,
+              COALESCE(l.title, dr.item_description, 'Campus Delivery') as listing_title,
+              l.image_url as listing_image, l.category as listing_category,
               u_seller.name as seller_name, u_seller.hostel as seller_hostel,
               u_customer.name as customer_name, u_customer.hostel as customer_hostel
        FROM delivery_requests dr
@@ -133,7 +134,7 @@ exports.getMyDeliveries = async (req, res) => {
        WHERE dr.courier_id = $1
        ORDER BY 
          CASE WHEN dr.status IN ('COMPLETED','DELIVERED') THEN 1 ELSE 0 END,
-         dr.updated_at DESC`,
+         COALESCE(dr.completed_at, dr.delivered_at, dr.updated_at) DESC`,
       [userId],
     );
     res.json(result.rows.map(redactDelivery));

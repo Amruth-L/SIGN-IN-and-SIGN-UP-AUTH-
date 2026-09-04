@@ -62,19 +62,6 @@ export default function RentalReturn() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      // Also process refund immediately (simulation)
-      const refundRes = await fetch(`${API_BASE}/api/payment/refund-deposit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          rental_id: rentalId,
-          damage_amount: payload.damage_amount,
-          damage_description: payload.damage_description,
-        }),
-      });
-      const refundData = await refundRes.json();
-      if (!refundRes.ok) throw new Error(refundData.error);
-
       setSubmitted(true);
     } catch (e) {
       setError(e.message);

@@ -15,7 +15,25 @@ function scoreCandidate(route, task, reliability = 100) {
   const taskPath = routeFor(task.pickup, task.destination);
   const toPickup = routeFor(route.origin, task.pickup);
   const fromDrop = routeFor(task.destination, route.destination);
-  if (!courierPath || !taskPath || !toPickup || !fromDrop) return null;
+  if (!courierPath || !toPickup || !fromDrop) return null;
+
+  // Same-location delivery (e.g. xerox to same building): skip overlap scoring
+  if (!taskPath || taskPath.distanceMeters === 0) {
+    if (!courierPath.nodes.includes(task.pickup)) return null;
+    const pickupDetour = Math.max(0, toPickup.distanceMeters + fromDrop.distanceMeters - courierPath.distanceMeters);
+    if (pickupDetour > route.max_detour_meters) return null;
+    const finishAt = Date.now() + (toPickup.distanceMeters + fromDrop.distanceMeters) / 78 * 60000;
+    if (new Date(route.available_until).getTime() < finishAt) return null;
+    const breakdown = {
+      routeOverlap: 45,
+      pickupDetour: Math.round(Math.max(0, 1 - pickupDetour / Math.max(route.max_detour_meters, 1)) * 25),
+      dropoffDetour: 15,
+      availability: 10,
+      reliability: Math.round(Math.min(100, Number(reliability)) / 100 * 5),
+    };
+    return { score: Object.values(breakdown).reduce((sum, value) => sum + value, 0), breakdown, courierPath, taskPath: taskPath || courierPath };
+  }
+
   const sharedMeters = overlapMeters(courierPath.nodes, taskPath.nodes, taskPath.distanceMeters);
   const overlapRatio = taskPath.distanceMeters ? sharedMeters / taskPath.distanceMeters : 0;
   const pickupDetour = Math.max(0, toPickup.distanceMeters + taskPath.distanceMeters + fromDrop.distanceMeters - courierPath.distanceMeters);
@@ -31,6 +49,7 @@ function scoreCandidate(route, task, reliability = 100) {
   };
   return { score: Object.values(breakdown).reduce((sum, value) => sum + value, 0), breakdown, courierPath, taskPath };
 }
+
 
 async function matchDelivery(deliveryId, client = pool) {
   const deliveryResult = await client.query(`SELECT dr.*, p.route_node_id pickup_node, d.route_node_id destination_node

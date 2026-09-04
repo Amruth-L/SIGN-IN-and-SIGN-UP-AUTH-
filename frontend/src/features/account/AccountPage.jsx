@@ -22,6 +22,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { listingFallback } from "../../lib/assets";
 import { API_BASE_URL } from "../../lib/api";
+import HandoverCredential from "../../components/HandoverCredential";
 
 const tabs = [
   ["rentals", "My rentals", Package],
@@ -265,6 +266,9 @@ function OwnerRequestQueue({ requests, summary, loading, connection, error, resp
                     {request.delivery?.courier && <span className="flex items-center gap-1"><Truck size={14} className="text-mesh-600" /> Courier: <b className="text-ink/75">{request.delivery.courier.name}</b></span>}
                   </div>
                   <p className="mt-3 text-xs font-semibold text-mesh-800">Next: {request.next_action}</p>
+                  {request.delivery?.status === "ARRIVED_AT_PICKUP" && request.delivery?.id && (
+                    <HandoverCredential deliveryId={request.delivery.id} stage="PICKUP" title="Show pickup QR & OTP to the courier" />
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-row gap-2 sm:flex-col">
                   {request.actionable && <>
