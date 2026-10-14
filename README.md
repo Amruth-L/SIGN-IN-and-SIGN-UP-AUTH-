@@ -2,6 +2,18 @@
 
 CampusMesh is a campus-only rental, route-matched courier, and private Xerox delivery platform. Lender, borrower, and courier are actions available to every verified student account.
 
+## Cloud deployment
+
+Deploy the repository root as a **Node web service**, using Node 22, build command `npm run build`, start command `npm start`, and health-check path `/health`. Set `SERVE_FRONTEND=true` and `NODE_ENV=production`. The root build explicitly uses the deployed origin for API and Socket.IO traffic, and the backend serves the compiled frontend and SPA deep links. Startup applies pending migrations; it never resets or seeds the database.
+
+Configure secrets in the hosting dashboard, never Git: `DATABASE_URL`, `JWT_SECRET`, `EMAIL_USER`, `EMAIL_PASS`, `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`. Set `DATABASE_SSL=true` for the Supabase session-pooler connection, and set `FRONTEND_ORIGIN` and `PUBLIC_API_URL` to the actual public HTTPS origin. Let the host supply `PORT`.
+
+Keep test Razorpay credentials for preview testing. Calls stay disabled with `CALLS_MODE=preview` and `CALLS_SCHEDULER_ENABLED=false`; model-generated support additionally needs OpenAI credentials. The English help library and browser voice previews work without those providers. Campus Print remains locked as coming soon. See [backend configuration](backend/README.md) for the complete support/calling setup.
+
+Render's free web services pause when idle and block outbound SMTP ports, so the current Gmail OTP sender needs a paid service or a separate HTTPS email integration. Always-running background reminders also need an always-on service. See [Render's free-tier limitations](https://render.com/docs/free). Compute-plan selection is separate from code preparation; no paid deployment is created by building locally.
+
+A multi-stage `Dockerfile` is also included. It excludes `.env` files and runs as the non-root Node user. Docker is optional for the native Node deployment.
+
 ## Features
 
 - Student authentication with signup, email verification, login, logout, and password reset
