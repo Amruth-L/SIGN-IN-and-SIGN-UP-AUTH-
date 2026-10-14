@@ -1,247 +1,91 @@
 const pool = require('../../config/database');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { sendCode, consumeCode } = require('./otp.service');
+const emailOf = value => typeof value === 'string' ? value.trim().toLowerCase() : '';
+const validEmail = email => /^[^\s@]+@dbit\.co\.in$/.test(email);
+const respondError = (res, result, extra = {}) => {
+  if (result.retryAfter) res.set('Retry-After', String(result.retryAfter));
+  return res.status(result.status).json({ ...result, ...extra });
+};
+const serverError = (res, error) => {
+  console.error('[auth]', error.code || error.name);
+  return res.status(503).json({ error: 'CampusMesh is temporarily unavailable. Please try again shortly.' });
+};
 
 exports.signup = async (req, res) => {
+  const { name, username, password } = req.body;
+  const email = emailOf(req.body.email);
+  if (typeof name !== 'string' || !name.trim() || typeof username !== 'string' || !/^[a-zA-Z0-9_]{3,20}$/.test(username.trim()))
+    return res.status(400).json({ error: 'Enter your name and a username of 3–20 letters, numbers, or underscores.' });
+  if (!validEmail(email)) return res.status(400).json({ error: 'Use your DBIT email (@dbit.co.in).' });
+  if (typeof password !== 'string' || password.length < 6 || Buffer.byteLength(password) > 72)
+    return res.status(400).json({ error: 'Use a password of at least 6 characters and at most 72 bytes.' });
   try {
-    const { name, username, email, password } = req.body;
-
-    if (!name || !username || !email || !password) {
-      return res.status(400).json({ error: 'Name, username, email, and password are required' });
-    }
-
-    const trimmedUsername = username.trim().toLowerCase();
-    const normalizedEmail = email.trim().toLowerCase();
-
-    // Username format validation
-    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
-    if (!usernameRegex.test(trimmedUsername)) {
-      return res.status(400).json({ error: 'Username must be 3-20 characters and contain only letters, numbers, or underscores' });
-    }
-
-    if (!normalizedEmail.endsWith('@dbit.co.in')) {
-      return res.status(400).json({ error: 'Only DBIT emails (@dbit.co.in) are allowed' });
-    }
-
-    // Check if username already exists (case-insensitive)
-    const usernameCheck = await pool.query('SELECT * FROM users WHERE LOWER(username) = LOWER($1)', [trimmedUsername]);
-    if (usernameCheck.rows.length > 0) {
-      return res.status(409).json({ error: 'Username is already taken.' });
-    }
-
-    // Check if email already exists (case-insensitive)
-    const userCheck = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [normalizedEmail]);
-    if (userCheck.rows.length > 0) {
-      return res.status(409).json({ error: 'Email already registered.' });
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Generate 6 digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    // Expiry: 10 minutes from now
-    const otpExpiry = new Date(Date.now() + 10 * 60000);
-
-    await pool.query(
-      'INSERT INTO users (name, username, email, password, otp, otp_expiry) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, username, email, created_at',
-      [name, trimmedUsername, normalizedEmail, hashedPassword, otp, otpExpiry]
-    );
-
-    // Send Email
-    const sendEmail = require('../../shared/send-email');
-    try {
-      await sendEmail(normalizedEmail, 'Your CampusMesh Verification Code', otp, name);
-    } catch (emailError) {
-      console.error("Failed to send OTP email:", emailError.message || emailError);
-    }
-
-    res.status(201).json({
-      message: 'OTP sent to your email.'
-    });
+    const existing = await pool.query('SELECT id FROM users WHERE LOWER(email)=$1', [email]);
+    if (existing.rowCount) return res.status(409).json({ error: 'Email is already registered. Sign in or resend your verification code.' });
+    await pool.query('INSERT INTO users(name,username,email,password) VALUES($1,$2,$3,$4)',
+      [name.trim(), username.trim().toLowerCase(), email, await bcrypt.hash(password, 10)]);
+    const result = await sendCode(email, 'verify', name.trim());
+    if (result.error) return respondError(res, result, { accountCreated: true, email });
+    return res.status(201).json({ message: 'Verification code sent. Check your email.', ...result });
   } catch (error) {
-    console.error('[Signup Error]', error.message || error);
-    // Catch unique constraint violations from PostgreSQL (code 23505)
-    if (error.code === '23505' || (error.message && error.message.toLowerCase().includes('unique'))) {
-      if (error.detail && error.detail.includes('username')) {
-        return res.status(409).json({ error: 'Username is already taken.' });
-      }
-      return res.status(409).json({ error: 'Email already registered.' });
-    }
-    res.status(500).json({ error: 'Server Error' });
+    if (error.code === '23505') return res.status(409).json({ error: 'Username or email is already registered.' });
+    return serverError(res, error);
   }
 };
 
 exports.verifyEmail = async (req, res) => {
+  const email = emailOf(req.body.email);
+  if (!validEmail(email)) return res.status(400).json({ error: 'Enter your DBIT email.' });
   try {
-    const { email, otp } = req.body;
-
-    if (!email || !otp) {
-      return res.status(400).json({ error: 'Email and OTP are required' });
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    const userResult = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [normalizedEmail]);
-    const user = userResult.rows[0];
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    if (user.email_verified) {
-      return res.status(400).json({ error: 'Email is already verified' });
-    }
-
-    const cleanOtp = otp.toString().trim();
-    if (cleanOtp !== '123456' && user.otp !== cleanOtp) {
-      return res.status(400).json({ error: 'Invalid OTP' });
-    }
-
-    if (cleanOtp !== '123456' && user.otp_expiry && new Date() > new Date(user.otp_expiry)) {
-      return res.status(400).json({ error: 'Expired OTP' });
-    }
-
-    // OTP is valid
-    await pool.query(
-      'UPDATE users SET email_verified = TRUE, otp = NULL, otp_expiry = NULL WHERE LOWER(email) = LOWER($1)',
-      [normalizedEmail]
-    );
-
-    res.json({ message: 'Email verified successfully.' });
-  } catch (error) {
-    console.error('[VerifyEmail Error]', error.message || error);
-    res.status(500).json({ error: 'Server Error' });
-  }
+    const result = await consumeCode(email, 'verify', req.body.otp, client =>
+      client.query('UPDATE users SET email_verified=TRUE,otp=NULL,otp_expiry=NULL WHERE email=$1', [email]));
+    if (result.error) return respondError(res, result);
+    return res.json({ message: 'Email verified. You can now sign in.' });
+  } catch (error) { return serverError(res, error); }
 };
 
 exports.resendOtp = async (req, res) => {
+  const email = emailOf(req.body.email);
+  if (!validEmail(email)) return res.status(400).json({ error: 'Enter your DBIT email.' });
   try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    const userResult = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [normalizedEmail]);
-    const user = userResult.rows[0];
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    if (user.email_verified) {
-      return res.status(400).json({ error: 'Email is already verified' });
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 10 * 60000);
-
-    await pool.query(
-      'UPDATE users SET otp = $1, otp_expiry = $2 WHERE LOWER(email) = LOWER($3)',
-      [otp, otpExpiry, normalizedEmail]
-    );
-
-    const sendEmail = require('../../shared/send-email');
-    try {
-      await sendEmail(normalizedEmail, 'Your CampusMesh Verification Code', otp, user.name);
-    } catch (emailError) {
-      console.error("Failed to send OTP email:", emailError.message || emailError);
-    }
-
-    res.json({ message: 'OTP sent to your email.' });
-  } catch (error) {
-    console.error('[ResendOTP Error]', error.message || error);
-    res.status(500).json({ error: 'Server Error' });
-  }
+    const { rows } = await pool.query('SELECT name,email_verified FROM users WHERE email=$1', [email]);
+    if (!rows[0]) return res.status(404).json({ error: 'Create an account before requesting a verification code.' });
+    if (rows[0].email_verified) return res.status(409).json({ error: 'Email already verified. Please sign in.' });
+    const result = await sendCode(email, 'verify', rows[0].name);
+    if (result.error) return respondError(res, result);
+    return res.json({ message: 'A new verification code has been sent.', ...result });
+  } catch (error) { return serverError(res, error); }
 };
 
 exports.forgotPassword = async (req, res) => {
+  const email = emailOf(req.body.email);
+  if (!validEmail(email)) return res.status(400).json({ error: 'Enter your DBIT email.' });
   try {
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' });
+    const { rows } = await pool.query('SELECT name FROM users WHERE email=$1', [email]);
+    if (rows[0]) {
+      const result = await sendCode(email, 'reset', rows[0].name);
+      if (result.error) return respondError(res, result);
     }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    const userResult = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [normalizedEmail]);
-    const user = userResult.rows[0];
-
-    if (!user) {
-      // Don't leak whether user exists for security, just return success
-      return res.json({ message: 'If that email exists, a reset code has been sent.' });
-    }
-
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiry = new Date(Date.now() + 10 * 60000);
-
-    await pool.query(
-      'UPDATE users SET otp = $1, otp_expiry = $2 WHERE LOWER(email) = LOWER($3)',
-      [otp, otpExpiry, normalizedEmail]
-    );
-
-    const sendEmail = require('../../shared/send-email');
-    try {
-      await sendEmail(normalizedEmail, 'Your CampusMesh Password Reset Code', otp, user.name);
-    } catch (emailError) {
-      console.error("Failed to send OTP email:", emailError.message || emailError);
-    }
-
-    res.json({ message: 'If that email exists, a reset code has been sent.' });
-  } catch (error) {
-    console.error('[ForgotPassword Error]', error.message || error);
-    res.status(500).json({ error: 'Server Error' });
-  }
+    return res.json({ message: 'If an account exists, a reset code has been sent.', retryAfter: 60, expiresIn: 600 });
+  } catch (error) { return serverError(res, error); }
 };
 
 exports.resetPassword = async (req, res) => {
+  const email = emailOf(req.body.email);
+  const { newPassword } = req.body;
+  if (!validEmail(email)) return res.status(400).json({ error: 'Enter your DBIT email.' });
+  if (typeof newPassword !== 'string' || newPassword.length < 6 || Buffer.byteLength(newPassword) > 72)
+    return res.status(400).json({ error: 'Use a password of at least 6 characters and at most 72 bytes.' });
   try {
-    const { email, otp, newPassword } = req.body;
-
-    if (!email || !otp || !newPassword) {
-      return res.status(400).json({ error: 'Email, OTP, and new password are required' });
-    }
-
-    if (newPassword.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
-    }
-
-    const normalizedEmail = email.trim().toLowerCase();
-
-    const userResult = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1)', [normalizedEmail]);
-    const user = userResult.rows[0];
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    const cleanOtp = otp.toString().trim();
-    if (cleanOtp !== '123456' && user.otp !== cleanOtp) {
-      return res.status(400).json({ error: 'Invalid OTP' });
-    }
-
-    if (cleanOtp !== '123456' && user.otp_expiry && new Date() > new Date(user.otp_expiry)) {
-      return res.status(400).json({ error: 'Expired OTP' });
-    }
-
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-    // Update password, clear OTP, and implicitly verify email if not already verified
-    await pool.query(
-      'UPDATE users SET password = $1, otp = NULL, otp_expiry = NULL, email_verified = TRUE WHERE LOWER(email) = LOWER($2)',
-      [hashedPassword, normalizedEmail]
-    );
-
-    res.json({ message: 'Password reset successfully. You can now log in.' });
-  } catch (error) {
-    console.error('[ResetPassword Error]', error.message || error);
-    res.status(500).json({ error: 'Server Error' });
-  }
+    const result = await consumeCode(email, 'reset', req.body.otp, async client => {
+      const password = await bcrypt.hash(newPassword, 10);
+      await client.query('UPDATE users SET password=$1,otp=NULL,otp_expiry=NULL,email_verified=TRUE WHERE email=$2', [password, email]);
+    });
+    if (result.error) return respondError(res, result);
+    return res.json({ message: 'Password reset. You can now sign in.' });
+  } catch (error) { return serverError(res, error); }
 };
 
 exports.login = async (req, res) => {
@@ -293,18 +137,14 @@ exports.login = async (req, res) => {
     });
   } catch (error) {
     console.error('[Login Error]', error.message || error);
-    res.status(500).json({ error: 'Server Error' });
+    return serverError(res, error);
   }
 };
 
 exports.setMode = async (req, res) => {
   const mode = String(req.body.mode || '').toUpperCase();
   if (!['RENT', 'DELIVERY'].includes(mode)) return res.status(400).json({ error: 'Mode must be RENT or DELIVERY.' });
-  if (mode === 'RENT') {
-    const active = await pool.query(`SELECT id FROM delivery_requests WHERE courier_id=$1
-      AND status IN ('COURIER_ASSIGNED','GOING_TO_PICKUP','ARRIVED_AT_PICKUP','PICKUP_VERIFIED','IN_TRANSIT','RETURN_IN_TRANSIT') LIMIT 1`, [req.user.id]);
-    if (active.rowCount) return res.status(409).json({ error: 'Complete your active courier task before switching modes.' });
-  }
+  // A workspace switch changes navigation preference, not delivery availability.
   const { rows } = await pool.query('UPDATE users SET active_mode = $1 WHERE id = $2 RETURNING id, active_mode, delivery_available', [mode, req.user.id]);
   res.json(rows[0]);
 };

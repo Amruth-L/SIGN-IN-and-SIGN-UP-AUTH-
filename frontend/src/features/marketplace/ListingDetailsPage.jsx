@@ -81,7 +81,7 @@ export default function ListingDetailsPage() {
       <div className="grid gap-8 lg:grid-cols-[1.1fr_.9fr]">
         <div className="overflow-hidden rounded-[2rem] bg-mesh-50">
           <img
-            className="aspect-[4/3] size-full object-cover"
+            className="aspect-[4/3] size-full bg-white object-contain p-5"
             src={listingImage(item)}
             alt={item.title}
           />
@@ -91,6 +91,7 @@ export default function ListingDetailsPage() {
           <h1 className="mt-5 font-display text-5xl font-semibold leading-none">
             {item.title}
           </h1>
+          {item.demo_slug && <span className="mt-3 text-xs text-ink/50">Demo listing · Illustrative item image</span>}
           <p className="mt-5 leading-7 text-ink/55">{item.description}</p>
           <div className="mt-6 grid grid-cols-2 gap-3">
             <div className="rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] p-4">

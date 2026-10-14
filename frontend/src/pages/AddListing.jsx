@@ -142,7 +142,7 @@ const AddListing = () => {
   const getConditionClassName = (cond) => {
     return {
       'Brand New': 'border-blue-200 bg-blue-50 text-blue-700',
-      'Like New': 'border-violet-200 bg-violet-50 text-violet-700',
+      'Like New': 'border-violet-200 bg-mesh-50 text-mesh-700',
       Excellent: 'border-mesh-200 bg-mesh-50 text-mesh-700',
       Good: 'border-amber-200 bg-amber-50 text-amber-700',
       Fair: 'border-orange-200 bg-orange-50 text-orange-700',
@@ -361,7 +361,7 @@ const AddListing = () => {
         <div className="fixed inset-0 z-50 grid place-items-center bg-ink/40 p-5 backdrop-blur-sm">
           <div className="w-full max-w-md rounded-3xl border border-ink/10 bg-white p-7 text-center shadow-[0_22px_70px_rgba(35,58,40,.16)]">
             <div className="mx-auto size-10 animate-spin rounded-full border-4 border-mesh-100 border-t-mesh-600" />
-            <h2 className="mt-5 text-xl font-extrabold">Publishing listing</h2>
+            <h2 className="mt-5 text-xl font-semibold">Publishing listing</h2>
             <p className="mt-2 text-sm text-ink/50">{uploadStatus}</p>
             <div className="mt-5 h-2 w-full overflow-hidden rounded-full bg-mesh-50 ring-1 ring-inset ring-ink/10">
               <progress className="h-full w-full accent-mesh-600" value={uploadProgress} max="100" />
@@ -373,24 +373,24 @@ const AddListing = () => {
         </div>
       )}
 
-      <header className="border-b border-ink/10 bg-[radial-gradient(circle_at_78%_0%,rgba(61,121,255,.10),transparent_28%)]">
+      <header className="border-b border-ink/10 bg-white">
         <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-6 px-5 py-9 sm:px-7 sm:py-12 lg:flex-row lg:items-end lg:justify-between lg:px-10">
           <div>
             <button
               type="button"
-              onClick={() => navigate('/marketplace')}
-              className="mb-5 inline-flex items-center gap-1.5 text-xs font-extrabold text-ink/45 transition hover:text-mesh-700"
+              onClick={() => navigate('/lend')}
+              className="mb-5 inline-flex items-center gap-1.5 text-xs font-semibold text-ink/45 transition hover:text-mesh-700"
             >
-              <ArrowLeft size={14} /> Back to marketplace
+              <ArrowLeft size={14} /> Back to lending dashboard
             </button>
-            <span className="flex items-center gap-1.5 text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">
-              <Package size={14} /> Seller workspace
+            <span className="flex items-center gap-1.5 text-[.68rem] font-semibold uppercase tracking-[.16em] text-mesh-600">
+              <Package size={14} /> Lend
             </span>
-            <h1 className="mt-3 font-display text-4xl font-semibold tracking-tight sm:text-5xl">
-              List something useful.
+            <h1 className="page-title mt-3">
+              List an item
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-ink/50">
-              Add clear details so another student can find, trust, and rent your item.
+              Add photos, a daily price, and a pickup location.
             </p>
           </div>
           <div className="flex items-center gap-2 self-start rounded-full border border-mesh-900/10 bg-white/80 px-3 py-2 text-xs font-bold text-mesh-700 lg:self-auto">
@@ -404,7 +404,7 @@ const AddListing = () => {
         <div className="mx-auto mt-6 flex w-full max-w-[1240px] gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-red-800 sm:px-5">
           <AlertCircle className="mt-0.5 shrink-0" size={18} />
           <div>
-            <h4 className="font-extrabold">Please resolve the following:</h4>
+            <h4 className="font-semibold">Please resolve the following:</h4>
             <ul className="mt-2 list-disc space-y-1 pl-5">
             {formValidationErrors.map((err, idx) => (
               <li key={idx} className="mb-0.5 text-sm">{err}</li>
@@ -429,8 +429,8 @@ const AddListing = () => {
           <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
             <span className="grid size-10 place-items-center rounded-xl bg-mesh-50 text-mesh-700"><Package size={19} /></span>
             <div>
-              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 1</span>
-              <h2 className="mt-0.5 text-lg font-extrabold">Item details</h2>
+              <span className="text-[.68rem] font-semibold uppercase tracking-[.16em] text-mesh-600">Step 1</span>
+              <h2 className="mt-0.5 text-lg font-semibold">Item details</h2>
             </div>
           </div>
 
@@ -483,8 +483,8 @@ const AddListing = () => {
           <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
             <span className="grid size-10 place-items-center rounded-xl bg-amber-50 text-amber-700"><BadgeCheck size={19} /></span>
             <div>
-              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 2</span>
-              <h2 className="mt-0.5 text-lg font-extrabold">Condition</h2>
+              <span className="text-[.68rem] font-semibold uppercase tracking-[.16em] text-mesh-600">Step 2</span>
+              <h2 className="mt-0.5 text-lg font-semibold">Condition</h2>
             </div>
           </div>
 
@@ -500,7 +500,7 @@ const AddListing = () => {
                   <option key={cond} value={cond}>{cond}</option>
                 ))}
               </select>
-              <span className={`inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide ${getConditionClassName(formData.condition)}`}>
+              <span className={`inline-flex w-fit items-center rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-wide ${getConditionClassName(formData.condition)}`}>
                 {formData.condition}
               </span>
             </div>
@@ -512,8 +512,8 @@ const AddListing = () => {
           <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
             <span className="grid size-10 place-items-center rounded-xl bg-emerald-50 text-emerald-700"><IndianRupee size={19} /></span>
             <div>
-              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 3</span>
-              <h2 className="mt-0.5 text-lg font-extrabold">Pricing & availability</h2>
+              <span className="text-[.68rem] font-semibold uppercase tracking-[.16em] text-mesh-600">Step 3</span>
+              <h2 className="mt-0.5 text-lg font-semibold">Pricing & availability</h2>
             </div>
           </div>
 
@@ -595,10 +595,10 @@ const AddListing = () => {
         {/* SECTION 4 - ITEM IMAGES */}
         <section className="rounded-3xl border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)] sm:p-7">
           <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
-            <span className="grid size-10 place-items-center rounded-xl bg-violet-50 text-violet-700"><Camera size={19} /></span>
+            <span className="grid size-10 place-items-center rounded-xl bg-mesh-50 text-mesh-700"><Camera size={19} /></span>
             <div>
-              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 4</span>
-              <h2 className="mt-0.5 text-lg font-extrabold">Item images</h2>
+              <span className="text-[.68rem] font-semibold uppercase tracking-[.16em] text-mesh-600">Step 4</span>
+              <h2 className="mt-0.5 text-lg font-semibold">Item images</h2>
             </div>
           </div>
 
@@ -625,7 +625,7 @@ const AddListing = () => {
           >
             <ImagePlus className="text-mesh-600" size={34} />
             <div className="mt-3 space-y-1 text-center">
-              <h3 className="font-extrabold">Choose item photos</h3>
+              <h3 className="font-semibold">Choose item photos</h3>
               <p className="text-xs text-ink/45">JPG, PNG or WEBP · 5 MB max each</p>
             </div>
           </div>
@@ -637,7 +637,7 @@ const AddListing = () => {
                   <img src={img} alt={`Preview ${idx + 1}`} className="w-full h-full object-cover" />
 
                   {idx === coverIndex && (
-                    <span className="absolute bottom-2 left-2 z-10 inline-flex items-center gap-1 rounded-full bg-mesh-600 px-2 py-1 text-[10px] font-extrabold uppercase tracking-wide text-white"><Check size={11} /> Cover</span>
+                    <span className="absolute bottom-2 left-2 z-10 inline-flex items-center gap-1 rounded-full bg-mesh-600 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white"><Check size={11} /> Cover</span>
                   )}
 
                   <div className="absolute inset-0 z-20 flex items-center justify-center gap-2 bg-ink/55 opacity-0 transition group-hover:opacity-100">
@@ -671,8 +671,8 @@ const AddListing = () => {
           <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
             <span className="grid size-10 place-items-center rounded-xl bg-rose-50 text-rose-700"><MapPin size={19} /></span>
             <div>
-              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 5</span>
-              <h2 className="mt-0.5 text-lg font-extrabold">Pickup location</h2>
+              <span className="text-[.68rem] font-semibold uppercase tracking-[.16em] text-mesh-600">Step 5</span>
+              <h2 className="mt-0.5 text-lg font-semibold">Pickup location</h2>
             </div>
           </div>
 
@@ -706,8 +706,8 @@ const AddListing = () => {
           <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
             <span className="grid size-10 place-items-center rounded-xl bg-sky-50 text-sky-700"><Truck size={19} /></span>
             <div>
-              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 6</span>
-              <h2 className="mt-0.5 text-lg font-extrabold">Delivery settings</h2>
+              <span className="text-[.68rem] font-semibold uppercase tracking-[.16em] text-mesh-600">Step 6</span>
+              <h2 className="mt-0.5 text-lg font-semibold">Delivery settings</h2>
             </div>
           </div>
 
@@ -720,7 +720,7 @@ const AddListing = () => {
               className="mt-0.5 size-[18px] cursor-pointer accent-mesh-600"
             />
             <div>
-              <label htmlFor="delivery-check" className="cursor-pointer text-sm font-extrabold">Student courier delivery</label>
+              <label htmlFor="delivery-check" className="cursor-pointer text-sm font-semibold">Student courier delivery</label>
               <p className="mt-1 text-xs leading-5 text-ink/45">Let matched couriers bring your item to another campus location.</p>
             </div>
           </div>
@@ -761,17 +761,17 @@ const AddListing = () => {
           <div className="mb-6 flex items-center gap-3 border-b border-ink/10 pb-4">
             <span className="grid size-10 place-items-center rounded-xl bg-slate-100 text-slate-600"><UserRound size={19} /></span>
             <div>
-              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Step 7</span>
-              <h2 className="mt-0.5 text-lg font-extrabold">Seller contact</h2>
+              <span className="text-[.68rem] font-semibold uppercase tracking-[.16em] text-mesh-600">Step 7</span>
+              <h2 className="mt-0.5 text-lg font-semibold">Seller contact</h2>
             </div>
           </div>
 
           <div className="flex flex-col gap-4 rounded-2xl border border-mesh-200 bg-mesh-50 p-4 sm:flex-row sm:items-center">
-            <div className="grid size-14 shrink-0 place-items-center rounded-full border-2 border-white bg-mesh-600 text-xl font-extrabold text-white shadow-sm">
+            <div className="grid size-14 shrink-0 place-items-center rounded-full border-2 border-white bg-mesh-600 text-xl font-semibold text-white shadow-sm">
               {sellerInitials}
             </div>
             <div className="grid gap-1 text-sm text-ink/55">
-              <h3 className="font-extrabold text-ink">{user?.name || 'Anonymous Student'}</h3>
+              <h3 className="font-semibold text-ink">{user?.name || 'Anonymous Student'}</h3>
               <p>{user?.email}</p>
               <p className="text-ink/50">
                 {sellerDept} • Semester {sellerSem}
@@ -789,7 +789,7 @@ const AddListing = () => {
         <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
           <Info className="mt-0.5 shrink-0 text-amber-700" size={19} />
           <div className="text-sm">
-            <h3 className="font-extrabold">Safety & accuracy</h3>
+            <h3 className="font-semibold">Safety & accuracy</h3>
             <p className="mt-1 leading-6 text-amber-900/70">
               Upload real images of the item in your possession. Make sure the condition in your description matches the photos.
             </p>
@@ -800,7 +800,7 @@ const AddListing = () => {
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end">
           <button
             type="button"
-            onClick={() => navigate('/marketplace')}
+            onClick={() => navigate('/lend')}
             className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-ink/15 bg-white px-5 text-sm font-bold text-ink transition hover:border-mesh-500 hover:bg-mesh-50"
           >
             <X size={16} /> Cancel
@@ -838,8 +838,8 @@ const AddListing = () => {
         <aside className="hidden space-y-5 lg:block">
           <div className="sticky top-24 space-y-5">
             <div className="rounded-3xl border border-mesh-900/10 bg-ink p-5 text-white shadow-[0_10px_40px_rgba(35,58,40,.10)]">
-              <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-300">Listing checklist</span>
-              <h2 className="mt-2 text-xl font-extrabold">Make it easy to trust.</h2>
+              <span className="text-[.68rem] font-semibold uppercase tracking-[.16em] text-mesh-300">Listing checklist</span>
+              <h2 className="mt-2 text-xl font-semibold">Before you publish</h2>
               <ul className="mt-5 space-y-4 text-sm text-white/70">
                 <li className="flex gap-3"><Check className="mt-0.5 shrink-0 text-mesh-300" size={16} /> Use a clear, specific title.</li>
                 <li className="flex gap-3"><Check className="mt-0.5 shrink-0 text-mesh-300" size={16} /> Show the actual item in good light.</li>

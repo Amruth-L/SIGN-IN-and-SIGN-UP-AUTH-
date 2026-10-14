@@ -8,6 +8,7 @@ pg.types.setTypeParser(1114, (value) => new Date(`${value.replace(' ', 'T')}Z`))
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  connectionTimeoutMillis: 10000,
   ssl: process.env.DATABASE_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
 });
 

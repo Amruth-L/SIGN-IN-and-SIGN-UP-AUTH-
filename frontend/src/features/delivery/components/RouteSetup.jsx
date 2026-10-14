@@ -14,33 +14,33 @@ export default function RouteSetup({
   className = "",
 }) {
   return (
-    <form onSubmit={onSubmit} className={className + " rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] p-5"}>
+    <form onSubmit={onSubmit} className={className + " panel p-5"}>
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Your availability</span>
-          <h2 className="mt-1 flex items-center gap-2 font-extrabold">
-            <Route size={18} /> Declare a campus route
+          <span className="text-xs font-medium text-ink/65">Your availability</span>
+          <h2 className="mt-1 flex items-center gap-2 font-semibold">
+            <Route size={18} /> Your delivery route
           </h2>
         </div>
         <button
           type="button"
           onClick={onToggle}
-          disabled={routeSaving}
-          className={`rounded-full px-3 py-2 text-xs font-extrabold ${online ? "bg-mesh-100 text-mesh-800" : "bg-slate-100 text-slate-600"}`}
+          disabled={routeSaving || !online}
+          className={`rounded-full px-3 py-2 text-xs font-semibold ${online ? "bg-mesh-100 text-mesh-800" : "bg-slate-100 text-slate-600"}`}
         >
           <i
             className={`mr-1.5 inline-block size-2 rounded-full ${online ? "bg-mesh-500" : "bg-slate-400"}`}
           />
-          {online ? "Online" : "Offline"}
+          {online ? "Go offline" : "Offline"}
         </button>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
         {[
-          ["origin_location_id", "Origin"],
-          ["destination_location_id", "Destination"],
+          ["origin_location_id", "Starting point"],
+          ["destination_location_id", "Heading to"],
         ].map(([name, title]) => (
           <label key={name}>
-            <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600 mb-1 block">{title}</span>
+            <span className="text-xs font-medium text-ink/65 mb-1 block">{title}</span>
             <select
               className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               value={form[name]}
@@ -56,7 +56,7 @@ export default function RouteSetup({
           </label>
         ))}
         <label>
-          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600 mb-1 block">Available until</span>
+          <span className="text-xs font-medium text-ink/65 mb-1 block">Available until</span>
           <input
             className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
             type="datetime-local"
@@ -68,7 +68,7 @@ export default function RouteSetup({
           />
         </label>
         <label>
-          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600 mb-1 block">
+          <span className="text-xs font-medium text-ink/65 mb-1 block">
             Maximum detour · {form.max_detour_meters} m
           </span>
           <input

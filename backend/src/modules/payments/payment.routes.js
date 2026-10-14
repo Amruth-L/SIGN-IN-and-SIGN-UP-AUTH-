@@ -10,7 +10,7 @@ router.use(authMiddleware);
 // Stage 1: Booking/Rental Order Creation & Verification
 router.post('/create-rental-order', paymentController.createRentalOrder);
 router.post('/verify-rental', verifyPaymentSignature, paymentController.verifyRental);
-router.post('/create-xerox-order', paymentController.createXeroxOrder);
+router.post('/create-xerox-order', (req, res) => res.status(503).json({ error: 'Campus Print is coming soon.' }));
 router.post('/verify-xerox', verifyPaymentSignature, paymentController.verifyXerox);
 
 // Stage 2: Refundable Security Deposit Creation & Verification

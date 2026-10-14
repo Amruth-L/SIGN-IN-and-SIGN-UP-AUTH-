@@ -1,87 +1,123 @@
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useRef } from "react";
+import Brand from "../Brand";
+import { Link, useLocation } from "react-router-dom";
 import {
-  Bookmark,
-  Box,
-  LogOut,
-  PackageOpen,
-  Printer,
-  Route,
   ShoppingBag,
+  Store,
+  Truck,
+  LogOut,
+  ArrowUpRight,
+  Sparkles,
+  LockKeyhole,
 } from "lucide-react";
-import { motion } from "motion/react";
 import { useAuth } from "../../context/AuthContext";
+import DeliveryNotifications from "../DeliveryNotifications";
 
-const links = [
-  ["/marketplace", "Marketplace", PackageOpen],
-  ["/account/rentals", "My rentals", Box],
-  ["/account/saved", "Saved", Bookmark],
-  ["/delivery", "Deliver", Route],
-  ["/xerox", "Xerox", Printer],
-  ["/cart", "Cart", ShoppingBag],
+const workspaces = [
+  ["/marketplace", "Rent", ShoppingBag],
+  ["/lend", "Lend", Store],
+  ["/delivery", "Deliver", Truck],
+  ["/wish-box", "Wish Box", Sparkles],
 ];
 export default function AppNavbar() {
   const { user, logout } = useAuth();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const landing = location.pathname === "/";
-  const authPage = [
-    "/login",
-    "/signup",
-    "/verify-email",
-    "/forgot-password",
-  ].includes(location.pathname);
-  const logoTo = user && !landing ? "/choose-mode" : "/";
-
-  if (authPage) return null;
-
+  const { pathname } = useLocation();
+  const secondaryNav = useRef(null);
+  useEffect(() => {
+    const nav = secondaryNav.current;
+    const active = nav?.querySelector('[aria-current="page"]');
+    if (active) {
+      const item = active.getBoundingClientRect(),
+        container = nav.getBoundingClientRect();
+      if (item.left < container.left || item.right > container.right) {
+        nav.scrollLeft += item.left - container.left - 20;
+      }
+    }
+  }, [pathname, user]);
+  if (
+    ["/login", "/signup", "/verify-email", "/forgot-password"].includes(
+      pathname,
+    )
+  )
+    return null;
+  const workspace = pathname.startsWith("/wish-box")
+    ? "Wish Box"
+    : pathname.startsWith("/delivery")
+      ? "Deliver"
+      : [
+            "/lend",
+            "/account/listings",
+            "/add-listing",
+            "/edit-listing",
+            "/owner-dashboard",
+          ].some((p) => pathname.startsWith(p))
+        ? "Lend"
+        : "Rent";
+  const links =
+    workspace === "Wish Box"
+      ? [
+          ["/wish-box", "My requests"],
+          ["/delivery/wishes", "Help with an errand"],
+        ]
+      : workspace === "Deliver"
+        ? [
+            ["/delivery", "Delivery dashboard"],
+            ["/delivery/wishes", "Wish Box errands"],
+          ]
+        : workspace === "Lend"
+          ? [
+              ["/lend", "Lending dashboard"],
+              ["/add-listing", "List an item"],
+            ]
+          : [
+              ["/marketplace", "Browse items"],
+              ["/account/rentals", "My rentals"],
+              ["/account/saved", "Saved"],
+              ["/cart", "Cart"],
+            ];
+  links.push(
+    ["/insights", "Insights"],
+    ["/reminders", "Reminders"],
+    ["/support", "Support"],
+  );
   return (
     <>
-      <header className="sticky top-0 z-40 border-b border-mesh-900/10 bg-paper/90 backdrop-blur-xl">
-        <div className="mx-auto w-full max-w-[1240px] px-5 sm:px-7 lg:px-10 flex h-17 items-center gap-7">
-          <Link
-            to={logoTo}
-            className="mr-auto text-lg font-extrabold tracking-[-.05em]"
-          >
-            Campus<span className="text-mesh-600">Mesh</span>
+      <header className="sticky top-0 z-40 border-b border-ink/10 bg-white">
+        <div className="mx-auto flex h-17 max-w-[1240px] items-center gap-4 px-5 sm:px-8">
+          <Link to={user ? "/choose-mode" : "/"} className="mr-auto text-lg">
+            <Brand />
           </Link>
-          {!landing && user && (
-            <nav className="hidden items-center gap-1 lg:flex">
-              {links.map(([to, label, Icon]) => {
-                const active = location.pathname.startsWith(to);
-                return (
+          {user ? (
+            <>
+              <nav
+                aria-label="Workspaces"
+                className="hidden items-center gap-1 rounded-xl bg-paper p-1 lg:flex"
+              >
+                {workspaces.map(([to, label, Icon]) => (
                   <Link
                     key={to}
                     to={to}
-                    className={`relative flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition ${active ? "text-mesh-700" : "text-ink/60 hover:bg-mesh-50 hover:text-ink"}`}
+                    aria-current={workspace === label ? "page" : undefined}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold ${workspace === label ? "bg-white text-mesh-700 shadow-sm" : "text-ink/60 hover:text-ink"}`}
                   >
-                    {active && (
-                      <motion.span
-                        layoutId="nav-active"
-                        className="absolute inset-0 -z-10 rounded-xl bg-mesh-100"
-                      />
-                    )}
-                    <Icon size={15} />
+                    <Icon size={16} />
                     {label}
                   </Link>
-                );
-              })}
-            </nav>
-          )}
-          {landing && !user && (
-            <div className="flex items-center gap-2">
-              <Link className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-mesh-900/15 bg-white px-5 text-sm font-bold text-ink transition hover:-translate-y-0.5 hover:border-mesh-500 hover:bg-mesh-50 h-9 px-4" to="/login">
-                Log in
-              </Link>
-              <Link className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg active:translate-y-0 disabled:pointer-events-none disabled:opacity-50 h-9 px-4" to="/signup">
-                Join CampusMesh
-              </Link>
-            </div>
-          )}
-          {user && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => navigate("/account/settings")}
-                className="grid size-9 place-items-center rounded-full bg-mesh-600 text-xs font-extrabold text-white"
+                ))}
+                <span
+                  aria-disabled="true"
+                  title="Coming soon"
+                  className="flex items-center gap-1.5 px-2 text-xs text-ink/35"
+                >
+                  <LockKeyhole size={13} />
+                  Print <span className="text-[9px]">Coming soon</span>
+                </span>
+              </nav>
+              <DeliveryNotifications />
+              <Link
+                to="/account/settings"
+                aria-label="Account settings"
+                className="grid size-9 shrink-0 place-items-center rounded-full border border-ink/10 bg-paper text-xs font-semibold"
               >
                 {user.name
                   ?.split(" ")
@@ -89,36 +125,73 @@ export default function AppNavbar() {
                   .join("")
                   .slice(0, 2)
                   .toUpperCase() || "CM"}
+              </Link>
+              <button
+                onClick={logout}
+                aria-label="Log out"
+                title="Log out"
+                className="hidden p-2 text-ink/50 hover:text-ink lg:block"
+              >
+                <LogOut size={18} />
               </button>
-              {!landing && (
-                <button
-                  onClick={logout}
-                  className="hidden items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-bold text-ink/60 hover:bg-red-50 hover:text-red-700 sm:flex"
-                >
-                  <LogOut size={15} /> Log out
-                </button>
-              )}
-            </div>
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="text-sm font-semibold">
+                Log in
+              </Link>
+              <Link to="/signup" className="brand-button text-sm">
+                Get started <ArrowUpRight size={16} />
+              </Link>
+            </>
           )}
         </div>
-      </header>
-      {!landing && user && (
-        <nav className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-5 rounded-2xl border border-ink/10 bg-white/95 p-1.5 shadow-xl backdrop-blur lg:hidden">
-          {links
-            .filter(([, label]) => label !== "Saved")
-            .map(([to, label, Icon]) => {
-              const active = location.pathname.startsWith(to);
-              return (
+        {user && pathname !== "/choose-mode" && (
+          <nav
+            aria-label={`${workspace} navigation`}
+            className="border-t border-ink/5"
+          >
+            <div
+              ref={secondaryNav}
+              className="mx-auto flex max-w-[1240px] gap-6 overflow-x-auto px-5 sm:px-8"
+            >
+              {links.map(([to, label]) => (
                 <Link
                   key={to}
                   to={to}
-                  className={`flex flex-col items-center gap-1 rounded-xl px-1 py-2 text-[9px] font-extrabold ${active ? "bg-mesh-100 text-mesh-800" : "text-ink/45"}`}
+                  aria-current={pathname === to ? "page" : undefined}
+                  className={`shrink-0 border-b-2 py-3 text-xs font-medium ${pathname === to ? "border-mesh-600 text-mesh-700" : "border-transparent text-ink/60 hover:text-ink"}`}
                 >
-                  <Icon size={17} />
-                  {label.replace("My ", "")}
+                  {label}
                 </Link>
-              );
-            })}
+              ))}
+            </div>
+          </nav>
+        )}
+      </header>
+      {user && (
+        <nav
+          aria-label="Mobile workspaces"
+          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-ink/10 bg-white pb-[env(safe-area-inset-bottom)] lg:hidden"
+        >
+          {workspaces.map(([to, label, Icon]) => (
+            <Link
+              key={to}
+              to={to}
+              aria-current={workspace === label ? "page" : undefined}
+              className={`flex flex-col items-center gap-1 py-3 text-xs font-medium ${workspace === label ? "text-mesh-700 bg-mesh-50" : "text-ink/60"}`}
+            >
+              <Icon size={21} />
+              {label}
+            </Link>
+          ))}
+          <span
+            aria-disabled="true"
+            className="flex flex-col items-center gap-1 py-3 text-[10px] text-ink/35"
+          >
+            <LockKeyhole size={20} />
+            Print · Soon
+          </span>
         </nav>
       )}
     </>

@@ -1,3 +1,5 @@
+import TrustDetails from "../intelligence/TrustDetails";
+import { matchesRentalFilter } from "../../lib/rental-status";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { io } from "socket.io-client";
@@ -16,7 +18,6 @@ import {
   Settings,
   Trash2,
   Truck,
-  UserRound,
 } from "lucide-react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
@@ -50,12 +51,12 @@ const friendlyStatus = (status) =>
 
 function Empty({ icon: Icon, title, copy, action }) {
   return (
-    <div className="rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] grid min-h-64 place-items-center p-8 text-center">
+    <div className="rounded-xl border border-mesh-900/10 bg-white  grid min-h-64 place-items-center p-8 text-center">
       <div>
         <span className="mx-auto grid size-12 place-items-center rounded-2xl bg-mesh-50 text-mesh-700">
           <Icon />
         </span>
-        <h2 className="mt-4 text-lg font-extrabold">{title}</h2>
+        <h2 className="mt-4 text-lg font-semibold">{title}</h2>
         <p className="mt-1 max-w-md text-sm text-ink/50">{copy}</p>
         {action}
       </div>
@@ -68,7 +69,7 @@ function RentalsTab({ rentals }) {
   const filtered =
     filter === "All"
       ? rentals
-      : rentals.filter((item) => friendlyStatus(item.status).includes(filter));
+      : rentals.filter((item) => matchesRentalFilter(item.status, filter));
   return (
     <div>
       <div className="mb-5 flex flex-wrap gap-2">
@@ -76,7 +77,7 @@ function RentalsTab({ rentals }) {
           <button
             key={item}
             onClick={() => setFilter(item)}
-            className={`rounded-full px-4 py-2 text-xs font-extrabold ${filter === item ? "bg-ink text-white" : "border border-ink/10 bg-white text-ink/55"}`}
+            className={`rounded-full px-4 py-2 text-xs font-semibold ${filter === item ? "bg-ink text-white" : "border border-ink/10 bg-white text-ink/55"}`}
           >
             {item}
           </button>
@@ -99,7 +100,7 @@ function RentalsTab({ rentals }) {
             <motion.article
               layout
               key={rental.id}
-              className="rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] overflow-hidden"
+              className="rounded-xl border border-mesh-900/10 bg-white  overflow-hidden"
             >
               <div className="grid gap-5 p-5 md:grid-cols-[92px_1fr_auto]">
                 <img
@@ -111,11 +112,11 @@ function RentalsTab({ rentals }) {
                 />
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-extrabold">
+                    <h2 className="font-semibold">
                       {rental.listing_title || rental.title || "Campus rental"}
                     </h2>
                     <span
-                      className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase ${statusStyle(rental.status)}`}
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase ${statusStyle(rental.status)}`}
                     >
                       {friendlyStatus(rental.status)}
                     </span>
@@ -125,7 +126,7 @@ function RentalsTab({ rentals }) {
                     {rental.end_date?.slice(0, 10)} · Owner:{" "}
                     {rental.owner_name || "Verified student"}
                   </p>
-                  <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[10px] font-extrabold uppercase ${["PAID", "RENTAL_PAID", "FULLY_PAID"].includes(String(rental.payment_status || "").toUpperCase()) ? "bg-mesh-50 text-mesh-700" : "bg-amber-50 text-amber-700"}`}>
+                  <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase ${["PAID", "RENTAL_PAID", "FULLY_PAID"].includes(String(rental.payment_status || "").toUpperCase()) ? "bg-mesh-50 text-mesh-700" : "bg-amber-50 text-amber-700"}`}>
                     {["PAID", "RENTAL_PAID", "FULLY_PAID"].includes(String(rental.payment_status || "").toUpperCase()) ? "Payment received" : "Payment pending"}
                   </span>
                   <div className="mt-4 flex items-center gap-1.5 text-xs font-bold text-ink/55">
@@ -159,7 +160,7 @@ function RentalsTab({ rentals }) {
                   </span>
                   <Link
                     to={`/delivery/${rental.delivery_id}/track`}
-                    className="font-extrabold text-mesh-700"
+                    className="font-semibold text-mesh-700"
                   >
                     Track delivery →
                   </Link>
@@ -194,7 +195,7 @@ function ConnectionBadge({ state }) {
   const live = state === "live";
   const reconnecting = state === "reconnecting";
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-extrabold ${live ? "border-mesh-200 bg-mesh-50 text-mesh-800" : reconnecting ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-700"}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${live ? "border-mesh-200 bg-mesh-50 text-mesh-800" : reconnecting ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-700"}`}>
       <i className={`size-1.5 rounded-full ${live ? "bg-mesh-500" : reconnecting ? "bg-amber-500" : "bg-red-500"}`} />
       {live ? "Live" : reconnecting ? "Reconnecting" : "Backend disconnected"}
     </span>
@@ -202,30 +203,24 @@ function ConnectionBadge({ state }) {
 }
 
 function OwnerRequestQueue({ requests, summary, loading, connection, error, responding, onRespond, selectedListingId, onClearFilter }) {
+  const [requestFilter, setRequestFilter] = useState("pending");
   const pending = requests.filter((request) => request.actionable);
   const visible = selectedListingId
     ? requests.filter((request) => request.listing_id === selectedListingId)
-    : pending.length > 0 ? pending : requests;
+    : requestFilter === "pending" ? pending : requests;
 
   return (
-    <section id="incoming-rental-requests" className="mb-6 scroll-mt-6 rounded-[1.6rem] border border-mesh-900/10 bg-white p-5 shadow-[0_10px_40px_rgba(35,58,40,.06)] sm:p-6">
+    <section id="incoming-rental-requests" className="mb-6 scroll-mt-6 rounded-xl border border-mesh-900/10 bg-white p-5  sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Owner inbox</span>
-          <h2 className="mt-1 text-xl font-extrabold">Incoming rental requests</h2>
-          <p className="mt-1 max-w-2xl text-sm text-ink/50">Paid bookings appear here automatically. Accepting one starts the deposit and courier flow.</p>
+          <span className="text-xs font-medium text-ink/65">Owner inbox</span>
+          <h2 className="mt-1 text-xl font-semibold">Incoming rental requests</h2>
+          <p className="mt-1 max-w-2xl text-sm text-ink/50">Review who requested your item and the rental dates. Accept to continue with the deposit and handover.</p>
         </div>
         <ConnectionBadge state={connection} />
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {[[summary.pending, "Needs response", "text-amber-700"], [summary.active, "In progress", "text-mesh-700"], [summary.completed, "Completed", "text-ink/60"], [summary.total, "All requests", "text-ink"]].map(([value, label, color]) => (
-          <div key={label} className="rounded-2xl bg-paper px-3 py-3">
-            <strong className={`block text-xl font-extrabold ${color}`}>{value || 0}</strong>
-            <span className="text-[11px] font-bold text-ink/45">{label}</span>
-          </div>
-        ))}
-      </div>
+      <div className="mt-5 flex gap-2">{[['pending', `Needs response (${summary.pending || 0})`], ['all', `All requests (${summary.total || 0})`]].map(([id,label]) => <button key={id} onClick={() => setRequestFilter(id)} aria-pressed={requestFilter === id} className={`rounded-lg px-3 py-2 text-xs font-medium ${requestFilter === id ? 'bg-ink text-white' : 'bg-paper text-ink/60'}`}>{label}</button>)}</div>
 
       {error && (
         <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">
@@ -234,7 +229,7 @@ function OwnerRequestQueue({ requests, summary, loading, connection, error, resp
         </div>
       )}
       {selectedListingId && (
-        <button onClick={onClearFilter} className="mt-4 text-xs font-extrabold text-mesh-700 hover:text-mesh-900">
+        <button onClick={onClearFilter} className="mt-4 text-xs font-semibold text-mesh-700 hover:text-mesh-900">
           Showing requests for one listing · Show all
         </button>
       )}
@@ -243,8 +238,8 @@ function OwnerRequestQueue({ requests, summary, loading, connection, error, resp
       ) : visible.length === 0 ? (
         <div className="mt-5 rounded-2xl border border-dashed border-ink/15 bg-paper/60 p-6 text-center">
           <Check className="mx-auto text-mesh-600" size={22} />
-          <p className="mt-2 text-sm font-extrabold">No incoming requests yet</p>
-          <p className="mt-1 text-xs text-ink/45">When a renter completes booking payment, the request will land here.</p>
+          <p className="mt-2 text-sm font-semibold">No requests in this view</p>
+          <p className="mt-1 text-xs text-ink/45">New rental requests appear here after the booking payment.</p>
         </div>
       ) : (
         <div className="mt-5 space-y-3">
@@ -254,11 +249,12 @@ function OwnerRequestQueue({ requests, summary, loading, connection, error, resp
                 <img src={request.listing_image || listingFallback} alt="" className="size-16 shrink-0 rounded-xl object-cover" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-extrabold">{request.listing_title || "Campus rental"}</h3>
-                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-extrabold ${request.actionable ? "bg-amber-100 text-amber-800" : "bg-white text-ink/55"}`}>{ownerStatusLabel(request)}</span>
-                    {request.delivery_requested && <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-extrabold text-sky-700">Delivery requested</span>}
+                    <h3 className="font-semibold">{request.listing_title || "Campus rental"}</h3>
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${request.actionable ? "bg-amber-100 text-amber-800" : "bg-white text-ink/55"}`}>{ownerStatusLabel(request)}</span>
+                    {request.delivery_requested && <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-semibold text-sky-700">Delivery requested</span>}
                   </div>
                   <p className="mt-1 text-sm text-ink/60">Requested by <strong className="text-ink">{request.borrower_name || "Verified student"}</strong>{request.borrower_hostel ? ` · ${request.borrower_hostel}` : ""}</p>
+                  <TrustDetails rentalId={request.id}/>
                   <div className="mt-3 grid gap-2 text-xs text-ink/55 sm:grid-cols-2">
                     <span><b className="text-ink/75">Dates:</b> {formatDate(request.start_date)} → {formatDate(request.end_date)} · {request.rental_days || 0} days</span>
                     <span><b className="text-ink/75">Booking:</b> ₹{Number(request.booking_amount || 0).toLocaleString("en-IN")} · <b className="text-ink/75">Deposit:</b> ₹{Number(request.deposit_amount || 0).toLocaleString("en-IN")}</span>
@@ -272,10 +268,10 @@ function OwnerRequestQueue({ requests, summary, loading, connection, error, resp
                 </div>
                 <div className="flex shrink-0 flex-row gap-2 sm:flex-col">
                   {request.actionable && <>
-                    <button onClick={() => onRespond(request.id, "ACCEPTED")} disabled={!!responding[request.id]} className="rounded-xl bg-mesh-600 px-3 py-2 text-xs font-extrabold text-white transition hover:bg-mesh-700 disabled:opacity-50">{responding[request.id] === "ACCEPTED" ? "Accepting…" : "Accept"}</button>
-                    <button onClick={() => onRespond(request.id, "REJECTED")} disabled={!!responding[request.id]} className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-extrabold text-red-700 transition hover:bg-red-50 disabled:opacity-50">{responding[request.id] === "REJECTED" ? "Rejecting…" : "Reject"}</button>
+                    <button onClick={() => onRespond(request.id, "ACCEPTED")} disabled={!!responding[request.id]} className="rounded-xl bg-mesh-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-mesh-700 disabled:opacity-50">{responding[request.id] === "ACCEPTED" ? "Accepting…" : "Accept"}</button>
+                    <button onClick={() => onRespond(request.id, "REJECTED")} disabled={!!responding[request.id]} className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50">{responding[request.id] === "REJECTED" ? "Rejecting…" : "Reject"}</button>
                   </>}
-                  <Link to={`/rent-details/${request.id}`} className="rounded-xl border border-ink/10 bg-white px-3 py-2 text-center text-xs font-extrabold text-ink/65 transition hover:border-mesh-300 hover:bg-mesh-50">Details</Link>
+                  <Link to={`/rent-details/${request.id}`} className="rounded-xl border border-ink/10 bg-white px-3 py-2 text-center text-xs font-semibold text-ink/65 transition hover:border-mesh-300 hover:bg-mesh-50">Details</Link>
                 </div>
               </div>
             </article>
@@ -303,27 +299,27 @@ function ListingsTab({ listings, onDelete, onToggle, onFocusRequests }) {
       ) : (
         <div className="grid gap-4 lg:grid-cols-2">
           {listings.map((item) => (
-            <article className="rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] flex gap-4 p-4" key={item.id}>
+            <article className="min-w-0 rounded-xl border border-mesh-900/10 bg-white flex gap-3 p-4" key={item.id}>
               <img
-                className="size-24 rounded-2xl object-cover"
+                className="size-16 shrink-0 rounded-lg object-cover sm:size-24"
                 src={item.image_url || listingFallback}
                 alt=""
               />
               <div className="min-w-0 flex-1">
                 <div className="flex justify-between gap-2">
-                  <div>
-                    <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">{item.category}</span>
-                    <h2 className="truncate font-extrabold">{item.title}</h2>
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-ink/65">{item.category}</span>
+                    <h2 className="truncate font-semibold">{item.title}</h2>
                   </div>
                   <span
-                    className={`h-fit rounded-full px-2 py-1 text-[10px] font-extrabold ${item.is_active === false ? "bg-slate-100 text-slate-600" : "bg-mesh-50 text-mesh-700"}`}
+                    className={`h-fit shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold ${item.is_active === false ? "bg-slate-100 text-slate-600" : "bg-mesh-50 text-mesh-700"}`}
                   >
                     {item.is_active === false ? "Paused" : "Active"}
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-ink/50">
                   ₹{Number(item.rent_price || item.price || 0)}/day ·{" "}
-                  <button type="button" onClick={() => onFocusRequests(item.id)} className="font-extrabold text-mesh-700 underline-offset-2 hover:underline">
+                  <button type="button" onClick={() => onFocusRequests(item.id)} className="font-semibold text-mesh-700 underline-offset-2 hover:underline">
                     {item.request_count || 0} requests
                   </button>
                 </p>
@@ -371,15 +367,15 @@ function SavedTab({ items, onRemove, onRent }) {
   ) : (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {items.map((item) => (
-        <article key={item.id} className="rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] overflow-hidden">
+        <article key={item.id} className="rounded-xl border border-mesh-900/10 bg-white  overflow-hidden">
           <img
             className="aspect-[16/9] w-full object-cover"
             src={item.image_url || listingFallback}
             alt=""
           />
           <div className="p-4">
-            <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">{item.category}</span>
-            <h2 className="mt-1 font-extrabold">{item.title}</h2>
+            <span className="text-xs font-medium text-ink/65">{item.category}</span>
+            <h2 className="mt-1 font-semibold">{item.title}</h2>
             <p className="mt-1 text-sm text-ink/50">
               ₹{Number(item.rent_price || item.price || 0)}/day
             </p>
@@ -438,7 +434,7 @@ function HistoryTab({ api }) {
     <div>
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Activity ledger</span>
+          <span className="text-xs font-medium text-ink/65">Activity ledger</span>
           <h2 className="mt-1 font-display text-3xl font-semibold">Your rental history</h2>
           <p className="mt-1 text-sm text-ink/50">One timeline for things you rented, listed, or delivered.</p>
         </div>
@@ -446,7 +442,7 @@ function HistoryTab({ api }) {
       </div>
       <div className="mb-5 flex flex-wrap gap-2">
         {["ALL", "RENTER", "OWNER", "COURIER", "COMPLETED"].map((filter) => (
-          <button key={filter} onClick={() => setRole(filter)} className={`rounded-full px-3.5 py-2 text-xs font-extrabold ${role === filter ? "bg-ink text-white" : "border border-ink/10 bg-white text-ink/55 hover:bg-mesh-50"}`}>
+          <button key={filter} onClick={() => setRole(filter)} className={`rounded-full px-3.5 py-2 text-xs font-semibold ${role === filter ? "bg-ink text-white" : "border border-ink/10 bg-white text-ink/55 hover:bg-mesh-50"}`}>
             {filter === "ALL" ? "All" : filter[0] + filter.slice(1).toLowerCase()}
           </button>
         ))}
@@ -461,14 +457,14 @@ function HistoryTab({ api }) {
           {records.map((record) => {
             const [amountLabel, amount] = amountFor(record);
             return (
-              <article key={record.id} className="overflow-hidden rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)]">
+              <article key={record.id} className="overflow-hidden rounded-xl border border-mesh-900/10 bg-white ">
                 <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-start">
                   <img src={record.item.image || listingFallback} alt="" className="size-16 shrink-0 rounded-xl object-cover" />
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="font-extrabold">{record.item.title}</h3>
-                      <span className="rounded-full bg-mesh-50 px-2.5 py-1 text-[10px] font-extrabold uppercase text-mesh-700">{record.role}</span>
-                      <span className="rounded-full bg-paper px-2.5 py-1 text-[10px] font-extrabold text-ink/55">{friendlyStatus(record.status)}</span>
+                      <h3 className="font-semibold">{record.item.title}</h3>
+                      <span className="rounded-full bg-mesh-50 px-2.5 py-1 text-[10px] font-semibold uppercase text-mesh-700">{record.role}</span>
+                      <span className="rounded-full bg-paper px-2.5 py-1 text-[10px] font-semibold text-ink/55">{friendlyStatus(record.status)}</span>
                     </div>
                     <p className="mt-1 text-xs text-ink/50">Owner: {record.participants.owner.name} · Renter: {record.participants.renter.name}{record.participants.courier ? ` · Courier: ${record.participants.courier.name}` : ""}</p>
                     <div className="mt-3 grid gap-2 text-xs text-ink/55 sm:grid-cols-3">
@@ -478,7 +474,7 @@ function HistoryTab({ api }) {
                     </div>
                   </div>
                 </div>
-                {record.events?.length > 0 && <div className="border-t border-ink/10 bg-paper/45 px-5 py-4"><p className="mb-3 text-[10px] font-extrabold uppercase tracking-[.16em] text-mesh-600">Timeline</p><div className="grid gap-2 sm:grid-cols-2">{record.events.map((event) => <div key={event.id} className="flex items-center gap-2 text-xs text-ink/60"><span className="size-2 shrink-0 rounded-full bg-mesh-500" /><span className="font-bold text-ink/75">{event.label}</span><span className="truncate">· {formatDate(event.at)}</span></div>)}</div></div>}
+                {record.events?.length > 0 && <div className="border-t border-ink/10 bg-paper/45 px-5 py-4"><p className="mb-3 text-[10px] font-semibold uppercase tracking-[.16em] text-mesh-600">Timeline</p><div className="grid gap-2 sm:grid-cols-2">{record.events.map((event) => <div key={event.id} className="flex items-center gap-2 text-xs text-ink/60"><span className="size-2 shrink-0 rounded-full bg-mesh-500" /><span className="font-bold text-ink/75">{event.label}</span><span className="truncate">· {formatDate(event.at)}</span></div>)}</div></div>}
               </article>
             );
           })}
@@ -512,13 +508,13 @@ function SettingsTab({ user, save }) {
     }
   };
   return (
-    <form onSubmit={submit} className="rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] max-w-3xl p-6 sm:p-8">
+    <form onSubmit={submit} className="rounded-xl border border-mesh-900/10 bg-white  max-w-3xl p-6 sm:p-8">
       <div className="mb-7 flex items-center gap-4">
-        <span className="grid size-13 place-items-center rounded-full bg-mesh-600 font-extrabold text-white">
+        <span className="grid size-13 place-items-center rounded-full bg-mesh-600 font-semibold text-white">
           {user?.name?.slice(0, 1) || "C"}
         </span>
         <div>
-          <h2 className="font-extrabold">Profile</h2>
+          <h2 className="font-semibold">Profile</h2>
         </div>
       </div>
       <div className="grid gap-5 sm:grid-cols-2">
@@ -531,7 +527,7 @@ function SettingsTab({ user, save }) {
           ["hostel", "Hostel / block"],
         ].map(([name, label]) => (
           <label key={name}>
-            <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600 mb-1.5 block">{label}</span>
+            <span className="text-xs font-medium text-ink/65 mb-1.5 block">{label}</span>
             <input
               className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               value={form[name]}
@@ -541,7 +537,7 @@ function SettingsTab({ user, save }) {
           </label>
         ))}
         <label className="sm:col-span-2">
-          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600 mb-1.5 block">Short bio</span>
+          <span className="text-xs font-medium text-ink/65 mb-1.5 block">Short bio</span>
           <textarea
             rows="4"
             className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100 resize-none"
@@ -571,12 +567,13 @@ function SettingsTab({ user, save }) {
   );
 }
 
-export default function AccountPage() {
+export default function AccountPage({ workspace }) {
   const { tab = "rentals" } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const { user, api, updateProfile } = useAuth();
-  const active = tabs.some(([id]) => id === tab) ? tab : "rentals";
+  const lending = workspace === "lend" || tab === "listings";
+  const active = lending ? "listings" : tabs.some(([id]) => id === tab) ? tab : "rentals";
   const paymentConfirmation = location.state?.paymentConfirmation;
   const [data, setData] = useState({ rentals: [], listings: [], saved: [] });
   const [ownerRequests, setOwnerRequests] = useState([]);
@@ -586,7 +583,10 @@ export default function AccountPage() {
   const [ownerConnection, setOwnerConnection] = useState("reconnecting");
   const [responding, setResponding] = useState({});
   const [selectedListingId, setSelectedListingId] = useState("");
+  const [lendingView, setLendingView] = useState("requests");
   const [loading, setLoading] = useState(true);
+  const [loadErrors, setLoadErrors] = useState({});
+  const [actionError, setActionError] = useState("");
   const loadOwnerRequests = useCallback(async () => {
     try {
       const response = await api.get("/api/rentals/my-listings-requests");
@@ -596,7 +596,6 @@ export default function AccountPage() {
       setOwnerRequests(requests);
       setOwnerSummary(payload.summary || { pending, active: 0, completed: 0, total: requests.length });
       setOwnerError("");
-      setOwnerConnection("live");
     } catch (error) {
       setOwnerConnection("offline");
       setOwnerError(error.response?.data?.error || "Could not load incoming rental requests");
@@ -611,6 +610,9 @@ export default function AccountPage() {
       api.get("/listings/mine"),
       api.get("/api/wishlist"),
     ]);
+    setLoadErrors(Object.fromEntries([['rentals', rentals], ['listings', listings], ['saved', saved]]
+      .filter(([, result]) => result.status === 'rejected')
+      .map(([key]) => [key, `We couldn’t load your ${key}. Please retry.`])));
     setData((current) => ({
       rentals: rentals.status === "fulfilled" ? rentals.value.data : current.rentals,
       listings: listings.status === "fulfilled" ? listings.value.data : current.listings,
@@ -627,10 +629,10 @@ export default function AccountPage() {
     socket.on("connect", () => setOwnerConnection("live"));
     socket.on("disconnect", () => setOwnerConnection("reconnecting"));
     socket.on("connect_error", () => setOwnerConnection("offline"));
-    const refresh = () => loadOwnerRequests();
+    const refresh = () => { loadOwnerRequests(); load(); };
     ["rental:request", "rental:status", "delivery:assigned", "delivery:status"].forEach((event) => socket.on(event, refresh));
     return () => socket.close();
-  }, [loadOwnerRequests]);
+  }, [loadOwnerRequests, load]);
   useEffect(() => {
     const interval = setInterval(loadOwnerRequests, ownerSummary.pending > 0 || ownerConnection !== "live" ? 5000 : 15000);
     return () => clearInterval(interval);
@@ -649,11 +651,14 @@ export default function AccountPage() {
   }, [api, loadOwnerRequests]);
   const focusRequests = useCallback((listingId = "") => {
     setSelectedListingId(listingId);
-    navigate("/account/listings");
+    setLendingView("requests");
+    navigate("/lend");
     window.setTimeout(() => document.getElementById("incoming-rental-requests")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }, [navigate]);
   const removeSaved = useCallback(async (id) => {
-    await api.delete(`/api/wishlist/${id}`);
+    setActionError("");
+    try { await api.delete(`/api/wishlist/${id}`); }
+    catch { setActionError("Could not remove the saved item. Please try again."); return; }
     setData((old) => ({
       ...old,
       saved: old.saved.filter((item) => item.id !== id),
@@ -661,7 +666,9 @@ export default function AccountPage() {
   }, [api]);
   const deleteListing = useCallback(async (id) => {
     if (!window.confirm("Delete this listing?")) return;
-    await api.delete(`/listings/${id}`);
+    setActionError("");
+    try { await api.delete(`/listings/${id}`); }
+    catch (error) { setActionError(error.response?.data?.error || "Could not delete this listing."); return; }
     setData((old) => ({
       ...old,
       listings: old.listings.filter((item) => item.id !== id),
@@ -669,7 +676,9 @@ export default function AccountPage() {
   }, [api]);
   const toggleListing = useCallback(async (item) => {
     const updated = { ...item, is_active: item.is_active === false };
-    await api.put(`/listings/${item.id}`, { is_active: updated.is_active });
+    setActionError("");
+    try { await api.put(`/listings/${item.id}`, { is_active: updated.is_active }); }
+    catch (error) { setActionError(error.response?.data?.error || "Could not update this listing."); return; }
     setData((old) => ({
       ...old,
       listings: old.listings.map((row) => (row.id === item.id ? updated : row)),
@@ -681,7 +690,8 @@ export default function AccountPage() {
         rentals: <RentalsTab rentals={data.rentals} />,
         listings: (
           <>
-            <OwnerRequestQueue
+            <nav aria-label="Lending sections" className="mb-5 flex gap-6 border-b border-ink/10">{[['requests', 'Rental requests'], ['items', 'My items']].map(([id, label]) => <button key={id} onClick={() => setLendingView(id)} aria-current={lendingView === id ? 'page' : undefined} className={`border-b-2 pb-3 text-sm font-semibold ${lendingView === id ? 'border-mesh-600 text-mesh-700' : 'border-transparent text-ink/55'}`}>{label}</button>)}</nav>
+            {lendingView === 'requests' ? <OwnerRequestQueue
               requests={ownerRequests}
               summary={ownerSummary}
               loading={ownerLoading}
@@ -691,13 +701,12 @@ export default function AccountPage() {
               onRespond={respondToRequest}
               selectedListingId={selectedListingId}
               onClearFilter={() => setSelectedListingId("")}
-            />
-            <ListingsTab
+            /> : <ListingsTab
               listings={data.listings}
               onDelete={deleteListing}
               onToggle={toggleListing}
               onFocusRequests={focusRequests}
-            />
+            />}
           </>
         ),
         history: <HistoryTab api={api} />,
@@ -710,17 +719,16 @@ export default function AccountPage() {
         ),
         settings: <SettingsTab user={user} save={updateProfile} />,
       })[active],
-    [active, data, user, ownerRequests, ownerSummary, ownerLoading, ownerConnection, ownerError, responding, selectedListingId, api, respondToRequest, focusRequests, removeSaved, deleteListing, toggleListing, navigate, updateProfile],
+    [active, lendingView, data, user, ownerRequests, ownerSummary, ownerLoading, ownerConnection, ownerError, responding, selectedListingId, api, respondToRequest, focusRequests, removeSaved, deleteListing, toggleListing, navigate, updateProfile],
   );
   return (
     <main className="min-h-screen bg-paper">
       <div className="mx-auto w-full max-w-[1240px] px-5 sm:px-7 lg:px-10 py-8 sm:py-12">
-        <div className="mb-7">
-          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600 flex items-center gap-1"><UserRound size={14} /> Account</span>
-          <h1 className="mt-2 font-display text-4xl font-semibold">
-            Your CampusMesh.
-          </h1>
+        <header className="mb-7 flex flex-wrap items-start justify-between gap-4"><div><h1 className="page-title">{lending ? 'Lending dashboard' : active === 'settings' ? 'Account settings' : active === 'saved' ? 'Saved items' : active === 'history' ? 'Rental history' : 'My rentals'}</h1><p className="page-copy">{lending ? 'Manage your items, respond to requests, and arrange handovers.' : 'Track your requests, pickups, and returns.'}</p></div><Link to={lending ? '/add-listing' : '/marketplace'} className="brand-button text-sm"><CirclePlus size={17}/>{lending ? 'List an item' : 'Browse items'}</Link></header>
+        <div className="mb-7 grid grid-cols-3 gap-3">
+          {(lending ? [['Listed items', loading || loadErrors.listings ? '—' : data.listings.length], ['Pending requests', ownerLoading || ownerError ? '—' : ownerSummary.pending], ['Active rentals', ownerLoading || ownerError ? '—' : ownerSummary.active]] : [['Total rentals', loading || loadErrors.rentals ? '—' : data.rentals.length], ['Active rentals', loading || loadErrors.rentals ? '—' : data.rentals.filter(r => matchesRentalFilter(r.status, 'Active')).length], ['Saved items', loading || loadErrors.saved ? '—' : data.saved.length]]).map(([label,value]) => <div key={label} className="panel p-4 sm:p-5"><span className="text-xs text-ink/60">{label}</span><strong className="mt-3 block text-3xl font-semibold tracking-tight">{value}</strong></div>)}
         </div>
+        {actionError && <p role="alert" className="mb-5 rounded-xl bg-red-50 p-4 text-sm font-bold text-red-700">{actionError}</p>}
         {paymentConfirmation && (
           <motion.div
             initial={{ opacity: 0, y: -8 }}
@@ -730,19 +738,19 @@ export default function AccountPage() {
           >
             <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-mesh-600 text-white"><Check size={17} /></span>
             <div>
-              <p className="font-extrabold text-mesh-800">Payment received</p>
+              <p className="font-semibold text-mesh-800">Payment received</p>
               <p className="mt-1 text-mesh-700">{paymentConfirmation.message || "Your rental request is now visible below."}</p>
             </div>
           </motion.div>
         )}
-        <div className="grid items-start gap-6 lg:grid-cols-[220px_1fr]">
-          <aside className="rounded-[1.6rem] border border-mesh-900/10 bg-white shadow-[0_10px_40px_rgba(35,58,40,.06)] p-2">
+        <div className={lending ? "" : "grid items-start gap-6 lg:grid-cols-[200px_1fr]"}>
+          {!lending && <aside className="rounded-xl border border-mesh-900/10 bg-white  p-2">
             <nav className="grid grid-cols-2 gap-1 sm:grid-cols-4 lg:grid-cols-1">
-              {tabs.map(([id, label, Icon]) => (
+              {tabs.filter(([id]) => id !== "listings").map(([id, label, Icon]) => (
                 <button
                   key={id}
                   onClick={() => navigate(`/account/${id}`)}
-                  className={`relative flex items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-bold ${active === id ? "text-mesh-800" : "text-ink/50 hover:bg-mesh-50"}`}
+                  className={`relative isolate flex items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-bold ${active === id ? "text-mesh-800" : "text-ink/50 hover:bg-mesh-50"}`}
                 >
                   {active === id && (
                     <motion.span
@@ -755,7 +763,7 @@ export default function AccountPage() {
                 </button>
               ))}
             </nav>
-          </aside>
+          </aside>}
           <section>
             {loading ? (
               <div className="grid gap-4">
@@ -763,7 +771,10 @@ export default function AccountPage() {
                 <div className="h-36 animate-pulse rounded-3xl bg-ink/5" />
               </div>
             ) : (
-              content
+              loadErrors[active] ? <div role="alert" className="rounded-2xl border border-red-200 bg-white p-8 text-center">
+                <AlertCircle className="mx-auto text-red-500" /><h2 className="mt-4 font-semibold">Something didn’t load.</h2>
+                <p className="mt-2 text-sm text-ink/65">{loadErrors[active]}</p><button onClick={load} className="brand-button mt-5">Try again</button>
+              </div> : content
             )}
           </section>
         </div>

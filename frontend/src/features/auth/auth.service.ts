@@ -115,7 +115,7 @@ export function getApiError(err: unknown, fallback = 'Something went wrong. Plea
     return resp?.data?.message || resp?.data?.error || fallback;
   }
   if (err && typeof err === 'object' && 'request' in err) {
-    return 'Cannot reach the CampusMesh server. Start the backend on port 3003 and try again.';
+    return 'We couldn’t connect. Check your connection and try again.';
   }
   return fallback;
 }

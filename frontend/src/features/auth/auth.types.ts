@@ -70,6 +70,8 @@ export interface LoginResponse {
 
 export interface MessageResponse {
   message: string;
+  retryAfter?: number;
+  expiresIn?: number;
 }
 
 // ── Form State ──────────────────────────────

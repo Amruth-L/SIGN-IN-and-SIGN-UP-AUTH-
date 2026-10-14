@@ -25,6 +25,7 @@ exports.upsertRoute = async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Courier account not found.' });
     }
+    await client.query("UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW() WHERE courier_id=$1 AND status='PENDING'", [req.user.id]);
     await client.query('UPDATE courier_route_availability SET is_active = FALSE WHERE courier_id = $1 AND is_active', [req.user.id]);
     const { rows } = await client.query(`INSERT INTO courier_route_availability
       (courier_id, origin_location_id, destination_location_id, route_node_ids, available_until, max_detour_meters)
@@ -55,7 +56,7 @@ exports.currentRoute = async (req, res) => {
     JOIN campus_locations o ON o.id=cra.origin_location_id
     JOIN campus_locations d ON d.id=cra.destination_location_id WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW() ORDER BY cra.created_at DESC LIMIT 1`, [req.user.id]);
   if (!rows[0]) {
-    await pool.query('UPDATE users SET delivery_available=FALSE WHERE id=$1', [req.user.id]);
+    await pool.query('UPDATE users SET delivery_available=FALSE WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW())', [req.user.id]);
     return res.json({ route: null, delivery_available: false });
   }
   const locations = await loadLocations(rows[0].origin_location_id, rows[0].destination_location_id);
@@ -63,9 +64,20 @@ exports.currentRoute = async (req, res) => {
 };
 
 exports.deactivateRoute = async (req, res) => {
-  await pool.query('UPDATE courier_route_availability SET is_active=FALSE WHERE courier_id=$1 AND is_active', [req.user.id]);
-  await pool.query('UPDATE users SET delivery_available=FALSE WHERE id=$1', [req.user.id]);
-  res.json({ route: null, delivery_available: false });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [req.user.id]);
+    await client.query('UPDATE courier_route_availability SET is_active=FALSE WHERE courier_id=$1 AND is_active', [req.user.id]);
+    await client.query('UPDATE users SET delivery_available=FALSE WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW())', [req.user.id]);
+    await client.query("UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW() WHERE courier_id=$1 AND status='PENDING'", [req.user.id]);
+    await client.query('COMMIT');
+    res.json({ route: null, delivery_available: false });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('[CourierController] deactivateRoute error:', error.message);
+    res.status(500).json({ error: 'Could not update your availability.' });
+  } finally { client.release(); }
 };
 
 exports.getOffers = async (req, res) => {
@@ -89,8 +101,10 @@ exports.declineOffer = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [req.user.id]);
+    await client.query('SELECT id FROM delivery_requests WHERE id=$1 FOR UPDATE', [req.params.id]);
     const { rows } = await client.query(`UPDATE delivery_offers SET status='DECLINED', responded_at=NOW()
-      WHERE delivery_id=$1 AND courier_id=$2 AND status='PENDING' RETURNING *`, [req.params.id, req.user.id]);
+      WHERE delivery_id=$1 AND courier_id=$2 AND status='PENDING' AND expires_at>NOW() RETURNING *`, [req.params.id, req.user.id]);
     if (!rows[0]) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Active offer not found.' });

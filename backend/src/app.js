@@ -1,6 +1,8 @@
 const cors = require('cors');
 const pool = require('./config/database');
 const express = require('express');
+const path = require('node:path');
+const { existsSync } = require('node:fs');
 const authRoutes = require('./modules/auth/auth.routes');
 const activityRoutes = require('./modules/activity/activity.routes');
 const campusRoutes = require('./modules/campus/campus.routes');
@@ -41,10 +43,26 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/pricing', pricingRoutes);
 app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/intelligence', require('./modules/intelligence/intelligence.routes'));
+app.use('/api/support', require('./modules/support/support.routes'));
+app.use('/api/calls', require('./modules/calls/call.routes'));
+app.use('/api/wishes', require('./modules/wishes/wish.routes'));
 app.use('/api/delivery', deliveryRoutes);
 app.use('/api/campus', campusRoutes);
 app.use('/api/courier', courierRoutes);
-app.use('/api/xerox', xeroxRoutes);
+app.use('/api/xerox', (req, res, next) => req.method === 'POST' ? res.status(503).json({ error: 'Campus Print is coming soon.' }) : next(), xeroxRoutes);
+if (process.env.SERVE_FRONTEND === 'true') {
+  const frontendDist = path.resolve(__dirname, '../../frontend/dist');
+  const index = path.join(frontendDist, 'index.html');
+  if (!existsSync(index)) throw new Error('Frontend build missing. Run the root build command before starting the hosted app.');
+  app.use(express.static(frontendDist, { index: false, dotfiles: 'deny' }));
+  app.use((req, res, next) => {
+    // SPA deep links return HTML; missing APIs/assets must keep real 404 responses.
+    if (req.method !== 'GET' || !req.accepts('html') ||
+        /^\/(api|listings|socket\.io|health)(\/|$)/.test(req.path) || /(?:^|\/)\./.test(req.path) || path.extname(req.path)) return next();
+    res.set('Cache-Control', 'no-store').sendFile(index);
+  });
+}
 app.use((req, res) => res.status(404).json({ error: 'Route not found.' }));
 app.use((error, req, res, next) => {
   void next;

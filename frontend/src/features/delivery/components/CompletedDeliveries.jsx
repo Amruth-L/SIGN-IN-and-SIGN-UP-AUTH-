@@ -8,9 +8,7 @@ import {
   Package,
   Printer,
   RotateCcw,
-  Sparkles,
   Truck,
-  UserRound,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -28,6 +26,7 @@ const formatDateTime = (val) => {
 };
 
 const taskTypeConfig = {
+  WISH_DELIVERY: { label: "Wish Box errand", tone: "border-mesh-200 bg-mesh-50 text-mesh-800", icon: Package },
   RENTAL_OUTBOUND: {
     label: "Rental Delivery",
     tone: "border-sky-200 bg-sky-50 text-sky-800",
@@ -70,7 +69,7 @@ export default function CompletedDeliveries({ deliveries = [] }) {
   };
 
   return (
-    <section className="mt-8 rounded-[1.8rem] border border-mesh-900/10 bg-white p-6 shadow-[0_12px_45px_rgba(35,58,40,.06)]">
+    <section className="panel p-5">
       {/* Section Header */}
       <div className="flex flex-col gap-4 border-b border-ink/10 pb-5 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -78,32 +77,32 @@ export default function CompletedDeliveries({ deliveries = [] }) {
             <span className="grid size-8 place-items-center rounded-xl bg-mesh-50 text-mesh-700">
               <CheckCircle2 size={18} />
             </span>
-            <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">
+            <span className="text-xs font-medium text-ink/65">
               Courier History
             </span>
           </div>
-          <h2 className="mt-2 text-2xl font-black text-ink">
+          <h2 className="mt-2 text-2xl font-semibold text-ink">
             Completed Deliveries
           </h2>
           <p className="mt-1 text-xs text-ink/50">
-            Exact records of all your successful campus drop-offs and verified earnings.
+            Completed trips and the amount earned from each delivery.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="rounded-2xl border border-mesh-200 bg-mesh-50/70 px-4 py-2 text-right">
-            <span className="block text-[10px] font-extrabold uppercase tracking-wider text-mesh-800/60">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-mesh-800/60">
               Total Courier Earnings
             </span>
-            <b className="text-xl font-black text-mesh-800">
+            <b className="text-xl font-semibold text-mesh-800">
               {formatCurrency(totalEarnings)}
             </b>
           </div>
           <div className="rounded-2xl border border-ink/10 bg-paper px-4 py-2 text-right">
-            <span className="block text-[10px] font-extrabold uppercase tracking-wider text-ink/40">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-ink/40">
               Successful
             </span>
-            <b className="text-xl font-black text-ink">{completedList.length}</b>
+            <b className="text-xl font-semibold text-ink">{completedList.length}</b>
           </div>
         </div>
       </div>
@@ -116,11 +115,12 @@ export default function CompletedDeliveries({ deliveries = [] }) {
             ["RENTAL_OUTBOUND", "Rental Outbound"],
             ["RENTAL_RETURN", "Returns"],
             ["XEROX_DELIVERY", "Xerox Print"],
+            ["WISH_DELIVERY", "Wish Box"],
           ].map(([key, label]) => (
             <button
               key={key}
               onClick={() => setFilter(key)}
-              className={`rounded-full px-3.5 py-1.5 text-xs font-extrabold transition ${
+              className={`rounded-full px-3.5 py-1.5 text-xs font-semibold transition ${
                 filter === key
                   ? "bg-ink text-white shadow-sm"
                   : "border border-ink/10 bg-paper text-ink/60 hover:bg-white"
@@ -136,9 +136,9 @@ export default function CompletedDeliveries({ deliveries = [] }) {
       {filtered.length === 0 ? (
         <div className="mt-6 rounded-2xl border border-dashed border-ink/15 bg-paper/40 p-10 text-center">
           <Truck className="mx-auto text-ink/20" size={32} />
-          <h3 className="mt-3 font-extrabold text-ink">No completed deliveries yet</h3>
+          <h3 className="mt-3 font-semibold text-ink">No completed deliveries yet</h3>
           <p className="mt-1 max-w-sm mx-auto text-xs leading-5 text-ink/50">
-            Once you accept an available delivery request and finish the drop-off verification, its complete data and earnings will appear here.
+            Complete your first delivery to see its earnings here.
           </p>
         </div>
       ) : (
@@ -176,18 +176,18 @@ export default function CompletedDeliveries({ deliveries = [] }) {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-base font-extrabold text-ink">
+                        <h3 className="text-base font-semibold text-ink">
                           {item.listing_title ||
                             item.item_description ||
                             "Campus Delivery"}
                         </h3>
                         <span
-                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-extrabold ${config.tone}`}
+                          className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${config.tone}`}
                         >
                           <TaskIcon size={12} />
                           {config.label}
                         </span>
-                        <span className="inline-flex items-center gap-1 rounded-full border border-mesh-200 bg-mesh-50 px-2.5 py-0.5 text-[10px] font-extrabold text-mesh-800">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-mesh-200 bg-mesh-50 px-2.5 py-0.5 text-[10px] font-semibold text-mesh-800">
                           <CheckCircle2 size={12} className="text-mesh-600" />
                           Delivered
                         </span>
@@ -196,7 +196,7 @@ export default function CompletedDeliveries({ deliveries = [] }) {
                       {/* Route details */}
                       <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
                         <div className="rounded-xl bg-paper p-2.5">
-                          <span className="block text-[10px] font-extrabold uppercase tracking-wider text-ink/40">
+                          <span className="block text-[10px] font-semibold uppercase tracking-wider text-ink/40">
                             Pickup Point
                           </span>
                           <p className="mt-1 flex items-start gap-1.5 font-bold text-ink">
@@ -212,7 +212,7 @@ export default function CompletedDeliveries({ deliveries = [] }) {
                         </div>
 
                         <div className="rounded-xl bg-paper p-2.5">
-                          <span className="block text-[10px] font-extrabold uppercase tracking-wider text-ink/40">
+                          <span className="block text-[10px] font-semibold uppercase tracking-wider text-ink/40">
                             Drop-off Destination
                           </span>
                           <p className="mt-1 flex items-start gap-1.5 font-bold text-ink">
@@ -248,20 +248,20 @@ export default function CompletedDeliveries({ deliveries = [] }) {
                   {/* Earnings & Actions on Right */}
                   <div className="flex shrink-0 flex-row items-center justify-between border-t border-ink/5 pt-3 sm:flex-col sm:items-end sm:border-0 sm:pt-0">
                     <div className="text-left sm:text-right">
-                      <span className="block text-[10px] font-extrabold uppercase tracking-wider text-mesh-700">
-                        Payout Earned
+                      <span className="block text-[10px] font-semibold uppercase tracking-wider text-mesh-700">
+                        {item.task_type === "WISH_DELIVERY" ? "Deal value (includes item cost)" : "Delivery earning"}
                       </span>
-                      <strong className="block text-2xl font-black text-mesh-700">
-                        +{formatCurrency(item.courier_earning)}
+                      <strong className="block text-2xl font-semibold text-mesh-700">
+                        {item.task_type === "WISH_DELIVERY" ? formatCurrency(item.agreed_amount) : `+${formatCurrency(item.courier_earning)}`}
                       </strong>
                     </div>
 
                     <Link
-                      to={`/delivery/${item.id}/track`}
-                      className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-ink/15 bg-white px-3 py-1.5 text-xs font-extrabold text-ink/75 transition hover:border-mesh-500 hover:bg-mesh-50 hover:text-mesh-800"
+                      to={item.task_type === "WISH_DELIVERY" ? "/delivery/wishes" : `/delivery/${item.id}/track`}
+                      className="mt-2 inline-flex items-center gap-1.5 rounded-xl border border-ink/15 bg-white px-3 py-1.5 text-xs font-semibold text-ink/75 transition hover:border-mesh-500 hover:bg-mesh-50 hover:text-mesh-800"
                     >
                       <ExternalLink size={13} />
-                      View Route
+                      View details
                     </Link>
                   </div>
                 </div>

@@ -13,6 +13,7 @@ function shownTo(delivery, stage) {
 }
 
 function validStages(delivery) {
+  if (delivery.task_type === 'WISH_DELIVERY') return ['DELIVERY'];
   if (delivery.task_type === 'RENTAL_RETURN') return ['RETURN_PICKUP', 'RETURN_RECEIVED'];
   if (delivery.task_type === 'XEROX_DELIVERY') return ['XEROX_PICKUP', 'DELIVERY'];
   return ['PICKUP', 'DELIVERY'];
@@ -40,7 +41,8 @@ async function issueCredential(deliveryId, stage, userId) {
     };
   }
 
-  if (!pickupStage) {
+  if (!pickupStage && delivery.task_type === 'WISH_DELIVERY' && !delivery.picked_up_at) throw Object.assign(new Error('Confirm item collection first.'), { status: 409 });
+  if (!pickupStage && delivery.task_type !== 'WISH_DELIVERY') {
     const previousStage = stage === 'RETURN_RECEIVED'
       ? 'RETURN_PICKUP'
       : stage === 'DELIVERY' && delivery.task_type === 'XEROX_DELIVERY'
@@ -82,7 +84,8 @@ async function verifyCredential(deliveryId, courierId, { stage, method, value })
         ? ['RETURN_IN_TRANSIT']
         : ['ARRIVED_AT_DESTINATION'];
     if (!allowedStatuses.includes(delivery.status)) throw Object.assign(new Error(`The delivery is not ready for ${stage.replaceAll('_', ' ').toLowerCase()} verification.`), { status: 409 });
-    if (!pickupStage) {
+    if (!pickupStage && delivery.task_type === 'WISH_DELIVERY' && !delivery.picked_up_at) throw Object.assign(new Error('Confirm item collection first.'), { status: 409 });
+  if (!pickupStage && delivery.task_type !== 'WISH_DELIVERY') {
       const previousStage = stage === 'RETURN_RECEIVED'
         ? 'RETURN_PICKUP'
         : stage === 'DELIVERY' && delivery.task_type === 'XEROX_DELIVERY'
@@ -119,6 +122,7 @@ async function verifyCredential(deliveryId, courierId, { stage, method, value })
       if (stage === 'RETURN_PICKUP') await client.query("UPDATE rentals SET status='RETURN_IN_TRANSIT', updated_at=NOW() WHERE id=$1", [delivery.rental_id]);
       if (stage === 'RETURN_RECEIVED') await client.query("UPDATE rentals SET status='COMPLETED', completed_at=NOW(), updated_at=NOW() WHERE id=$1", [delivery.rental_id]);
     }
+    if (delivery.wish_request_id && stage === 'DELIVERY') await client.query("UPDATE wish_requests SET status='COMPLETED', updated_at=NOW() WHERE id=$1", [delivery.wish_request_id]);
     if (delivery.xerox_request_id && stage === 'DELIVERY') await client.query("UPDATE xerox_requests SET status='COMPLETED', completed_at=NOW() WHERE id=$1", [delivery.xerox_request_id]);
     await client.query(`INSERT INTO transaction_events (rental_id, delivery_id, xerox_request_id, event_type, actor_user_id, metadata)
       VALUES ($1,$2,$3,$4,$5,$6)`, [delivery.rental_id, deliveryId, delivery.xerox_request_id, `${stage}_VERIFIED`, courierId, { method }]);

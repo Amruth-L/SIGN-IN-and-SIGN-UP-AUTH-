@@ -28,6 +28,7 @@ exports.getDeliveryStats = async (req, res) => {
        WHERE offer.courier_id = $1
          AND courier.delivery_available
          AND EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW())
+         AND NOT EXISTS (SELECT 1 FROM wish_requests w WHERE w.courier_id=$1 AND w.status IN ('CHECKING','QUOTED','PAYMENT_PENDING')) AND NOT EXISTS (SELECT 1 FROM delivery_requests active WHERE active.courier_id=$1 AND active.status NOT IN ('COMPLETED','DELIVERED','CANCELLED','FAILED'))
          AND offer.status = 'PENDING' AND offer.expires_at > NOW()
          AND dr.status IN ('MATCHING_COURIER','AVAILABLE','NO_COURIER_AVAILABLE','RETURN_MATCHING')
          AND dr.customer_id IS DISTINCT FROM $1
@@ -77,7 +78,7 @@ exports.getAvailableDeliveries = async (req, res) => {
     const online = Boolean(route?.delivery_available);
     if (!route) {
       await pool.query('UPDATE courier_route_availability SET is_active=FALSE WHERE courier_id=$1 AND is_active AND available_until <= NOW()', [userId]);
-      await pool.query('UPDATE users SET delivery_available=FALSE WHERE id=$1', [userId]);
+      await pool.query('UPDATE users SET delivery_available=FALSE WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW())', [userId]);
     }
     await pool.query(
       "UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW() WHERE courier_id=$1 AND status='PENDING' AND expires_at <= NOW()",
@@ -85,7 +86,7 @@ exports.getAvailableDeliveries = async (req, res) => {
     );
 
     const result = await pool.query(
-      "SELECT offer.id AS offer_id, offer.delivery_id, offer.match_score AS offer_match_score, offer.score_breakdown AS offer_score_breakdown, offer.expires_at AS offer_expires_at, dr.*, l.title AS listing_title, l.image_url AS listing_image, l.category AS listing_category, u_seller.name AS seller_name, u_seller.hostel AS seller_hostel, u_customer.name AS customer_name, u_customer.hostel AS customer_hostel FROM delivery_offers offer JOIN delivery_requests dr ON dr.id=offer.delivery_id JOIN users courier ON courier.id=offer.courier_id LEFT JOIN listings l ON l.id=dr.listing_id LEFT JOIN users u_seller ON u_seller.id=dr.seller_id LEFT JOIN users u_customer ON u_customer.id=dr.customer_id WHERE offer.courier_id=$1 AND courier.delivery_available AND EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW()) AND offer.status='PENDING' AND offer.expires_at > NOW() AND dr.status IN ('MATCHING_COURIER','AVAILABLE','NO_COURIER_AVAILABLE','RETURN_MATCHING') AND dr.customer_id IS DISTINCT FROM $1 AND dr.seller_id IS DISTINCT FROM $1 AND NOT ($1 = ANY(COALESCE(dr.declined_by, ARRAY[]::uuid[]))) ORDER BY offer.match_score DESC, dr.created_at DESC",
+      "SELECT offer.id AS offer_id, offer.delivery_id, offer.match_score AS offer_match_score, offer.score_breakdown AS offer_score_breakdown, offer.expires_at AS offer_expires_at, offer.offered_at AS offer_created_at, dr.*, l.title AS listing_title, l.image_url AS listing_image, l.category AS listing_category, u_seller.name AS seller_name, u_seller.hostel AS seller_hostel, u_customer.name AS customer_name, u_customer.hostel AS customer_hostel FROM delivery_offers offer JOIN delivery_requests dr ON dr.id=offer.delivery_id JOIN users courier ON courier.id=offer.courier_id LEFT JOIN listings l ON l.id=dr.listing_id LEFT JOIN users u_seller ON u_seller.id=dr.seller_id LEFT JOIN users u_customer ON u_customer.id=dr.customer_id WHERE offer.courier_id=$1 AND courier.delivery_available AND EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW()) AND NOT EXISTS (SELECT 1 FROM wish_requests w WHERE w.courier_id=$1 AND w.status IN ('CHECKING','QUOTED','PAYMENT_PENDING')) AND NOT EXISTS (SELECT 1 FROM delivery_requests active WHERE active.courier_id=$1 AND active.status NOT IN ('COMPLETED','DELIVERED','CANCELLED','FAILED')) AND offer.status='PENDING' AND offer.expires_at > NOW() AND dr.status IN ('MATCHING_COURIER','AVAILABLE','NO_COURIER_AVAILABLE','RETURN_MATCHING') AND dr.customer_id IS DISTINCT FROM $1 AND dr.seller_id IS DISTINCT FROM $1 AND NOT ($1 = ANY(COALESCE(dr.declined_by, ARRAY[]::uuid[]))) ORDER BY offer.match_score DESC, dr.created_at DESC",
       [userId],
     );
 
@@ -249,9 +250,23 @@ exports.acceptDelivery = async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Go online before accepting a delivery.' });
     }
+    // The user row lock serializes simultaneous accepts for the same courier.
+    const current = await client.query(`SELECT id FROM delivery_requests WHERE courier_id=$1
+      AND status NOT IN ('COMPLETED','DELIVERED','CANCELLED','FAILED') UNION ALL SELECT id FROM wish_requests WHERE courier_id=$1 AND status IN ('CHECKING','QUOTED','PAYMENT_PENDING') LIMIT 1`, [userId]);
+    if (current.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Finish your current delivery before accepting another.' });
+    }
+    // Lock the task before its offers. Competing couriers must not each hold
+    // their own offer while waiting for the same task (a deadlock).
+    const task = await client.query('SELECT courier_id, status FROM delivery_requests WHERE id=$1 FOR UPDATE', [id]);
+    if (!task.rows[0] || task.rows[0].courier_id || !['AVAILABLE','MATCHING_COURIER','RETURN_MATCHING','NO_COURIER_AVAILABLE'].includes(task.rows[0].status)) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'This delivery is no longer available.' });
+    }
     const offer = await client.query(
       `UPDATE delivery_offers SET status='ACCEPTED', responded_at=NOW()
-      WHERE delivery_id=$1 AND courier_id=$2 AND status='PENDING' AND expires_at>NOW() RETURNING match_score`,
+      WHERE delivery_id=$1 AND courier_id=$2 AND status='PENDING' AND expires_at>NOW() RETURNING match_score, score_breakdown`,
       [id, userId],
     );
     if (!offer.rowCount) {
@@ -261,7 +276,7 @@ exports.acceptDelivery = async (req, res) => {
     const result = await client.query(
       `UPDATE delivery_requests 
        SET courier_id = $1, status = 'COURIER_ASSIGNED', accepted_at = NOW(), match_score=$3, updated_at = NOW()
-       WHERE id = $2 AND status IN ('AVAILABLE','MATCHING_COURIER','RETURN_MATCHING') AND customer_id IS DISTINCT FROM $1 AND seller_id IS DISTINCT FROM $1
+       WHERE id = $2 AND courier_id IS NULL AND status IN ('AVAILABLE','MATCHING_COURIER','RETURN_MATCHING','NO_COURIER_AVAILABLE') AND customer_id IS DISTINCT FROM $1 AND seller_id IS DISTINCT FROM $1
        RETURNING *`,
       [userId, id, offer.rows[0]?.match_score || null],
     );
@@ -274,11 +289,13 @@ exports.acceptDelivery = async (req, res) => {
           error: 'This delivery has already been accepted by another courier or is no longer available.',
         });
     }
-    await client.query(
-      "UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW() WHERE delivery_id=$1 AND courier_id<>$2 AND status='PENDING'",
+    const removedOffers = await client.query(
+      "UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW() WHERE delivery_id=$1 AND courier_id<>$2 AND status='PENDING' RETURNING courier_id, delivery_id",
       [id, userId],
     );
     const delivery = result.rows[0];
+    const prediction = offer.rows[0]?.score_breakdown?.eta;
+    if (prediction) await client.query('UPDATE delivery_requests SET eta_prediction=$2,route_distance_meters=$3,estimated_time=$4 WHERE id=$1',[id,prediction,offer.rows[0].score_breakdown.routeDistanceMeters,`${prediction.lower}–${prediction.upper} min after pickup`]);
     if (delivery.rental_id)
       await client.query(
         `UPDATE rentals SET status=CASE WHEN $2='RENTAL_RETURN' THEN 'RETURN_COURIER_ASSIGNED' ELSE 'COURIER_ASSIGNED' END,
@@ -302,6 +319,7 @@ exports.acceptDelivery = async (req, res) => {
       id, delivery_id: id, rental_id: delivery.rental_id, listing_id: delivery.listing_id,
       item_description: delivery.item_description, status: 'COURIER_ASSIGNED', courier_id: userId,
     };
+    for (const removed of removedOffers.rows) emitUser(removed.courier_id, 'delivery:offer-unavailable', { delivery_id: removed.delivery_id });
     emitDelivery(id, 'delivery:assigned', payload);
     emitDelivery(id, 'delivery:status', payload);
     emitUser(userId, 'delivery:assigned', payload);
@@ -360,11 +378,16 @@ exports.updateStatus = async (req, res) => {
       return res.status(404).json({ error: 'Delivery not found.' });
     }
     current = normalizeStatus(delivery.status);
-    if (!TRANSITIONS[current]?.includes(next)) {
+    const wishPickup = delivery.task_type === 'WISH_DELIVERY' && current === 'ARRIVED_AT_PICKUP' && next === 'IN_TRANSIT';
+    if (wishPickup) {
+      const paid = await client.query("SELECT 1 FROM wish_payments WHERE wish_id=$1 AND status='PAID'", [delivery.wish_request_id]);
+      if (!paid.rowCount) throw Object.assign(new Error('Payment must be confirmed before collection.'), { status: 409 });
+    }
+    if (!wishPickup && !TRANSITIONS[current]?.includes(next)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: `Cannot move from ${current} to ${next}.` });
     }
-    const timestamp =
+    const timestamp = wishPickup ? ', picked_up_at = NOW()' :
       next === 'ARRIVED_AT_PICKUP'
         ? ', arrived_pickup_at = NOW()'
         : next === 'ARRIVED_AT_DESTINATION'

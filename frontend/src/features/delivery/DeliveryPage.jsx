@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import { CheckCircle2, Radio, ShieldCheck, Truck, Users } from "lucide-react";
+import { CheckCircle2, Bell, Wallet, Truck } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { normalizeCampusLocations } from "../../lib/campus";
 import { API_BASE_URL } from "../../lib/api";
@@ -11,6 +11,8 @@ import OffersPanel from "./components/OffersPanel";
 import RouteSetup from "./components/RouteSetup";
 import CompletedDeliveries from "./components/CompletedDeliveries";
 
+import { Link, useSearchParams } from 'react-router-dom';
+import { toLocalDateTime } from '../../lib/delivery';
 const API = API_BASE_URL;
 const listFrom = (result, key) => {
   if (result.status !== "fulfilled") return [];
@@ -21,6 +23,11 @@ const activeStatuses = new Set(["COURIER_ASSIGNED", "ACCEPTED", "GOING_TO_PICKUP
 
 export default function DeliveryPage() {
   const { user, api } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const view = ['active', 'history'].includes(params.get('view')) ? params.get('view') : 'requests';
+  const setView = next => setParams(next === 'requests' ? {} : { view: next });
+  const routeInitialized = useRef(false);
+  const [metricsError, setMetricsError] = useState(true);
   const [campus, setCampus] = useState();
   const [locations, setLocations] = useState([]);
   const [offers, setOffers] = useState([]);
@@ -33,13 +40,13 @@ export default function DeliveryPage() {
   const [online, setOnline] = useState(Boolean(user?.delivery_available));
   const [busyId, setBusyId] = useState("");
   const [routeSaving, setRouteSaving] = useState(false);
-  const [notice, setNotice] = useState("Save a route to start receiving matched delivery requests.");
+  const [notice, setNotice] = useState("");
   const [connection, setConnection] = useState("reconnecting");
   const [availability, setAvailability] = useState({ online: false, routeActive: false, reason: "OFFLINE" });
   const [lastUpdated, setLastUpdated] = useState(null);
   const [scanner, setScanner] = useState(false);
   const [verify, setVerify] = useState({ stage: "PICKUP", method: "OTP", value: "" });
-  const [form, setForm] = useState({ origin_location_id: "", destination_location_id: "", available_until: new Date(Date.now() + 7200000).toISOString().slice(0, 16), max_detour_meters: 250 });
+  const [form, setForm] = useState({ origin_location_id: "", destination_location_id: "", available_until: toLocalDateTime(new Date(Date.now() + 7200000)), max_detour_meters: 250 });
 
   const load = useCallback(async () => {
     const results = await Promise.allSettled([
@@ -70,10 +77,16 @@ export default function DeliveryPage() {
       setAvailability(value?.availability || { online: false, routeActive: false, reason: "NO_OPEN_REQUESTS" });
     }
     if (m.status === "fulfilled") setTasks(listFrom(m, "deliveries"));
+    setMetricsError(s.status !== "fulfilled");
     if (s.status === "fulfilled") setStats(s.value.data);
     if (r.status === "fulfilled") {
       setOnline(Boolean(r.value.data?.route && r.value.data?.delivery_available));
       setDeclaredRoute(r.value.data?.navigation);
+      const saved = r.value.data?.route;
+      if (saved && !routeInitialized.current) {
+        setForm({ origin_location_id: saved.origin_location_id, destination_location_id: saved.destination_location_id, available_until: toLocalDateTime(new Date(saved.available_until)), max_detour_meters: saved.max_detour_meters });
+        routeInitialized.current = true;
+      }
     }
 
     const taskList = m.status === "fulfilled" ? listFrom(m, "deliveries") : [];
@@ -84,8 +97,9 @@ export default function DeliveryPage() {
     const failed = results.filter((result) => result.status === "rejected");
     if (failed.length === results.length) {
       setConnection("offline");
-      setNotice("Backend disconnected. Start the API on port 3003 to receive live delivery requests.");
+      setNotice("Could not refresh your delivery dashboard. Check your connection and retry.");
     } else if (failed.length) {
+      setConnection("offline");
       setNotice(failed[0].reason?.response?.data?.error || "Some delivery data could not be refreshed.");
     } else {
       setConnection("live");
@@ -99,9 +113,10 @@ export default function DeliveryPage() {
     socket.on("disconnect", () => setConnection("reconnecting"));
     socket.on("connect_error", () => setConnection("offline"));
     const refresh = () => load();
-    ["delivery:offer", "delivery:created", "delivery:status", "delivery:assigned", "delivery:completed"].forEach((event) => socket.on(event, refresh));
+    ["delivery:offer", "delivery:offer-unavailable", "delivery:created", "delivery:status", "delivery:assigned", "delivery:completed"].forEach((event) => socket.on(event, refresh));
     socket.on("delivery:location", (location) => { if (location.delivery_id === active?.id) setPosition(location); });
-    return () => socket.close();
+    window.addEventListener("campusmesh:delivery-change", refresh);
+    return () => { socket.close(); window.removeEventListener("campusmesh:delivery-change", refresh); };
   }, [active?.id, load]);
   useEffect(() => {
     const timer = setInterval(() => load(), online || active ? 5000 : 15000);
@@ -109,16 +124,17 @@ export default function DeliveryPage() {
   }, [active, load, online]);
 
   useEffect(() => {
+    if (active?.task_type === 'WISH_DELIVERY') { setRoute(undefined); return undefined; }
     if (!active?.pickup_location_id || !active?.destination_location_id) { setRoute(declaredRoute); return undefined; }
     let cancelled = false;
     api.get(`/api/campus/route?from=${encodeURIComponent(active.pickup_location_id)}&to=${encodeURIComponent(active.destination_location_id)}`).then(({ data }) => { if (!cancelled) setRoute(data); }).catch(() => { if (!cancelled) setRoute(declaredRoute); });
     return () => { cancelled = true; };
-  }, [active?.id, active?.pickup_location_id, active?.destination_location_id, api, declaredRoute]);
+  }, [active?.id, active?.task_type, active?.pickup_location_id, active?.destination_location_id, api, declaredRoute]);
 
   const pickup = useMemo(() => locations.find((item) => item.id === active?.pickup_location_id), [locations, active]);
   const destination = useMemo(() => locations.find((item) => item.id === active?.destination_location_id), [locations, active]);
   const completed = Number(stats.completed ?? tasks.filter((item) => item.status === "COMPLETED").length);
-  const available = Number(stats.available ?? offers.length);
+  const available = offers.filter(offer => new Date(offer.offer_expires_at).getTime() > Date.now()).length;
   const activeCount = Number(stats.active ?? tasks.filter((item) => activeStatuses.has(item.status)).length);
 
   const saveRoute = async (event) => {
@@ -130,6 +146,7 @@ export default function DeliveryPage() {
       setOnline(Boolean(data.delivery_available));
       setDeclaredRoute(data.navigation || data.route);
       setNotice("You are online. Matching delivery requests in real time.");
+      window.dispatchEvent(new Event("campusmesh:delivery-change"));
       await load();
     } catch (error) {
       setNotice(error.response?.data?.error || "Could not save route.");
@@ -138,15 +155,17 @@ export default function DeliveryPage() {
     }
   };
   const toggleOnline = async () => {
-    try { if (online) { await api.delete("/api/courier/routes/current"); setOnline(false); setNotice("You are offline. New delivery requests are paused."); } else setNotice("Save a route to go online."); } catch (error) { setNotice(error.response?.data?.error || "Could not update availability."); }
+    try { if (online) { await api.delete("/api/courier/routes/current"); setOnline(false); setNotice("You are offline. New delivery requests are paused."); window.dispatchEvent(new Event("campusmesh:delivery-change")); await load(); } else setNotice("Save a route to go online."); } catch (error) { setNotice(error.response?.data?.error || "Could not update availability."); }
   };
   const accept = async (offer) => {
+    if (busyId) return;
     setBusyId(offer.delivery_id);
-    try { await api.post(`/api/delivery/${offer.delivery_id}/accept`); setNotice("Delivery accepted. It is now locked to you."); await load(); } catch (error) { setNotice(error.response?.data?.error || "That delivery is no longer available."); } finally { setBusyId(""); }
+    try { await api.post(`/api/delivery/${offer.delivery_id}/accept`); setNotice("Delivery accepted. Head to the pickup point."); setView("active"); window.dispatchEvent(new Event("campusmesh:delivery-change")); await load(); } catch (error) { setNotice(error.response?.data?.error || "That delivery is no longer available."); } finally { setBusyId(""); }
   };
   const decline = async (offer) => {
+    if (busyId) return;
     setBusyId(offer.delivery_id);
-    try { await api.post(`/api/delivery/${offer.delivery_id}/decline`); setNotice("Request skipped."); await load(); } catch (error) { setNotice(error.response?.data?.error || "Could not skip this request."); } finally { setBusyId(""); }
+    try { await api.post(`/api/delivery/${offer.delivery_id}/decline`); setNotice("Request skipped."); window.dispatchEvent(new Event("campusmesh:delivery-change")); await load(); } catch (error) { setNotice(error.response?.data?.error || "Could not skip this request."); } finally { setBusyId(""); }
   };
   const checkpoint = async (target) => {
     const location = target === "pickup" ? pickup : destination;
@@ -170,27 +189,24 @@ export default function DeliveryPage() {
   return (
     <main className="min-h-screen bg-paper pb-16">
       {scanner && <QrScanner onClose={() => setScanner(false)} onResult={(value) => { setVerify((current) => ({ ...current, method: "QR", value })); setScanner(false); }} />}
-      <header className="border-b border-ink/10 bg-[radial-gradient(circle_at_78%_0%,rgba(43,112,68,.16),transparent_34%)]">
-        <div className="mx-auto w-full max-w-[1240px] px-5 py-6 sm:px-7 lg:px-10">
-          <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
-            <div><span className="flex items-center gap-1.5 text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600"><Radio size={13} /> Campus courier network</span><h1 className="mt-3 max-w-[28rem] font-display text-4xl font-semibold leading-[.98]">Make one campus trip do more.</h1><p className="mt-3 max-w-[32rem] text-sm leading-6 text-ink/55">{notice}</p>{lastUpdated && <p className="mt-2 text-[11px] font-semibold text-ink/35">Updated {lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>}</div>
-            <div className="flex flex-wrap items-center gap-2"><div className={online ? "flex w-fit items-center gap-2 rounded-full border border-mesh-300 bg-mesh-50 px-3 py-2 text-xs font-extrabold text-mesh-800" : "flex w-fit items-center gap-2 rounded-full border border-ink/10 bg-white px-3 py-2 text-xs font-extrabold text-ink/50"}><i className={online ? "size-2 rounded-full bg-mesh-500" : "size-2 rounded-full bg-ink/25"} /> {online ? "Online for requests" : "Offline"}</div><div className={connection === "live" ? "flex items-center gap-2 rounded-full border border-mesh-200 bg-mesh-50 px-3 py-2 text-xs font-bold text-mesh-800" : connection === "reconnecting" ? "flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800" : "flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700"}><i className={connection === "live" ? "size-2 rounded-full bg-mesh-500" : connection === "reconnecting" ? "size-2 rounded-full bg-amber-500" : "size-2 rounded-full bg-red-500"} /> {connection === "live" ? "Live updates" : connection === "reconnecting" ? "Reconnecting" : "Backend disconnected"}</div></div>
-          </div>
-          <div className="mt-7 grid grid-cols-2 gap-3 md:grid-cols-4">
-            {[[Users, "Available", available, "matched to your route"], [Truck, "In motion", activeCount, "active delivery"], [CheckCircle2, "Completed", completed, "successful handovers"], [ShieldCheck, "Earned", `₹${Number(stats.totalEarned || 0).toFixed(0)}`, "courier earnings"]].map(([Icon, label, value, hint]) => <div key={label} className="rounded-2xl border border-mesh-900/10 bg-white/80 p-4 backdrop-blur"><Icon size={17} className="text-mesh-600" /><b className="mt-2 block text-2xl font-extrabold">{value}</b><span className="text-xs font-bold text-ink/60">{label}</span><small className="mt-1 block text-[10px] text-ink/35">{hint}</small></div>)}
-          </div>
+      <div className="page-shell">
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div><h1 className="page-title">Delivery dashboard</h1><p className="page-copy">Manage your deliveries and track your earnings.</p><Link to="/delivery/wishes" className="mt-3 inline-flex text-sm font-semibold text-mesh-700">Wish Box errands →</Link></div>
+          <div className="flex items-center gap-3"><button onClick={load} className="text-xs font-medium text-ink/60 hover:text-mesh-700">Refresh</button><span className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium ${online ? 'border-mesh-200 bg-mesh-50 text-mesh-700' : 'border-ink/10 bg-white text-ink/60'}`}><span className={`size-2 rounded-full ${online ? 'bg-mesh-600' : 'bg-ink/30'}`}/>{online ? 'Online for requests' : 'Offline'}</span></div>
+        </header>
+        <div className="my-7 grid grid-cols-2 gap-3 md:grid-cols-4">
+          {[[Bell, 'Pending requests', available, 'requests', 'Waiting for your response'], [Truck, 'In progress', activeCount, 'active', 'Your current delivery'], [CheckCircle2, 'Completed', completed, 'history', 'All completed deliveries'], [Wallet, 'Total earned', `₹${Number(stats.totalEarned || 0).toFixed(0)}`, 'history', 'From completed deliveries']].map(([Icon,label,value,target,hint]) => <button key={label} onClick={() => setView(target)} className="panel p-4 text-left transition hover:border-mesh-300 sm:p-5"><div className="flex items-center justify-between gap-2"><span className="text-xs font-medium text-ink/60">{label}</span><Icon size={17} className="text-mesh-600"/></div><strong className="mt-2 block text-2xl font-semibold tracking-tight sm:mt-4 sm:text-3xl">{metricsError ? '—' : value}</strong><p className="mt-2 hidden text-[11px] text-ink/50 sm:block">{hint}</p></button>)}
         </div>
-      </header>
-      <div className="mx-auto grid w-full max-w-[1240px] gap-5 px-5 py-6 sm:px-7 lg:px-10 xl:grid-cols-[300px_minmax(0,1fr)]">
-        <RouteSetup className="order-2 xl:order-1" form={form} setForm={setForm} locations={locations} onSubmit={saveRoute} online={online} onToggle={toggleOnline} routeSaving={routeSaving} />
-        <div className="order-1 grid items-start gap-5 xl:order-2 lg:grid-cols-[minmax(0,1fr)_minmax(340px,.9fr)]">
-          <div className="space-y-4"><CampusRouteMap campus={campus} route={route} position={position} pickup={pickup} destination={destination} />{route?.instructions?.[0] && <div className="flex items-center justify-between gap-4 rounded-2xl bg-ink px-4 py-3 text-xs text-white"><span>{route.instructions[0]}</span><b className="shrink-0 text-mesh-200">{route.distanceMeters} m · {route.etaMinutes} min</b></div>}<ActiveTask task={active} route={route} verify={verify} setVerify={setVerify} onVerify={confirm} onAdvance={advance} onCheckpoint={checkpoint} onScan={() => setScanner(true)} /></div>
-          <OffersPanel className="order-first lg:order-last" offers={offers} onAccept={accept} onDecline={decline} online={online} reason={availability.reason} connection={connection} busyId={busyId} />
+        {notice && <div role="status" className={`mb-6 flex flex-wrap items-center justify-between gap-3 rounded-lg px-4 py-3 text-xs leading-5 ${connection === 'offline' ? 'bg-red-50 text-red-700' : 'bg-mesh-50 text-mesh-800'}`}><span>{notice}</span><button onClick={load} className="shrink-0 font-semibold underline underline-offset-2">{connection === 'offline' ? 'Retry' : lastUpdated ? 'Refresh' : 'Loading…'}</button></div>}
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0">
+            <nav aria-label="Delivery sections" className="mb-6 flex gap-5 border-b border-ink/10">{[['requests','Requests'],['active','Current delivery'],['history','History & earnings']].map(([id,label]) => <button key={id} onClick={() => setView(id)} aria-current={view === id ? 'page' : undefined} className={`border-b-2 pb-3 text-xs font-semibold sm:text-sm ${view === id ? 'border-mesh-600 text-mesh-700' : 'border-transparent text-ink/55'}`}>{label}</button>)}</nav>
+            {view === 'requests' && <OffersPanel offers={offers} onAccept={accept} onDecline={decline} online={online} reason={availability.reason} connection={connection} busyId={busyId} active={active}/>}
+            {view === 'active' && <div className="space-y-5"><ActiveTask task={active} route={route} verify={verify} setVerify={setVerify} onVerify={confirm} onAdvance={advance} onCheckpoint={checkpoint} onScan={() => setScanner(true)}/>{active && active.task_type !== "WISH_DELIVERY" && <CampusRouteMap campus={campus} route={route} position={position} pickup={pickup} destination={destination}/>}</div>}
+            {view === 'history' && <CompletedDeliveries deliveries={tasks}/>}
+          </div>
+          <aside className="space-y-4"><RouteSetup form={form} setForm={setForm} locations={locations} onSubmit={saveRoute} online={online} onToggle={toggleOnline} routeSaving={routeSaving}/><div className="px-2 text-xs leading-6 text-ink/55">Requests are matched to your route. Accept one delivery at a time. Earnings are recorded after the handover is complete.</div>{active && view !== 'active' && <button onClick={() => setView('active')} className="secondary-button w-full"><Truck size={16}/> Continue current delivery</button>}</aside>
         </div>
-      </div>
-
-      <div className="mx-auto w-full max-w-[1240px] px-5 sm:px-7 lg:px-10">
-        <CompletedDeliveries deliveries={tasks} />
       </div>
     </main>
   );

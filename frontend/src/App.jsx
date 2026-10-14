@@ -1,4 +1,11 @@
-import { Navigate, Route, Routes, useParams } from "react-router-dom";
+import {
+  Navigate,
+  Route,
+  Routes,
+  useParams,
+  useLocation,
+  Link,
+} from "react-router-dom";
 import AppNavbar from "./components/layout/AppNavbar";
 import PrivateRoute from "./components/PrivateRoute";
 import { useAuth } from "./context/AuthContext";
@@ -16,7 +23,6 @@ import DepositPayment from "./pages/DepositPayment";
 import EditListing from "./pages/EditListing";
 import ForgotPassword from "./features/auth/ForgotPasswordPage";
 import Login from "./features/auth/LoginPage";
-import OwnerDashboard from "./pages/OwnerDashboard";
 import PaymentFailed from "./pages/PaymentFailed";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import RentalPayment from "./pages/RentalPayment";
@@ -25,7 +31,11 @@ import RentDetails from "./pages/RentDetails";
 import RentSummary from "./pages/RentSummary";
 import Signup from "./features/auth/SignupPage";
 import VerifyEmail from "./features/auth/VerifyEmailPage";
-import XeroxRequest from "./features/xerox/XeroxPage";
+import WishBoxPage from "./features/wishes/WishBoxPage";
+import InsightsPage from "./features/intelligence/InsightsPage";
+import SupportPage from "./features/support/SupportPage";
+import ReminderPage from "./features/support/ReminderPage";
+import PrintSoon from "./features/wishes/PrintSoon";
 
 const Protected = ({ children }) => <PrivateRoute>{children}</PrivateRoute>;
 const LegacyListingRedirect = () => {
@@ -35,10 +45,44 @@ const LegacyListingRedirect = () => {
 
 export default function App() {
   const { user } = useAuth();
+  const { pathname } = useLocation();
   return (
     <>
       <AppNavbar />
+      {user && pathname !== "/support" && (
+        <Link
+          to="/support"
+          aria-label="Customer support"
+          className="fixed bottom-22 right-4 z-30 rounded-full border border-mesh-200 bg-white px-4 py-3 text-xs font-semibold text-mesh-700 shadow-md lg:bottom-5"
+        >
+          Need help?
+        </Link>
+      )}
       <Routes>
+        <Route
+          path="/insights"
+          element={
+            <Protected>
+              <InsightsPage />
+            </Protected>
+          }
+        />
+        <Route
+          path="/support"
+          element={
+            <Protected>
+              <SupportPage />
+            </Protected>
+          }
+        />
+        <Route
+          path="/reminders"
+          element={
+            <Protected>
+              <ReminderPage />
+            </Protected>
+          }
+        />
         <Route path="/" element={<LandingPage />} />
         <Route
           path="/login"
@@ -82,6 +126,14 @@ export default function App() {
         />
         <Route path="/rent-item/:id" element={<LegacyListingRedirect />} />
         <Route path="/rent/:id" element={<LegacyListingRedirect />} />
+        <Route
+          path="/lend"
+          element={
+            <Protected>
+              <AccountPage workspace="lend" />
+            </Protected>
+          }
+        />
         <Route
           path="/account/:tab"
           element={
@@ -170,7 +222,7 @@ export default function App() {
           path="/owner-dashboard"
           element={
             <Protected>
-              <OwnerDashboard />
+              <Navigate to="/lend" replace />
             </Protected>
           }
         />
@@ -215,6 +267,30 @@ export default function App() {
           }
         />
         <Route
+          path="/wish-box"
+          element={
+            <Protected>
+              <WishBoxPage />
+            </Protected>
+          }
+        />
+        <Route
+          path="/delivery/wishes"
+          element={
+            <Protected>
+              <WishBoxPage courier />
+            </Protected>
+          }
+        />
+        <Route
+          path="/print"
+          element={
+            <Protected>
+              <PrintSoon />
+            </Protected>
+          }
+        />
+        <Route
           path="/delivery"
           element={
             <Protected>
@@ -234,7 +310,7 @@ export default function App() {
           path="/xerox"
           element={
             <Protected>
-              <XeroxRequest />
+              <PrintSoon />
             </Protected>
           }
         />

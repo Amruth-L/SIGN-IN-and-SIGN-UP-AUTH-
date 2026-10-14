@@ -1,6 +1,7 @@
+import Brand from "../../components/Brand";
 import { useCallback, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, AtSign, Check, Eye, EyeOff, Lock, Mail, ShieldCheck, User, Users } from 'lucide-react';
+import { ArrowRight, AtSign, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getApiError, signupUser } from './auth.service';
@@ -113,7 +114,9 @@ const Signup: React.FC = () => {
         email: form.email,
         password: form.password,
       });
-      navigate('/verify-email', { state: { email: form.email.trim().toLowerCase() } });
+      const email = form.email.trim().toLowerCase();
+      sessionStorage.setItem(`cm:otp:verify:${email}`, String(Date.now() + 60000));
+      navigate('/verify-email', { state: { email, codeSent: true } });
     } catch (error: unknown) {
       const message = getApiError(error, 'Failed to create account. Please try again.');
       setLoadingState('error');
@@ -121,6 +124,10 @@ const Signup: React.FC = () => {
       if (error && typeof error === 'object' && 'response' in error) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const response = (error as any).response;
+        if (response?.data?.accountCreated) {
+          navigate('/verify-email', { state: { email: form.email.trim().toLowerCase(), error: message } });
+          return;
+        }
         if (response?.status === 409) {
           const lowerMessage = message.toLowerCase();
           if (lowerMessage.includes('username')) {
@@ -139,65 +146,21 @@ const Signup: React.FC = () => {
   };
 
   return (
-    <main className="grid min-h-screen bg-paper lg:grid-cols-[1.08fr_.92fr]">
-      <motion.section
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="relative hidden overflow-hidden bg-mesh-900 px-10 py-9 text-white lg:flex lg:flex-col xl:px-16"
-      >
-        <div className="pointer-events-none absolute -right-28 -top-28 size-96 rounded-full border-[72px] border-mesh-700/45" />
-        <div className="pointer-events-none absolute -bottom-40 -left-36 size-[32rem] rounded-full bg-mesh-700/35 blur-2xl" />
-        <Link to="/" className="relative z-10 w-fit text-xl font-extrabold tracking-[-.05em]">
-          Campus<span className="text-mesh-300">Mesh</span>
-        </Link>
+    <main className="min-h-screen bg-paper">
+      <div className="mx-auto max-w-6xl px-5 py-6 sm:px-8"><Link to="/" aria-label="CampusMesh home"><Brand /></Link></div>
 
-        <div className="relative z-10 my-auto max-w-xl py-14">
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/7 px-3 py-1.5 text-xs font-bold text-mesh-200">
-            <Users size={14} /> One campus, more possibilities
-          </span>
-          <h1 className="mt-7 font-display text-6xl font-semibold leading-[.92] tracking-[-.055em] xl:text-7xl">
-            Make more of
-            <br /> what’s nearby.
-          </h1>
-          <p className="mt-6 max-w-sm text-base leading-7 text-white/58">
-            Join a trusted DBIT community for renting, delivering, and printing the things student life needs.
-          </p>
+      <section className="flex justify-center px-5 py-8 sm:py-12">
 
-          <ul className="mt-10 space-y-4 text-sm font-semibold text-white/70">
-            <li className="flex items-center gap-3">
-              <span className="grid size-8 place-items-center rounded-lg bg-mesh-700 text-mesh-200"><ShieldCheck size={15} /></span>
-              Verified university members
-            </li>
-            <li className="flex items-center gap-3">
-              <span className="grid size-8 place-items-center rounded-lg bg-mesh-700 text-mesh-200"><Users size={15} /></span>
-              Save money by sharing locally
-            </li>
-            <li className="flex items-center gap-3">
-              <span className="grid size-8 place-items-center rounded-lg bg-mesh-700 text-mesh-200"><Check size={15} /></span>
-              Simple, secure handovers
-            </li>
-          </ul>
-        </div>
-
-        <p className="relative z-10 flex items-center gap-2 text-xs font-semibold text-white/40">
-          <ShieldCheck size={15} /> Your campus identity keeps the community private
-        </p>
-      </motion.section>
-
-      <section className="relative flex min-h-screen items-center justify-center overflow-y-auto px-5 py-16 sm:px-10 lg:py-12">
-        <Link to="/" className="absolute left-5 top-6 text-lg font-extrabold tracking-[-.05em] lg:hidden">
-          Campus<span className="text-mesh-600">Mesh</span>
-        </Link>
 
         <motion.div
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.08 }}
-          className="w-full max-w-[470px]"
+          className="panel w-full max-w-[480px] p-6 sm:p-8"
         >
-          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">New here?</span>
-          <h2 className="mt-3 font-display text-5xl font-semibold leading-none">Create your account.</h2>
-          <p className="mt-4 text-sm text-ink/48">Use your DBIT email to join the CampusMesh community.</p>
+          <span className="text-xs font-medium text-ink/65">New here?</span>
+          <h2 className="mt-3 font-display text-3xl font-semibold leading-tight tracking-tight">Create your account</h2>
+          <p className="mt-4 text-sm text-ink/48">Use your DBIT email. We’ll send a code to verify it.</p>
 
           {globalError && (
             <motion.div
@@ -212,7 +175,7 @@ const Signup: React.FC = () => {
 
           <form className="mt-8 space-y-5" onSubmit={handleSubmit} noValidate>
             <label className="block" htmlFor="signup-name">
-              <span className="mb-2 block text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Full name</span>
+              <span className="mb-2 block text-xs font-medium text-ink/65">Full name</span>
               <span className="relative block">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/32" size={18} />
                 <input
@@ -230,7 +193,7 @@ const Signup: React.FC = () => {
             </label>
 
             <label className="block" htmlFor="signup-username">
-              <span className="mb-2 block text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">Username</span>
+              <span className="mb-2 block text-xs font-medium text-ink/65">Username</span>
               <span className="relative block">
                 <AtSign className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/32" size={18} />
                 <input
@@ -248,7 +211,7 @@ const Signup: React.FC = () => {
             </label>
 
             <label className="block" htmlFor="signup-email">
-              <span className="mb-2 block text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">University email</span>
+              <span className="mb-2 block text-xs font-medium text-ink/65">University email</span>
               <span className="relative block">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/32" size={18} />
                 <input
@@ -266,7 +229,7 @@ const Signup: React.FC = () => {
             </label>
 
             <div>
-              <label className="mb-2 block text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600" htmlFor="signup-password">Password</label>
+              <label className="mb-2 block text-xs font-medium text-ink/65" htmlFor="signup-password">Password</label>
               <span className="flex h-13 w-full items-center rounded-2xl border border-mesh-900/15 bg-white px-3 transition focus-within:border-mesh-500 focus-within:ring-4 focus-within:ring-mesh-100">
                 <Lock className="shrink-0 text-ink/32" size={18} />
                 <input
@@ -304,7 +267,7 @@ const Signup: React.FC = () => {
             </div>
 
             <div>
-              <label className="mb-2 block text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600" htmlFor="signup-confirm">Confirm password</label>
+              <label className="mb-2 block text-xs font-medium text-ink/65" htmlFor="signup-confirm">Confirm password</label>
               <span className="flex h-13 w-full items-center rounded-2xl border border-mesh-900/15 bg-white px-3 transition focus-within:border-mesh-500 focus-within:ring-4 focus-within:ring-mesh-100">
                 <Lock className="shrink-0 text-ink/32" size={18} />
                 <input
@@ -345,7 +308,7 @@ const Signup: React.FC = () => {
           </form>
 
           <p className="mt-7 text-center text-sm text-ink/45">
-            Already have an account? <Link to="/login" className="font-extrabold text-mesh-700 hover:text-mesh-900">Sign in</Link>
+            Already have an account? <Link to="/login" className="font-semibold text-mesh-700 hover:text-mesh-900">Sign in</Link>
           </p>
         </motion.div>
       </section>

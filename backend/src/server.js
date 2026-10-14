@@ -39,3 +39,5 @@ const deliveryRefresh = globalThis.setInterval(() => {
   refreshOpenDeliveries().catch((error) => console.error('[delivery-refresh] refresh failed:', error.message));
 }, 15000);
 deliveryRefresh.unref?.();
+
+require('./modules/calls/call.worker').start();

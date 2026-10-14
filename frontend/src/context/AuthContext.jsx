@@ -1,4 +1,4 @@
-import { createContext, useState, useEffect, useContext, useMemo } from 'react';
+import { createContext, useState, useEffect, useContext, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { API_BASE_URL } from '../lib/api';
@@ -11,13 +11,15 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token') || null);
   const [loading, setLoading] = useState(true);
+  const [sessionError, setSessionError] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const navigate = useNavigate();
 
   // Axios instance with default base URL
   const api = useMemo(() => {
     const instance = axios.create({
-      baseURL: API_BASE_URL
+      baseURL: API_BASE_URL,
+      timeout: 20000
     });
     instance.interceptors.request.use((config) => {
       const activeToken = localStorage.getItem('token');
@@ -27,33 +29,29 @@ export const AuthProvider = ({ children }) => {
     return instance;
   }, []);
 
-  useEffect(() => {
-    const checkUserLoggedIn = async () => {
-      const activeToken = localStorage.getItem('token');
+  const retrySession = useCallback(async () => {
+    const activeToken = localStorage.getItem('token');
+    setLoading(true);
+    setSessionError('');
+    try {
       if (activeToken) {
-        try {
-          const res = await api.get('/me', {
-            headers: { Authorization: `Bearer ${activeToken}` }
-          });
-          setUser(res.data.profile);
-          setToken(activeToken);
-          setIsAuthenticated(true);
-        } catch {
-          console.error("Token invalid or expired, clearing session");
-          localStorage.removeItem('token');
-          setToken(null);
-          setUser(null);
-          setIsAuthenticated(false);
-          navigate('/');
-        }
-      } else {
-        setIsAuthenticated(false);
+        const res = await api.get('/me');
+        setUser(res.data.profile);
+        setToken(activeToken);
+        setIsAuthenticated(true);
       }
-      setLoading(false);
-    };
-
-    checkUserLoggedIn();
-  }, [api, navigate]);
+    } catch (error) {
+      if ([401, 403, 404].includes(error.response?.status)) {
+        localStorage.removeItem('token');
+        setToken(null);
+        setUser(null);
+        setIsAuthenticated(false);
+      } else {
+        setSessionError('We couldn’t load your account. Your session is saved—please retry.');
+      }
+    } finally { setLoading(false); }
+  }, [api]);
+  useEffect(() => { retrySession(); }, [retrySession]);
 
   const login = async (newToken) => {
     localStorage.setItem('token', newToken);
@@ -75,6 +73,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    setSessionError('');
     localStorage.removeItem('token');
     setToken(null);
     setUser(null);
@@ -107,7 +106,7 @@ export const AuthProvider = ({ children }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, isAuthenticated, login, logout, updateProfile, setMode, setDeliveryAvailability, api }}>
+    <AuthContext.Provider value={{ user, token, loading, sessionError, retrySession, isAuthenticated, login, logout, updateProfile, setMode, setDeliveryAvailability, api }}>
       {children}
     </AuthContext.Provider>
   );

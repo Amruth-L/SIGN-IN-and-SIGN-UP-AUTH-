@@ -153,31 +153,8 @@ exports.recordView = async (req, res) => {
 };
 
 exports.getRecommendations = async (req, res) => {
-  const scope = req.query.scope === 'personalized' ? 'personalized' : 'trending';
-  const userId = req.user.id;
-  const { rows } = await pool.query(
-    `WITH activity AS (
-      SELECT listing_id,
-        COUNT(DISTINCT user_id) FILTER (WHERE interaction_type='VIEW' AND created_at>NOW()-INTERVAL '7 days')*1.0 unique_views,
-        COUNT(*) FILTER (WHERE interaction_type='SAVE' AND created_at>NOW()-INTERVAL '14 days')*3.0 saves,
-        COUNT(*) FILTER (WHERE interaction_type='CART' AND created_at>NOW()-INTERVAL '14 days')*5.0 carts,
-        COUNT(*) FILTER (WHERE interaction_type='RENT' AND created_at>NOW()-INTERVAL '30 days')*10.0 rentals
-      FROM listing_interactions GROUP BY listing_id
-    ), affinity AS (
-      SELECT l.category, COUNT(*)*3.0 affinity_score FROM listing_interactions i JOIN listings l ON l.id=i.listing_id
-      WHERE i.user_id=$1 GROUP BY l.category
-    ) SELECT l.*,u.name owner_name,
-      ROUND((COALESCE(a.unique_views,0)+COALESCE(a.saves,0)+COALESCE(a.carts,0)+COALESCE(a.rentals,0)
-       + GREATEST(0,7-EXTRACT(DAY FROM NOW()-l.created_at)) + CASE WHEN $2='personalized' THEN COALESCE(af.affinity_score,0) ELSE 0 END)::numeric,2) trend_score,
-      CASE WHEN $2='personalized' AND COALESCE(af.affinity_score,0)>0 THEN 'Based on your interest in '||l.category
-        WHEN COALESCE(a.rentals,0)>0 THEN 'Popular this week' ELSE 'Trending in '||l.category END explanation
-    FROM listings l JOIN users u ON u.id=l.owner_id LEFT JOIN activity a ON a.listing_id=l.id LEFT JOIN affinity af ON af.category=l.category
-    WHERE COALESCE(l.is_active,TRUE) AND l.rent_price>0 AND l.owner_id<>$1
-      AND NOT EXISTS (SELECT 1 FROM rentals r WHERE r.listing_id=l.id AND r.status NOT IN ('COMPLETED','CANCELLED','REJECTED'))
-    ORDER BY trend_score DESC,l.created_at DESC LIMIT 8`,
-    [userId, scope],
-  );
-  res.json(rows);
+  const recommendations = await require('../intelligence/intelligence.service').recommendations(req.user.id);
+  res.json(recommendations.map(item => ({...item,explanation:item.reason,trend_score:item.score})));
 };
 
 exports.getListingById = async (req, res) => {

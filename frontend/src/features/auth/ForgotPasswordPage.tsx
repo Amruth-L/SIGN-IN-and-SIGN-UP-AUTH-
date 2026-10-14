@@ -1,6 +1,9 @@
+import OtpInput from "../../components/OtpInput";
+import useOtpCooldown from "./useOtpCooldown";
+import Brand from "../../components/Brand";
 import { useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, KeyRound, Lock, Mail, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getApiError, requestPasswordReset, resetPassword } from './auth.service';
@@ -20,12 +23,16 @@ const ForgotPassword: React.FC = () => {
   const [loadingState, setLoadingState] = useState<AuthLoadingState>('idle');
   const [loadingAction, setLoadingAction] = useState<'request' | 'reset' | null>(null);
 
+  const { remaining, start } = useOtpCooldown(email, 'reset');
   const isLoading = loadingState === 'loading';
 
-  const handleRequestOtp = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleRequestOtp = async (event: React.SyntheticEvent) => {
     event.preventDefault();
     setError('');
     setSuccess('');
+    if (isLoading) return;
+    if (remaining > 0) { setStep(2); setSuccess('Use the code already sent to your email.'); return; }
+    if (!/^[^\s@]+@dbit\.co\.in$/i.test(email.trim())) { setError('Enter your DBIT email.'); return; }
     setLoadingState('loading');
     setLoadingAction('request');
 
@@ -35,14 +42,18 @@ const ForgotPassword: React.FC = () => {
       setLoadingState('idle');
       setLoadingAction(null);
       setStep(2);
+      setOtp('');
+      start(response.retryAfter || 60);
     } catch (caught: unknown) {
+      const retry = (caught as { response?: { data?: { retryAfter?: number } } })?.response?.data?.retryAfter;
+      if (retry) start(retry);
       setError(getApiError(caught, 'Could not send the reset code. Please try again.'));
       setLoadingState('error');
       setLoadingAction(null);
     }
   };
 
-  const handleResetPassword = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleResetPassword = async (event: React.SyntheticEvent) => {
     event.preventDefault();
     setError('');
     setSuccess('');
@@ -82,68 +93,27 @@ const ForgotPassword: React.FC = () => {
   };
 
   return (
-    <main className="grid min-h-screen bg-paper lg:grid-cols-[1.08fr_.92fr]">
-      <motion.section
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="relative hidden overflow-hidden bg-mesh-900 px-10 py-9 text-white lg:flex lg:flex-col xl:px-16"
-      >
-        <div className="pointer-events-none absolute -right-28 -top-28 size-96 rounded-full border-[72px] border-mesh-700/45" />
-        <div className="pointer-events-none absolute -bottom-40 -left-36 size-[32rem] rounded-full bg-mesh-700/35 blur-2xl" />
+    <main className="min-h-screen bg-paper">
+      <div className="mx-auto max-w-6xl px-5 py-6 sm:px-8"><Link to="/" aria-label="CampusMesh home"><Brand /></Link></div>
 
-        <Link to="/" className="relative z-10 w-fit text-xl font-extrabold tracking-[-.05em]">
-          Campus<span className="text-mesh-300">Mesh</span>
-        </Link>
+      <section className="flex justify-center px-5 py-8 sm:py-12">
 
-        <div className="relative z-10 my-auto max-w-xl py-14">
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-white/7 px-3 py-1.5 text-xs font-bold text-mesh-200">
-            <ShieldCheck size={14} /> Account recovery
-          </span>
-          <h1 className="mt-7 font-display text-6xl font-semibold leading-[.92] tracking-[-.055em] xl:text-7xl">
-            A fresh start,
-            <br /> securely.
-          </h1>
-          <p className="mt-6 max-w-sm text-base leading-7 text-white/58">
-            We’ll help you get back into your CampusMesh account with a one-time code sent to your DBIT email.
-          </p>
-
-          <ul className="mt-10 space-y-4 text-sm font-semibold text-white/70">
-            <li className="flex items-center gap-3">
-              <span className="grid size-8 place-items-center rounded-lg bg-mesh-700 text-mesh-200"><Mail size={15} /></span>
-              Use your university email
-            </li>
-            <li className="flex items-center gap-3">
-              <span className="grid size-8 place-items-center rounded-lg bg-mesh-700 text-mesh-200"><KeyRound size={15} /></span>
-              One-time code expires in 10 minutes
-            </li>
-          </ul>
-        </div>
-
-        <p className="relative z-10 flex items-center gap-2 text-xs font-semibold text-white/40">
-          <Check size={15} /> Your account stays yours
-        </p>
-      </motion.section>
-
-      <section className="relative flex min-h-screen items-center justify-center overflow-y-auto px-5 py-16 sm:px-10 lg:py-12">
-        <Link to="/" className="absolute left-5 top-6 text-lg font-extrabold tracking-[-.05em] lg:hidden">
-          Campus<span className="text-mesh-600">Mesh</span>
-        </Link>
 
         <motion.div
           initial={{ opacity: 0, y: 18 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.08 }}
-          className="w-full max-w-[430px]"
+          className="panel w-full max-w-[460px] p-6 sm:p-8"
         >
           <div className="mb-8 flex items-center gap-2" aria-label={`Step ${step} of 2`}>
             <span className={`h-1.5 w-12 rounded-full transition ${step >= 1 ? 'bg-mesh-600' : 'bg-ink/10'}`} />
             <span className={`h-1.5 w-12 rounded-full transition ${step >= 2 ? 'bg-mesh-600' : 'bg-ink/10'}`} />
           </div>
 
-          <span className="text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">
+          <span className="text-xs font-medium text-ink/65">
             {step === 1 ? 'Account recovery' : 'New password'}
           </span>
-          <h2 className="mt-3 font-display text-5xl font-semibold leading-none">
+          <h2 className="mt-3 font-display text-3xl font-semibold leading-tight tracking-tight">
             {step === 1 ? 'Reset your password.' : 'Create a new password.'}
           </h2>
           <p className="mt-4 text-sm leading-6 text-ink/48">
@@ -179,7 +149,7 @@ const ForgotPassword: React.FC = () => {
           {step === 1 ? (
             <form className="mt-8 space-y-5" onSubmit={handleRequestOtp} noValidate>
               <label className="block" htmlFor="fp-email">
-                <span className="mb-2 block text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">University email</span>
+                <span className="mb-2 block text-xs font-medium text-ink/65">University email</span>
                 <span className="relative block">
                   <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/32" size={18} />
                   <input
@@ -198,15 +168,15 @@ const ForgotPassword: React.FC = () => {
               <button
                 type="submit"
                 id="fp-send-btn"
-                className="inline-flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-mesh-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg active:translate-y-0 disabled:pointer-events-none disabled:opacity-50"
+                className="inline-flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-mesh-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg active:translate-y-0 disabled:pointer-events-none disabled:opacity-50"
                 disabled={isLoading}
               >
-                {loadingAction === 'request' ? 'Sending…' : <>Send reset code <ArrowRight size={17} /></>}
+                {loadingAction === 'request' ? 'Sending…' : <>{remaining > 0 ? 'Enter existing code' : 'Send reset code'} <ArrowRight size={17} /></>}
               </button>
 
               <button
                 type="button"
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-mesh-900/15 bg-white px-5 text-sm font-extrabold text-mesh-700 transition hover:border-mesh-500 hover:bg-mesh-50"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-mesh-900/15 bg-white px-5 text-sm font-semibold text-mesh-700 transition hover:border-mesh-500 hover:bg-mesh-50"
                 onClick={() => navigate('/login')}
               >
                 <ArrowLeft size={15} /> Back to sign in
@@ -214,26 +184,11 @@ const ForgotPassword: React.FC = () => {
             </form>
           ) : (
             <form className="mt-8 space-y-5" onSubmit={handleResetPassword} noValidate>
-              <label className="block" htmlFor="fp-otp">
-                <span className="mb-2 block text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">6-digit reset code</span>
-                <input
-                  id="fp-otp"
-                  type="text"
-                  className="h-13 w-full rounded-2xl border border-mesh-900/15 bg-white px-4 text-center text-xl font-extrabold tracking-[.45em] outline-none transition placeholder:font-semibold placeholder:tracking-[.18em] placeholder:text-ink/30 focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
-                  placeholder="6-digit code"
-                  required
-                  maxLength={6}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoComplete="one-time-code"
-                  autoFocus
-                  value={otp}
-                  onChange={event => setOtp(event.target.value.replace(/\D/g, ''))}
-                />
-              </label>
+              <OtpInput value={otp} onChange={(code: string) => { setOtp(code); setError(''); }} disabled={isLoading || loadingState === 'success'} invalid={!!error} autoFocus />
+              <button type="button" onClick={handleRequestOtp} disabled={isLoading || remaining > 0 || loadingState === 'success'} className="text-sm font-bold text-mesh-600 disabled:text-ink/40">{remaining > 0 ? `Resend in ${remaining}s` : 'Resend reset code'}</button>
 
               <label className="block" htmlFor="fp-newpw">
-                <span className="mb-2 block text-[.68rem] font-extrabold uppercase tracking-[.16em] text-mesh-600">New password</span>
+                <span className="mb-2 block text-xs font-medium text-ink/65">New password</span>
                 <span className="relative block">
                   <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/32" size={18} />
                   <input
@@ -261,7 +216,7 @@ const ForgotPassword: React.FC = () => {
               <button
                 type="submit"
                 id="fp-reset-btn"
-                className="inline-flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-mesh-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg active:translate-y-0 disabled:pointer-events-none disabled:opacity-50"
+                className="inline-flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-mesh-600 px-5 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg active:translate-y-0 disabled:pointer-events-none disabled:opacity-50"
                 disabled={isLoading || loadingState === 'success' || otp.length !== 6 || newPassword.length < 6}
               >
                 {loadingAction === 'reset' ? 'Resetting…' : <>Reset password <ArrowRight size={17} /></>}
@@ -269,9 +224,9 @@ const ForgotPassword: React.FC = () => {
 
               <button
                 type="button"
-                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-mesh-900/15 bg-white px-5 text-sm font-extrabold text-mesh-700 transition hover:border-mesh-500 hover:bg-mesh-50"
+                className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-mesh-900/15 bg-white px-5 text-sm font-semibold text-mesh-700 transition hover:border-mesh-500 hover:bg-mesh-50"
                 onClick={backToEmail}
-                disabled={isLoading}
+                disabled={isLoading || loadingState === 'success'}
               >
                 <ArrowLeft size={15} /> Use a different email
               </button>
@@ -279,7 +234,7 @@ const ForgotPassword: React.FC = () => {
           )}
 
           <p className="mt-7 text-center text-sm text-ink/45">
-            Remembered your password? <Link to="/login" className="font-extrabold text-mesh-700">Back to sign in</Link>
+            Remembered your password? <Link to="/login" className="font-semibold text-mesh-700">Back to sign in</Link>
           </p>
         </motion.div>
       </section>
