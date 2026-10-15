@@ -10,7 +10,7 @@ Configure secrets in the hosting dashboard, never Git: `DATABASE_URL`, `JWT_SECR
 
 Keep test Razorpay credentials for preview testing. Calls stay disabled with `CALLS_MODE=preview` and `CALLS_SCHEDULER_ENABLED=false`; model-generated support additionally needs OpenAI credentials. The English help library and browser voice previews work without those providers. Campus Print remains locked as coming soon. See [backend configuration](backend/README.md) for the complete support/calling setup.
 
-Render's free web services pause when idle and block outbound SMTP ports, so the current Gmail OTP sender needs a paid service or a separate HTTPS email integration. Always-running background reminders also need an always-on service. See [Render's free-tier limitations](https://render.com/docs/free). Compute-plan selection is separate from code preparation; no paid deployment is created by building locally.
+Render's free web services pause when idle and block outbound SMTP ports. Use the Amazon SES HTTPS adapter (`EMAIL_PROVIDER=ses`) with a verified sender, SES sending permissions and production access for general recipients; see [email setup](backend/README.md#otp-email-on-render-free-amazon-ses-https). Gmail SMTP requires a host permitting SMTP. Always-running background reminders also need an always-on service. See [Render's free-tier limitations](https://render.com/docs/free). Compute-plan selection is separate from code preparation; no paid deployment is created by building locally.
 
 A multi-stage `Dockerfile` is also included. It excludes `.env` files and runs as the non-root Node user. Docker is optional for the native Node deployment.
 

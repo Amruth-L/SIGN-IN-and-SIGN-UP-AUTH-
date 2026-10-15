@@ -1,49 +1,75 @@
 const nodemailer = require('nodemailer');
+const { SESv2Client, SendEmailCommand } = require('@aws-sdk/client-sesv2');
 require('dotenv').config();
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  connectionTimeout: 10000,
-  greetingTimeout: 10000,
-  socketTimeout: 15000,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+const configError = message => Object.assign(new Error(message), { code: 'EMAIL_CONFIGURATION' });
+function emailConfiguration(env = process.env) {
+  const provider = (env.EMAIL_PROVIDER || 'smtp').trim().toLowerCase();
+  if (!['smtp', 'ses'].includes(provider)) throw configError('EMAIL_PROVIDER must be smtp or ses.');
+  const from = (provider === 'ses' ? env.EMAIL_FROM : env.EMAIL_USER)?.trim();
+  if (!from || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(from))
+    throw configError(provider === 'ses' ? 'Configure EMAIL_FROM with a verified SES sender.' : 'Configure EMAIL_USER.');
+  const region = env.AWS_REGION?.trim();
+  if (provider === 'ses' && !region) throw configError('Configure AWS_REGION for the verified SES sender.');
+  if (provider === 'smtp' && !env.EMAIL_PASS) throw configError('Configure EMAIL_PASS.');
+  return { provider, from, region };
+}
 
-const sendEmail = async (to, subject, otpCode, name) => {
-  const safeName = String(name || 'there').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
-  const htmlContent = `
-    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
-      <h2 style="color: #10b981; text-align: center;">CampusMesh</h2>
-      <p style="font-size: 16px; color: #333;">Hello ${safeName},</p>
-      <p style="font-size: 16px; color: #333;">Your verification code is:</p>
-      <div style="background-color: #f3f4f6; padding: 15px; text-align: center; border-radius: 5px; margin: 20px 0;">
-        <span style="font-size: 24px; font-weight: bold; letter-spacing: 5px; color: #1f2937;">${otpCode}</span>
-      </div>
-      <p style="font-size: 14px; color: #666;">This code expires in 10 minutes.</p>
-      <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 30px 0;" />
-      <p style="font-size: 14px; color: #999;">Thank you,<br/>CampusMesh Team</p>
-    </div>
-  `;
-
-  const mailOptions = {
-    from: `"CampusMesh" <${process.env.EMAIL_USER}>`,
-    to,
-    subject,
-    html: htmlContent,
-    text: `${subject}: ${otpCode}. This code expires in 10 minutes.`,
+function createEmailSender({
+  env = process.env,
+  sesFactory = options => new SESv2Client(options),
+  smtpFactory = options => nodemailer.createTransport(options),
+  logger = console,
+} = {}) {
+  let ses, smtp;
+  return async (to, subject, otpCode, name) => {
+    let provider = 'unconfigured';
+    try {
+      const config = emailConfiguration(env);
+      provider = config.provider;
+      const safeName = String(name || 'there').replace(/[&<>"']/g, char => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      })[char]);
+      const html = `
+        <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;color:#202522">
+          <h2 style="color:#15803d">CampusMesh</h2>
+          <p>Hello ${safeName},</p><p>Your verification code is:</p>
+          <p style="padding:16px;background:#f2f6f3;font-size:28px;font-weight:bold;letter-spacing:5px">${otpCode}</p>
+          <p>This code expires in 10 minutes. Do not share it with anyone.</p>
+          <p>Thank you,<br>CampusMesh</p>
+        </div>`;
+      const text = `${subject}: ${otpCode}. This code expires in 10 minutes. Do not share it with anyone.`;
+      if (provider === 'ses') {
+        // HTTPS (443), compatible with Render Free. One attempt avoids duplicate
+        // emails after ambiguous network failures; never fall back to SMTP.
+        ses ||= sesFactory({ region: config.region, maxAttempts: 1 });
+        const result = await ses.send(new SendEmailCommand({
+          FromEmailAddress: `CampusMesh <${config.from}>`,
+          Destination: { ToAddresses: [to] },
+          Content: { Simple: {
+            Subject: { Data: subject, Charset: 'UTF-8' },
+            Body: { Html: { Data: html, Charset: 'UTF-8' }, Text: { Data: text, Charset: 'UTF-8' } },
+          } },
+        }), { abortSignal: globalThis.AbortSignal.timeout(12000) });
+        if (!result.MessageId) throw Object.assign(new Error('SES did not acknowledge the message.'), { code: 'EMAIL_NOT_ACCEPTED' });
+        return { provider, messageId: result.MessageId };
+      }
+      smtp ||= smtpFactory({
+        service: 'gmail', connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000,
+        auth: { user: env.EMAIL_USER, pass: env.EMAIL_PASS },
+      });
+      const result = await smtp.sendMail({ from: `CampusMesh <${config.from}>`, to, subject, html, text });
+      if (!result.accepted?.length) throw Object.assign(new Error('SMTP did not accept the recipient.'), { code: 'EMAIL_NOT_ACCEPTED' });
+      return { provider, messageId: result.messageId };
+    } catch (error) {
+      // Never log recipients, OTPs, request bodies, credentials or full provider errors.
+      const code = String(error.code || error.name || 'EmailError');
+      logger.error('[email] delivery failed', { provider, code: /^[A-Za-z0-9_]{1,60}$/.test(code) ? code : 'EmailError' });
+      throw error;
+    }
   };
+}
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`Email sent successfully to ${to}`);
-  } catch (error) {
-    console.error(`Error sending email to ${to}:`, error);
-    throw error; // Re-throw to handle in controller
-  }
-};
-
-module.exports = sendEmail;
-
+module.exports = createEmailSender();
+module.exports.createEmailSender = createEmailSender;
+module.exports.emailConfiguration = emailConfiguration;

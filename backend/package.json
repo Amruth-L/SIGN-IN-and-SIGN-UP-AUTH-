@@ -15,9 +15,11 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "xerox:cleanup": "node src/db/cleanup-xerox.js",
+    "email:check": "node src/shared/check-email.js",
     "test": "node --test"
   },
   "dependencies": {
+    "@aws-sdk/client-sesv2": "^3.1152.0",
     "@supabase/supabase-js": "^2.110.8",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",

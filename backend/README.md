@@ -2,6 +2,18 @@
 
 A complete Node.js backend for CampusMesh. 
 
+## OTP email on Render Free (Amazon SES HTTPS)
+
+Set `EMAIL_PROVIDER=ses`, `EMAIL_FROM` to a verified sender email, and `AWS_REGION` to the region where that identity is verified. Supply `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` privately in the server environment (plus `AWS_SESSION_TOKEN` for temporary credentials). The SDK also supports standard AWS credential profiles and IAM roles. S3-only permissions do not authorize SES: the application identity needs `ses:SendEmail` for the chosen SES sender identity. Use a dedicated application IAM identity, not root access keys.
+
+SES uses HTTPS on port 443. The adapter sends one request with a 12-second deadline and no automatic retry or SMTP fallback. It returns success only after SES supplies a message ID; that means accepted by the provider, not confirmed inbox delivery. Provider failures roll back the new OTP and return an error to the user. Logs contain a provider/error code without email addresses, OTP values or credentials.
+
+Run `npm run email:check` with SES configured to inspect sending status, sender verification and production access without sending an email. This diagnostic additionally requires `ses:GetAccount` and `ses:GetEmailIdentity`. SES sandbox accounts can send only to verified recipients (or the AWS mailbox simulator). Production access is required for general student signups. Sender verification, permissions and sandbox status apply in the selected AWS region. A real test to an authorized recipient and confirmation of receipt are still required before claiming delivery works.
+
+The existing Gmail path remains available with `EMAIL_PROVIDER=smtp`, `EMAIL_USER` and `EMAIL_PASS`; it requires a host permitting outbound SMTP. Switching the code to SES alone does not configure AWS or activate sending. Keep AWS keys on the backend only. AWS email usage is billed separately from Render hosting.
+
+References: [SES API](https://docs.aws.amazon.com/ses/latest/dg/send-email-api.html), [SES sandbox and production access](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html).
+
 ## Campus intelligence, support and reminder calls
 
 Run `npm run db:migrate` before starting the API. Migrations 004 and 005 add private support/call records and delivery estimate metadata; 006 adds one-time welcome calls. The Express API uses the server database connection; these private tables have RLS enabled with no browser-access policies.
