@@ -504,7 +504,7 @@ function SettingsTab({ user, save }) {
       setState("saved");
       setTimeout(() => setState(""), 1800);
     } catch (error) {
-      setState(error.response?.data?.error || "Could not save your profile.");
+      setState(error.response?.data?.error || error.response?.data?.message || "Could not save your profile.");
     }
   };
   return (
@@ -532,8 +532,10 @@ function SettingsTab({ user, save }) {
               className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
               value={form[name]}
               type={name === "email" ? "email" : "text"}
+              readOnly={name === "email"}
               onChange={(e) => setForm({ ...form, [name]: e.target.value })}
             />
+            {name === "email" && <span className="mt-1.5 block text-xs text-ink/55">Your verified sign-in email cannot be edited here.</span>}
           </label>
         ))}
         <label className="sm:col-span-2">

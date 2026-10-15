@@ -31,8 +31,11 @@ exports.signup = async (req, res) => {
   if (req.body.welcome_enabled !== undefined && typeof req.body.welcome_enabled !== 'boolean')
     return res.status(400).json({ error: 'Choose whether you want a one-time welcome call.' });
   try {
-    const existing = await pool.query('SELECT id FROM users WHERE LOWER(email)=$1', [email]);
-    if (existing.rowCount) return res.status(409).json({ error: 'Email is already registered. Sign in or resend your verification code.' });
+    const existing = await pool.query('SELECT id,email_verified FROM users WHERE LOWER(email)=$1', [email]);
+    if (existing.rowCount) return res.status(409).json(existing.rows[0].email_verified
+      ? { error: 'Email is already registered. Please sign in.' }
+      : { error: 'Your account is waiting for email verification. Request a new code to finish signing up.',
+        requiresVerification: true, email });
     const hash = await bcrypt.hash(password, 10);
     const client = await pool.connect();
     try {
@@ -117,7 +120,7 @@ exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 

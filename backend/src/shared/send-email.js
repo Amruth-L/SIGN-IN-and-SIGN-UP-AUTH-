@@ -1,11 +1,18 @@
 const nodemailer = require('nodemailer');
 const { SESv2Client, SendEmailCommand } = require('@aws-sdk/client-sesv2');
+const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 require('dotenv').config();
 
 const configError = message => Object.assign(new Error(message), { code: 'EMAIL_CONFIGURATION' });
 function emailConfiguration(env = process.env) {
   const provider = (env.EMAIL_PROVIDER || 'smtp').trim().toLowerCase();
-  if (!['smtp', 'ses'].includes(provider)) throw configError('EMAIL_PROVIDER must be smtp or ses.');
+  if (!['smtp', 'ses', 'lambda'].includes(provider)) throw configError('EMAIL_PROVIDER must be smtp, ses or lambda.');
+  if (provider === 'lambda') {
+    const region = env.AWS_REGION?.trim();
+    const functionName = env.EMAIL_LAMBDA_FUNCTION?.trim();
+    if (!region || !functionName) throw configError('Configure AWS_REGION and EMAIL_LAMBDA_FUNCTION.');
+    return { provider, region, functionName };
+  }
   const from = (provider === 'ses' ? env.EMAIL_FROM : env.EMAIL_USER)?.trim();
   if (!from || !/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(from))
     throw configError(provider === 'ses' ? 'Configure EMAIL_FROM with a verified SES sender.' : 'Configure EMAIL_USER.');
@@ -18,15 +25,40 @@ function emailConfiguration(env = process.env) {
 function createEmailSender({
   env = process.env,
   sesFactory = options => new SESv2Client(options),
+  lambdaFactory = options => new LambdaClient(options),
   smtpFactory = options => nodemailer.createTransport(options),
   logger = console,
 } = {}) {
-  let ses, smtp;
+  let ses, smtp, lambda;
   return async (to, subject, otpCode, name) => {
     let provider = 'unconfigured';
     try {
       const config = emailConfiguration(env);
       provider = config.provider;
+      if (provider === 'lambda') {
+        const purposes = {
+          'Your CampusMesh Verification Code': 'verify',
+          'Your CampusMesh Password Reset Code': 'reset',
+        };
+        const purpose = purposes[subject];
+        if (!purpose || !/^[^\s@]+@dbit\.co\.in$/.test(to) || !/^\d{6}$/.test(String(otpCode)))
+          throw configError('Invalid OTP email request.');
+        // IAM-authenticated HTTPS, one synchronous attempt. The private function
+        // owns its Gmail credentials; they are never included in this payload.
+        lambda ||= lambdaFactory({ region: config.region, maxAttempts: 1 });
+        const result = await lambda.send(new InvokeCommand({
+          FunctionName: config.functionName,
+          InvocationType: 'RequestResponse',
+          Payload: Buffer.from(JSON.stringify({ version: 1, to, purpose, code: String(otpCode), name: String(name || 'there').replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 120) })),
+        }), { abortSignal: globalThis.AbortSignal.timeout(30000) });
+        let reply;
+        try { reply = JSON.parse(Buffer.from(result.Payload || []).toString()); } catch { /* fail closed */ }
+        if (result.StatusCode !== 200 || result.FunctionError || reply?.ok !== true || typeof reply.messageId !== 'string' || !reply.messageId)
+          throw Object.assign(new Error('The mail function did not confirm delivery.'), {
+            code: /^[A-Z_]{1,50}$/.test(reply?.code || '') ? reply.code : 'EMAIL_NOT_ACCEPTED',
+          });
+        return { provider, messageId: reply.messageId };
+      }
       const safeName = String(name || 'there').replace(/[&<>"']/g, char => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
       })[char]);

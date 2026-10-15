@@ -88,23 +88,10 @@ class ProfileController {
         }
       }
 
-      // 3. Validate and handle Email update
+      // A verified sign-in identity cannot be replaced by a generic profile edit.
       if (email !== undefined) {
-        const normalizedEmail = email.trim().toLowerCase();
-        if (normalizedEmail !== currentUser.email) {
-          if (!normalizedEmail.endsWith('@dbit.co.in')) {
-            return res
-              .status(400)
-              .json({ success: false, message: 'Only DBIT emails (@dbit.co.in) are allowed.' });
-          }
-          // Check uniqueness
-          const uniqCheck = await pool.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
-          if (uniqCheck.rows.length > 0) {
-            return res.status(409).json({ success: false, message: 'Email is already registered.' });
-          }
-          updateFields.push(`email = $${valIdx++}`);
-          queryValues.push(normalizedEmail);
-        }
+        if (typeof email !== 'string' || email.trim().toLowerCase() !== currentUser.email.trim().toLowerCase())
+          return res.status(400).json({ success: false, message: 'Your verified campus email cannot be changed in profile settings.' });
       }
 
       // 4. Handle Password Update (requires old password check)

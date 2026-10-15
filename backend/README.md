@@ -2,7 +2,13 @@
 
 A complete Node.js backend for CampusMesh. 
 
-## OTP email on Render Free (Amazon SES HTTPS)
+## OTP email on Render Free
+
+The campus preview can use `EMAIL_PROVIDER=lambda`, `AWS_REGION=us-east-1` and `EMAIL_LAMBDA_FUNCTION=campusmesh-otp-mailer`. Render invokes the private AWS Lambda synchronously over HTTPS; the function sends with the existing Gmail account over TLS. Grant only `lambda:InvokeFunction` on that exact function ARN to the application's IAM user. Set the Gmail sender and app password on the Lambda environment, not in its deployment ZIP or API payload. The app accepts success only after the function confirms SMTP acceptance. See [the mail function deployment instructions](lambda/otp-mailer/README.md). `npm run email:check` tests invocation permission without sending mail. Gmail sending quotas still apply; use an approved transactional provider and a verified sending domain for larger production use.
+
+Signup remains restricted to `@dbit.co.in`. Failed initial sends preserve an unverified account; retrying signup returns the user to verification without overwriting its password. Codes expire after ten minutes, have five attempts, are single-use, and have separate verification/reset purposes. Resending is limited to once per minute. Profile edits cannot replace the verified sign-in email.
+
+### Amazon SES option
 
 Set `EMAIL_PROVIDER=ses`, `EMAIL_FROM` to a verified sender email, and `AWS_REGION` to the region where that identity is verified. Supply `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` privately in the server environment (plus `AWS_SESSION_TOKEN` for temporary credentials). The SDK also supports standard AWS credential profiles and IAM roles. S3-only permissions do not authorize SES: the application identity needs `ses:SendEmail` for the chosen SES sender identity. Use a dedicated application IAM identity, not root access keys.
 

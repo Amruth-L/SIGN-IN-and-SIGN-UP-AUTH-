@@ -1,10 +1,23 @@
 const path = require('node:path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../.env'), quiet: true });
 const { SESv2Client, GetAccountCommand, GetEmailIdentityCommand } = require('@aws-sdk/client-sesv2');
+const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
 const { emailConfiguration } = require('./send-email');
 
 async function check() {
   const config = emailConfiguration();
+  if (config.provider === 'lambda') {
+    const client = new LambdaClient({ region: config.region, maxAttempts: 1 });
+    try {
+      const result = await client.send(new InvokeCommand({ FunctionName: config.functionName, InvocationType: 'DryRun' }),
+        { abortSignal: globalThis.AbortSignal.timeout(12000) });
+      console.log(JSON.stringify({ provider: 'lambda', region: config.region,
+        invokePermission: result.StatusCode === 204,
+        note: 'Read-only invocation permission check. No email sent. Gmail authentication and actual inbox delivery require a separate test.' }, null, 2));
+      if (result.StatusCode !== 204) process.exitCode = 1;
+    } finally { client.destroy(); }
+    return;
+  }
   if (config.provider !== 'ses') throw new Error('Set EMAIL_PROVIDER=ses to check the HTTPS email setup.');
   const client = new SESv2Client({ region: config.region, maxAttempts: 1 });
   const send = command => client.send(command, { abortSignal: globalThis.AbortSignal.timeout(12000) });

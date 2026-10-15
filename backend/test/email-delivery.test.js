@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { SendEmailCommand } = require('@aws-sdk/client-sesv2');
+const { InvokeCommand } = require('@aws-sdk/client-lambda');
 const { createEmailSender, emailConfiguration } = require('../src/shared/send-email');
 const env = { EMAIL_PROVIDER: 'ses', EMAIL_FROM: 'sender@example.invalid', AWS_REGION: 'ap-south-1' };
 const quiet = { error() {} };
@@ -73,4 +74,36 @@ test('existing SMTP configuration is preserved and requires an accepted recipien
   assert.equal((await send('student@dbit.co.in', 'Code', '654321')).provider, 'smtp');
   accepted = [];
   await assert.rejects(send('student@dbit.co.in', 'Code', '654321'), { code: 'EMAIL_NOT_ACCEPTED' });
+});
+
+test('private mail function uses synchronous IAM invocation and reports only acknowledged sends', async () => {
+  const env = { EMAIL_PROVIDER: 'lambda', AWS_REGION: 'us-east-1', EMAIL_LAMBDA_FUNCTION: 'campusmesh-otp-mailer' };
+  let response = { ok: true, messageId: 'smtp-message' };
+  let functionError;
+  let sends = 0;
+  const send = createEmailSender({ env, logger: quiet,
+    smtpFactory: () => assert.fail('Render must not use SMTP'),
+    sesFactory: () => assert.fail('No fallback to SES sandbox'),
+    lambdaFactory: options => {
+      assert.equal(options.maxAttempts, 1);
+      return { send: async command => {
+        sends++;
+        assert(command instanceof InvokeCommand);
+        assert.equal(command.input.InvocationType, 'RequestResponse');
+        assert.equal(command.input.FunctionName, 'campusmesh-otp-mailer');
+        assert.deepEqual(JSON.parse(command.input.Payload), { version: 1, to: 'student@dbit.co.in', purpose: 'reset', code: '654321', name: 'Student' });
+        return { StatusCode: 200, FunctionError: functionError, Payload: Buffer.from(JSON.stringify(response)) };
+      } };
+    },
+  });
+  const invoke = () => send('student@dbit.co.in', 'Your CampusMesh Password Reset Code', '654321', 'Student');
+  assert.deepEqual(await invoke(), { provider: 'lambda', messageId: 'smtp-message' });
+  response = { ok: false, code: 'SMTP_UNAVAILABLE', retryable: true };
+  await assert.rejects(invoke(), { code: 'SMTP_UNAVAILABLE' });
+  response = { ok: true, messageId: 'not-a-success' };
+  functionError = 'Unhandled';
+  await assert.rejects(invoke(), { code: 'EMAIL_NOT_ACCEPTED' });
+  assert.equal(sends, 3);
+  await assert.rejects(send('someone@gmail.com', 'Your CampusMesh Password Reset Code', '654321'), { code: 'EMAIL_CONFIGURATION' });
+  assert.equal(sends, 3);
 });

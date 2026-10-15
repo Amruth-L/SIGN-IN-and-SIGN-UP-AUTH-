@@ -86,7 +86,7 @@ const Signup: React.FC = () => {
       errors.username = 'Username must be 3–20 characters (letters, numbers, underscores only).';
     }
 
-    if (!form.email.trim().toLowerCase().endsWith('@dbit.co.in')) {
+    if (!/^[^\s@]+@dbit\.co\.in$/i.test(form.email.trim())) {
       errors.email = 'Please use your DBIT university email (@dbit.co.in).';
     }
 
@@ -133,8 +133,8 @@ const Signup: React.FC = () => {
       if (error && typeof error === 'object' && 'response' in error) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const response = (error as any).response;
-        if (response?.data?.accountCreated) {
-          navigate('/verify-email', { state: { email: form.email.trim().toLowerCase(), error: message } });
+        if (response?.data?.accountCreated || response?.data?.requiresVerification) {
+          navigate('/verify-email', { state: { email: form.email.trim().toLowerCase(), error: message, codeSent: false } });
           return;
         }
         if (response?.status === 409) {
