@@ -149,7 +149,7 @@ const AddListing = () => {
     }[cond] || 'border-ink/10 bg-ink/5 text-ink/60';
   };
 
-  // Image Upload Logic (converts files to base64)
+  // Local previews; the API validates and stores photos in S3 when publishing.
   const handleFiles = (files) => {
     setError('');
     const newImages = [...images];
@@ -281,7 +281,7 @@ const AddListing = () => {
 
     setPublishing(true);
     setUploadProgress(25);
-    setUploadStatus('Saving listing and images...');
+    setUploadStatus('Uploading your photos and publishing your item...');
 
     // Prepare API request payload
     const payload = {

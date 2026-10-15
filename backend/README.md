@@ -44,6 +44,16 @@ To enable model-generated answers, privately configure `OPENAI_API_KEY` and `OPE
 
 See [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 
+### Listing photos on Amazon S3
+
+New listing photos are decoded and checked by the API, resized to at most 1600 pixels per side, stripped of embedded metadata, and saved as WebP in a private S3 bucket. Supabase stores only stable app photo URLs in `listings.image_url` and `image_urls`. Existing listings retain their original images. The browser keeps local previews (and optional drafts) until publishing; it never receives AWS credentials.
+
+Configure `S3_PHOTO_BUCKET`, `S3_REGION` (or `AWS_REGION`), and `PUBLIC_API_URL` on the API. The existing server-side AWS credential chain is used. Allow only `s3:PutObject`, `s3:GetObject`, and `s3:DeleteObject` on `arn:aws:s3:::YOUR_BUCKET/listings/*`. Keep S3 Block Public Access enabled, ACLs disabled, and SSE-S3 encryption. No bucket CORS, public-read policy, KMS key or CDN is required.
+
+The API accepts up to five JPG/PNG/WebP photos, at most 5 MB and 40 megapixels each. New external URL submissions and animated images are rejected. `/api/photos/:owner/:file` checks that a photo is still attached to a listing, then redirects to a five-minute signed S3 URL. Listing photos are publicly viewable through the marketplace. Replacing/deleting a listing removes its unreferenced S3 photos; failed cleanup is logged for retry. A crash between an S3 upload and database save can leave an orphan object, so retain logs and reconcile storage periodically; no automatic broad bucket deletion is enabled.
+
+Run `PHOTO_STORAGE_E2E=1 PHOTO_TEST_BASE_URL=https://your-api.example node --test test/photo-storage.contract.test.js` from `backend/` for a real storage check. This opt-in test needs the API and local environment to use the same database, JWT secret and S3 bucket. It creates disposable accounts/listing, checks uploads, private storage, gallery, ownership, replacement and deletion, then removes its fixtures. It sends no email or phone calls. S3 usage is billed under your AWS account/free-tier eligibility.
+
 ### Connecting calling later
 
 The prepared adapter uses Twilio Voice plus Twilio Verify for phone ownership. Keep `CALLS_MODE=preview` and `CALLS_SCHEDULER_ENABLED=false` while reviewing previews. When a provider account and an HTTPS deployment are ready, configure these values privately:

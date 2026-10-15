@@ -1,6 +1,20 @@
 const pool = require('../../config/database');
+const photos = require('./photo-storage');
+
+const galleryOf = listing => [...new Set([listing.image_url, ...(listing.image_urls || [])].filter(Boolean))];
+async function removeUnusedPhotos(urls) {
+  for (const url of urls) {
+    const key = photos.keyFor(url);
+    if (!key) continue;
+    try {
+      const used = await pool.query('SELECT id FROM listings WHERE image_url=$1 OR image_urls @> ARRAY[$1]::text[] LIMIT 1', [url]);
+      if (!used.rowCount) await photos.remove([key]);
+    } catch (error) { console.error('[photos] cleanup deferred', error.name); }
+  }
+}
 
 exports.createListing = async (req, res) => {
+  let prepared;
   try {
     const {
       title,
@@ -52,6 +66,9 @@ exports.createListing = async (req, res) => {
       return res.status(400).json({ error: 'Security deposit cannot exceed the selling price.' });
     }
 
+    prepared = await photos.prepare({ ownerId: owner_id,
+      images: image_urls?.length ? image_urls : [image_url], cover: image_url || image_urls?.[0] });
+
     const queryText = `
       INSERT INTO listings (
         title, description, price, category, image_url, owner_id,
@@ -65,7 +82,7 @@ exports.createListing = async (req, res) => {
       description.trim(),
       sellPrice,
       category.trim(),
-      image_url || (image_urls && image_urls[0]) || '',
+      prepared.cover,
       owner_id,
       condition || 'Good',
       rentPrice,
@@ -74,7 +91,7 @@ exports.createListing = async (req, res) => {
       !!delivery_available,
       parseFloat(delivery_charge) || 0,
       pickup_time || '5 min',
-      image_urls || [],
+      prepared.images,
       pickup_location_id || null,
     ];
 
@@ -82,8 +99,10 @@ exports.createListing = async (req, res) => {
 
     res.status(201).json(newListing.rows[0]);
   } catch (error) {
-    console.error('Error in createListing:', error.message || error);
-    res.status(500).json({ error: 'Server Error' });
+    // Check references before deleting: a lost DB response may follow a commit.
+    if (prepared) await removeUnusedPhotos(prepared.images);
+    console.error('[listing] create failed', error.name);
+    res.status(error.photoError ? error.status : 500).json({ error: error.photoError ? error.message : 'Could not publish your listing. Please try again.' });
   }
 };
 
@@ -194,9 +213,10 @@ exports.getListingById = async (req, res) => {
 };
 
 exports.updateListing = async (req, res) => {
+  let prepared;
   try {
     const { id } = req.params;
-    const { title, description, price, category, image_url, is_active } = req.body;
+    const { title, description, price, category, image_url, image_urls, is_active } = req.body;
     const owner_id = req.user.id;
 
     // Check if listing exists and belongs to user
@@ -210,24 +230,39 @@ exports.updateListing = async (req, res) => {
     }
 
     const current = listingCheck.rows[0];
+    const previousPhotos = galleryOf(current);
+    if (image_url !== undefined || image_urls !== undefined) {
+      const images = image_urls !== undefined ? image_urls :
+        image_url === current.image_url ? previousPhotos : [image_url, ...previousPhotos.filter(p => p !== current.image_url)].slice(0, 5);
+      prepared = await photos.prepare({ ownerId: owner_id, images,
+        cover: image_url ?? images[0], existing: previousPhotos });
+    }
     const updatedListing = await pool.query(
-      `UPDATE listings SET title=$1,description=$2,price=$3,category=$4,image_url=$5,is_active=$6,updated_at=NOW()
-       WHERE id=$7 RETURNING *`,
+      `UPDATE listings SET title=$1,description=$2,price=$3,category=$4,image_url=$5,is_active=$6,image_urls=$7,updated_at=NOW()
+       WHERE id=$8 AND owner_id=$9 RETURNING *`,
       [
         title ?? current.title,
         description ?? current.description,
         price ?? current.price,
         category ?? current.category,
-        image_url ?? current.image_url,
+        prepared?.cover ?? current.image_url,
         is_active ?? current.is_active,
+        prepared?.images ?? current.image_urls,
         id,
+        owner_id,
       ],
     );
 
+    if (!updatedListing.rowCount) {
+      if (prepared) await removeUnusedPhotos(prepared.images);
+      return res.status(404).json({ error: 'Listing not found.' });
+    }
+    if (prepared) await removeUnusedPhotos(previousPhotos.filter(p => !prepared.images.includes(p)));
     res.json(updatedListing.rows[0]);
   } catch (error) {
-    console.error(error.message);
-    res.status(500).json({ error: 'Server Error' });
+    if (prepared) await removeUnusedPhotos(prepared.images);
+    console.error('[listing] update failed', error.name);
+    res.status(error.photoError ? error.status : 500).json({ error: error.photoError ? error.message : 'Could not update your listing.' });
   }
 };
 
@@ -247,6 +282,7 @@ exports.deleteListing = async (req, res) => {
     }
 
     await pool.query('DELETE FROM listings WHERE id = $1', [id]);
+    await removeUnusedPhotos(galleryOf(listingCheck.rows[0]));
 
     res.json({ message: 'Listing deleted successfully' });
   } catch (error) {

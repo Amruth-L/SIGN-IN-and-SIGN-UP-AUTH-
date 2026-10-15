@@ -18,6 +18,21 @@ const EditListing = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
+  const [readingPhoto, setReadingPhoto] = useState(false);
+
+  const replacePhoto = async (file) => {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      setError('Choose a JPG, PNG or WebP photo up to 5 MB.');
+      return;
+    }
+    setError('');
+    setReadingPhoto(true);
+    const reader = new FileReader();
+    reader.onload = () => { setFormData(current => ({ ...current, image_url: reader.result })); setReadingPhoto(false); };
+    reader.onerror = () => { setError('Could not read that photo. Please choose it again.'); setReadingPhoto(false); };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     const fetchListing = async () => {
@@ -109,14 +124,17 @@ const EditListing = () => {
           </div>
 
           <div className="space-y-4">
-            <label className="mb-1.5 block text-xs font-bold text-ink/60">Image URL (Optional)</label>
+            <label htmlFor="listing-cover" className="mb-1.5 block text-xs font-bold text-ink/60">Cover photo</label>
+            {formData.image_url && <img src={formData.image_url} alt="Current listing cover" className="h-48 w-full rounded-xl bg-mesh-50 object-contain" />}
             <input
-              type="url"
-              className="h-11 w-full rounded-xl border border-ink/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
-              placeholder="https://example.com/image.jpg"
-              value={formData.image_url}
-              onChange={(e) => setFormData({...formData, image_url: e.target.value})}
+              id="listing-cover"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              disabled={loading || readingPhoto}
+              className="w-full text-sm"
+              onChange={(e) => replacePhoto(e.target.files?.[0])}
             />
+            <p className="text-xs text-ink/50">JPG, PNG or WebP · up to 5 MB. Your new cover uploads when you save.</p>
           </div>
 
           <div className="space-y-4">
@@ -134,7 +152,7 @@ const EditListing = () => {
             <button type="button" className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-ink/10 bg-white px-5 text-sm font-bold text-ink transition hover:bg-ink/5" onClick={() => navigate('/account/listings')}>
               Cancel
             </button>
-            <button type="submit" className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50" disabled={loading}>
+            <button type="submit" className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50" disabled={loading || readingPhoto}>
               {loading ? 'Saving...' : 'Save Changes'}
             </button>
           </div>

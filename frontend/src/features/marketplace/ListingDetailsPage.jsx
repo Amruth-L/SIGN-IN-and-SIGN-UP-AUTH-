@@ -14,11 +14,13 @@ export default function ListingDetailsPage() {
   const [savingFavorite, setSavingFavorite] = useState(false);
   const [favoriteNotice, setFavoriteNotice] = useState("");
   const [error, setError] = useState("");
+  const [selectedPhoto, setSelectedPhoto] = useState(0);
   useEffect(() => {
     api
       .get(`/listings/${id}`)
       .then(({ data }) => {
         setItem(data);
+        setSelectedPhoto(0);
         api.post(`/listings/${id}/view`).catch(() => {});
       })
       .catch((error) =>
@@ -79,12 +81,21 @@ export default function ListingDetailsPage() {
         <ArrowLeft size={16} /> Marketplace
       </Link>
       <div className="grid gap-8 lg:grid-cols-[1.1fr_.9fr]">
-        <div className="overflow-hidden rounded-[2rem] bg-mesh-50">
+        <div className="overflow-hidden rounded-[2rem] bg-mesh-50 self-start">
           <img
-            className="aspect-[4/3] size-full bg-white object-contain p-5"
-            src={listingImage(item)}
-            alt={item.title}
+            className="aspect-[4/3] w-full bg-white object-contain p-5"
+            src={[...new Set([listingImage(item), ...(item.image_urls || [])])][selectedPhoto] || listingImage(item)}
+            alt={`${item.title} — photo ${selectedPhoto + 1}`}
           />
+          {item.image_urls?.length > 1 && <div className="flex gap-2 overflow-x-auto p-3" aria-label="Item photos">
+            {[...new Set([listingImage(item), ...item.image_urls])].map((photo, index) => (
+              <button key={photo} type="button" aria-label={`View photo ${index + 1}`} aria-pressed={selectedPhoto === index}
+                onClick={() => setSelectedPhoto(index)}
+                className={`size-16 shrink-0 overflow-hidden rounded-xl border-2 bg-white ${selectedPhoto === index ? 'border-mesh-600' : 'border-transparent'}`}>
+                <img src={photo} alt="" className="size-full object-cover" />
+              </button>
+            ))}
+          </div>}
         </div>
         <div className="flex flex-col justify-center">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-mesh-900/10 bg-white/80 px-3 py-1 text-xs font-bold text-mesh-700 w-fit">{item.category}</span>

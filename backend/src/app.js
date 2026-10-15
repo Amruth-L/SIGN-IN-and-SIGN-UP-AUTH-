@@ -36,6 +36,7 @@ app.get('/health', async (req, res) => {
 });
 app.use('/', authRoutes);
 app.use('/listings', listingRoutes);
+app.use('/api/photos', require('./modules/listings/photo.routes'));
 app.use('/api/profile', profileRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/rentals', rentalRoutes);
