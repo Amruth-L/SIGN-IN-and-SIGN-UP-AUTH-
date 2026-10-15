@@ -5,9 +5,7 @@ const { answer } = require('../support/support.service');
 const fail = (status, message) => {
   throw Object.assign(new Error(message), { status });
 };
-// One voice style for greetings, reminders, replies and opt-out confirmations.
-const saySoft = (node, text) =>
-  node.say({ voice: 'Polly.Aditi', language: 'en-IN' }, '').prosody({ rate: '90%', volume: 'soft' }, text);
+const { saySoft: speak } = require('./voice');
 const E164 = /^\+[1-9]\d{7,14}$/;
 const activeRentalStatuses = [
   'RENTAL_ACTIVE',
@@ -109,6 +107,7 @@ function createCallService({
   recommend = recommendations,
   supportAnswer = answer,
 } = {}) {
+  const saySoft = (node, text) => speak(node, text, settings());
   const status = () => {
     const c = settings();
     return {
