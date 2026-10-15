@@ -5,6 +5,7 @@ const pool = require('../../config/database');
 const auth = require('../../middleware/authMiddleware');
 const { createCallService, config, ready } = require('./call.service');
 const { saySoft } = require('./voice');
+const { authenticateWebhook } = require('./webhook-auth');
 const service = createCallService();
 router.use('/webhooks', (req, res, next) => {
   const started = Date.now();
@@ -14,6 +15,7 @@ router.use('/webhooks', (req, res, next) => {
     status: res.statusCode,
     durationMs: Date.now() - started,
     signaturePresent: Boolean(req.get('X-Twilio-Signature')),
+    callSidPresent: Boolean(req.body?.CallSid),
   }));
   next();
 });
@@ -21,7 +23,7 @@ router.use('/webhooks', express.urlencoded({ extended: false, limit: '20kb' }));
 // A signed provider-only probe allows testing Voice without fabricating a booking.
 router.post('/webhooks/probe', (req, res) => {
   const c = config();
-  if (!ready(c) || !twilio.validateRequest(c.token, req.get('X-Twilio-Signature') || '', c.base + req.originalUrl, req.body))
+  if (!ready(c) || !authenticateWebhook(c, req))
     return res.status(403).json({ error: 'Invalid provider signature.' });
   const response = new twilio.twiml.VoiceResponse();
   saySoft(response,
@@ -31,12 +33,17 @@ router.post('/webhooks/probe', (req, res) => {
 });
 router.post('/webhooks/:id/:kind', async (req, res) => {
   const c = config();
-  if (
-    !ready(c) ||
-    !twilio.validateRequest(c.token, req.get('X-Twilio-Signature') || '', c.base + req.originalUrl, req.body)
-  )
+  const authentication = ready(c) && authenticateWebhook(c, req);
+  if (!authentication)
     return res.status(403).json({ error: 'Invalid provider signature.' });
-  if (!/^[a-f0-9-]{36}$/i.test(req.params.id) || !/^CA[\da-f]{32}$/i.test(req.body.CallSid || ''))
+  if (!/^[a-f0-9-]{36}$/i.test(req.params.id)) return res.status(400).end();
+  // Trial fetches may omit call parameters too. The URL is bound to this job;
+  // use only its already accepted provider SID, never a caller-supplied fallback.
+  if (authentication === 'trial-url' && !req.body?.CallSid) {
+    const job = (await pool.query('SELECT provider_sid FROM automated_calls WHERE id=$1', [req.params.id])).rows[0];
+    req.body = { ...req.body, CallSid: job?.provider_sid };
+  }
+  if (!/^CA[\da-f]{32}$/i.test(req.body?.CallSid || ''))
     return res.status(400).end();
   if (req.params.kind === 'status') {
     const mapped = {

@@ -53,7 +53,7 @@ test(
         calls: {
           create: async (request) => {
             assert.deepEqual(Object.keys(request).sort(), ['from','statusCallback','to','url']);
-            assert.match(request.url, /\/voice$/);
+            assert.match(request.url, /\/voice\?expires=\d+&signature=[a-f0-9]{64}$/);
             sends++;
             return { sid: 'CA' + '2'.repeat(32) };
           },

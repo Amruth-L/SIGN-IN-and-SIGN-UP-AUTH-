@@ -6,6 +6,7 @@ const fail = (status, message) => {
   throw Object.assign(new Error(message), { status });
 };
 const { saySoft: speak } = require('./voice');
+const { webhookUrl } = require('./webhook-auth');
 const E164 = /^\+[1-9]\d{7,14}$/;
 const activeRentalStatuses = [
   'RENTAL_ACTIVE',
@@ -465,7 +466,7 @@ function createCallService({
       const call = await providerFactory(c).calls.create({
         to: latest.phone_e164,
         from: c.from,
-        url: `${c.base}/api/calls/webhooks/${job.id}/voice`,
+        url: webhookUrl(c, job.id, 'voice'),
         ...(c.trial
           ? {}
           : {
@@ -531,7 +532,7 @@ function createCallService({
           response.gather({
             numDigits: 1,
             timeout: 5,
-            action: `${settings().base}/api/calls/webhooks/${id}/answer`,
+            action: webhookUrl(settings(), id, 'answer'),
             method: 'POST',
           }),
           job.script + ' Press 9 to stop automated calls.',
@@ -543,7 +544,7 @@ function createCallService({
         response.gather({
           numDigits: 1,
           timeout: 7,
-          action: `${settings().base}/api/calls/webhooks/${id}/answer`,
+          action: webhookUrl(settings(), id, 'answer'),
           method: 'POST',
         }),
         job.kind === 'BOOKING_CONFIRMATION'
@@ -592,7 +593,7 @@ function createCallService({
         language: 'en-IN',
         speechTimeout: 'auto',
         timeout: 5,
-        action: `${settings().base}/api/calls/webhooks/${id}/answer`,
+        action: webhookUrl(settings(), id, 'answer'),
         method: 'POST',
       }),
       'You can ask a short question about CampusMesh, or press 9 to stop automated calls.',
