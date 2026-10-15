@@ -172,6 +172,14 @@ export default function ReminderPage() {
               </p>
             </div>
           </div>
+          {data.status.trialMode && (
+            <p className="mb-5 rounded-xl bg-paper p-4 text-sm leading-6 text-ink/65">
+              Twilio trial: automatic calls work only for approved test
+              recipients. Your number must first be verified in the Twilio
+              console and linked to your CampusMesh account by the project
+              owner. Trial minutes and expiry apply.
+            </p>
+          )}
           <div className="grid items-start gap-6 lg:grid-cols-2">
             <form
               onSubmit={(e) => action("save", e)}

@@ -2,14 +2,17 @@ const { createCallService } = require('./call.service');
 const service = createCallService();
 let busy = false;
 async function tick() {
-  if (busy) return;
+  if (busy) return { busy: true };
   busy = true;
   try {
-    await service.enqueue();
+    const result = await service.enqueue();
+    const dispatches = [];
     for (let n = 0; n < 5; n++) {
       const r = await service.dispatchOne();
+      dispatches.push(r);
       if (r.empty || r.skipped) break;
     }
+    return { ...result, dispatches };
   } finally {
     busy = false;
   }

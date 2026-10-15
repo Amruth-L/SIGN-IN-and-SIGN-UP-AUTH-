@@ -18,6 +18,7 @@ const activeRentalStatuses = [
 function config() {
   return {
     live: process.env.CALLS_MODE === 'live',
+    trial: process.env.TWILIO_TRIAL_MODE === 'true',
     sid: process.env.TWILIO_ACCOUNT_SID,
     token: process.env.TWILIO_AUTH_TOKEN,
     from: process.env.TWILIO_FROM_NUMBER,
@@ -113,6 +114,7 @@ function createCallService({
     return {
       mode: ready(c) ? 'live' : 'preview',
       provider: 'twilio',
+      trialMode: Boolean(c.trial),
       configured: ready(c),
       schedulerEnabled: ready(c) && c.enabled,
       phoneVerificationConfigured: Boolean(ready(c) && c.verify),
@@ -465,12 +467,16 @@ function createCallService({
         to: latest.phone_e164,
         from: c.from,
         url: `${c.base}/api/calls/webhooks/${job.id}/voice`,
-        method: 'POST',
+        ...(c.trial
+          ? {}
+          : {
+              method: 'POST',
+              statusCallbackMethod: 'POST',
+              statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
+              timeout: 20,
+              timeLimit: 120,
+            }),
         statusCallback: `${c.base}/api/calls/webhooks/${job.id}/status`,
-        statusCallbackMethod: 'POST',
-        statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-        timeout: 20,
-        timeLimit: 120,
       });
       await db.query(
         "UPDATE automated_calls SET provider_sid=COALESCE(provider_sid,$2),status=CASE WHEN status='DISPATCHING' THEN 'SENT' ELSE status END WHERE id=$1",
@@ -483,7 +489,7 @@ function createCallService({
         job.id,
         definite ? 'FAILED' : 'UNKNOWN',
         definite
-          ? 'Provider rejected the call'
+          ? `Provider rejected the call (HTTP ${Number(e.status)}, code ${Number(e.code) || 0})`
           : 'Provider acceptance uncertain; check provider logs before retrying',
       ]);
       return { failed: true };

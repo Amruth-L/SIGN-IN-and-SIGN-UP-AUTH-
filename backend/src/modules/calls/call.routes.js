@@ -6,6 +6,17 @@ const auth = require('../../middleware/authMiddleware');
 const { createCallService, config, ready } = require('./call.service');
 const service = createCallService();
 router.use('/webhooks', express.urlencoded({ extended: false, limit: '20kb' }));
+// A signed provider-only probe allows testing Voice without fabricating a booking.
+router.post('/webhooks/probe', (req, res) => {
+  const c = config();
+  if (!ready(c) || !twilio.validateRequest(c.token, req.get('X-Twilio-Signature') || '', c.base + req.originalUrl, req.body))
+    return res.status(403).json({ error: 'Invalid provider signature.' });
+  const response = new twilio.twiml.VoiceResponse();
+  response.say({ voice: 'Polly.Aditi', language: 'en-IN' }, '').prosody({ rate: '90%', volume: 'soft' },
+    'Hello! This is the CampusMesh automated assistant. This is a test call. We are happy to have you here. Your booking confirmations and return reminders will use this voice. Thank you for using CampusMesh. Goodbye!');
+  response.hangup();
+  res.type('text/xml').send(response.toString());
+});
 router.post('/webhooks/:id/:kind', async (req, res) => {
   const c = config();
   if (

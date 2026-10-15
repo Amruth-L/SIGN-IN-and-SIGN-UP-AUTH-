@@ -41,6 +41,7 @@ test(
       clock: () => new Date(today + 'T06:00:00Z'),
       settings: () => ({
         live: true,
+        trial: true,
         enabled: true,
         sid: 'AC' + '1'.repeat(32),
         token: 'fixture',
@@ -50,7 +51,9 @@ test(
       recommend: async () => [],
       providerFactory: () => ({
         calls: {
-          create: async () => {
+          create: async (request) => {
+            assert.deepEqual(Object.keys(request).sort(), ['from','statusCallback','to','url']);
+            assert.match(request.url, /\/voice$/);
             sends++;
             return { sid: 'CA' + '2'.repeat(32) };
           },
