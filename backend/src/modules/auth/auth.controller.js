@@ -2,6 +2,7 @@ const pool = require('../../config/database');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { sendCode, consumeCode } = require('./otp.service');
+const { normalizePhone, recordFirstSignIn } = require('./onboarding.service');
 const emailOf = value => typeof value === 'string' ? value.trim().toLowerCase() : '';
 const validEmail = email => /^[^\s@]+@dbit\.co\.in$/.test(email);
 const respondError = (res, result, extra = {}) => {
@@ -16,16 +17,37 @@ const serverError = (res, error) => {
 exports.signup = async (req, res) => {
   const { name, username, password } = req.body;
   const email = emailOf(req.body.email);
+  const phone = normalizePhone(req.body.phone_number);
+  const welcome = req.body.welcome_enabled === true;
   if (typeof name !== 'string' || !name.trim() || typeof username !== 'string' || !/^[a-zA-Z0-9_]{3,20}$/.test(username.trim()))
     return res.status(400).json({ error: 'Enter your name and a username of 3–20 letters, numbers, or underscores.' });
   if (!validEmail(email)) return res.status(400).json({ error: 'Use your DBIT email (@dbit.co.in).' });
   if (typeof password !== 'string' || password.length < 6 || Buffer.byteLength(password) > 72)
     return res.status(400).json({ error: 'Use a password of at least 6 characters and at most 72 bytes.' });
+  if (!phone) return res.status(400).json({ error: 'Enter your mobile number with country code, or a 10-digit Indian mobile number.' });
+  if (req.body.welcome_enabled !== undefined && typeof req.body.welcome_enabled !== 'boolean')
+    return res.status(400).json({ error: 'Choose whether you want a one-time welcome call.' });
   try {
     const existing = await pool.query('SELECT id FROM users WHERE LOWER(email)=$1', [email]);
     if (existing.rowCount) return res.status(409).json({ error: 'Email is already registered. Sign in or resend your verification code.' });
-    await pool.query('INSERT INTO users(name,username,email,password) VALUES($1,$2,$3,$4)',
-      [name.trim(), username.trim().toLowerCase(), email, await bcrypt.hash(password, 10)]);
+    const hash = await bcrypt.hash(password, 10);
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        'INSERT INTO users(name,username,email,password,phone_number) VALUES($1,$2,$3,$4,$5) RETURNING id',
+        [name.trim(), username.trim().toLowerCase(), email, hash, phone]);
+      await client.query(
+        "INSERT INTO call_preferences(user_id,phone_e164,welcome_enabled,consent_version) VALUES($1,$2,$3,'2026-10-15')",
+        [rows[0].id, phone, welcome]);
+      await client.query(
+        "INSERT INTO call_consent_events(user_id,reminders_enabled,recommendations_enabled,welcome_enabled,consent_version) VALUES($1,FALSE,FALSE,$2,'2026-10-15')",
+        [rows[0].id, welcome]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally { client.release(); }
     const result = await sendCode(email, 'verify', name.trim());
     if (result.error) return respondError(res, result, { accountCreated: true, email });
     return res.status(201).json({ message: 'Verification code sent. Check your email.', ...result });
@@ -119,9 +141,11 @@ exports.login = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
+    const welcomeCallSetupNeeded = await recordFirstSignIn(user.id);
 
     res.json({
       token,
+      welcomeCallSetupNeeded,
       user: {
         id: user.id,
         name: user.name,

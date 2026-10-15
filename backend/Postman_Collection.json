@@ -20,7 +20,7 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"name\": \"Test User\",\n    \"email\": \"testuser@dbit.co.in\",\n    \"password\": \"Password@123\"\n}"
+							"raw": "{\n    \"name\": \"Test User\",\n    \"username\": \"test_user\",\n    \"email\": \"testuser@dbit.co.in\",\n    \"password\": \"Password@123\",\n    \"phone_number\": \"+15005550009\",\n    \"welcome_enabled\": false\n}"
 						},
 						"url": {
 							"raw": "http://localhost:3003/signup",

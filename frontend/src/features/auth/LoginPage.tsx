@@ -8,7 +8,7 @@ import { getApiError, loginUser } from './auth.service';
 import type { AuthLoadingState, LoginFormData } from './auth.types';
 
 export default function LoginPage() {
-  const { api, login } = useAuth();
+  const { api, login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState<LoginFormData>({ email: '', password: '', remember: false });
   const [showPassword, setShowPassword] = useState(false);
@@ -20,6 +20,11 @@ export default function LoginPage() {
     const rememberedEmail = localStorage.getItem('cm_remember');
     if (rememberedEmail) setForm(current => ({ ...current, email: rememberedEmail, remember: true }));
   }, []);
+
+  // Leave an in-flight login's destination to its response (including onboarding).
+  useEffect(() => {
+    if (isAuthenticated && loadingState === 'idle') navigate('/choose-mode', { replace: true });
+  }, [isAuthenticated, loadingState, navigate]);
 
   const update = useCallback(
     (field: keyof LoginFormData, value: string | boolean) =>
@@ -38,7 +43,7 @@ export default function LoginPage() {
       if (form.remember) localStorage.setItem('cm_remember', form.email.trim().toLowerCase());
       else localStorage.removeItem('cm_remember');
       setLoadingState('success');
-      navigate('/choose-mode');
+      navigate(data.welcomeCallSetupNeeded ? '/reminders?welcome=1' : '/choose-mode');
     } catch (caught: unknown) {
       setError(getApiError(caught, 'Invalid email or password.'));
       setLoadingState('error');

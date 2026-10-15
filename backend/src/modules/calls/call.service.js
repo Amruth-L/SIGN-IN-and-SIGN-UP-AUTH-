@@ -62,6 +62,8 @@ function reminderStage(endDate, today = localTime().day) {
   return delta === 1 ? 'tomorrow' : delta === 0 ? 'today' : delta === -1 ? 'overdue' : null;
 }
 function scriptFor(kind, data) {
+  if (kind === 'WELCOME')
+    return "Hi! This is CampusMesh's automated assistant. Welcome to CampusMesh! We’re happy to have you here. You can rent useful items, lend what you own, or earn by delivering on your campus. Open the app to get started. Thanks for joining our campus community!";
   if (kind === 'DUE_REMINDER')
     return `This is CampusMesh's automated assistant. Your rental of ${data.title} is ${data.stage === 'overdue' ? 'past its return date' : `due ${data.stage}`}. The agreed return date is ${data.end_date}. Please open My rentals to arrange the return or request an extension. An extension needs approval. We will never ask for an account OTP or payment PIN on this call.`;
   return `This is CampusMesh's automated assistant. You opted in to rental recommendations. ${data.title} is listed at ${Number(data.rent_price)} rupees per day. ${data.reason}. You can review dates and availability in CampusMesh. No booking or payment will be made on this call.`;
@@ -85,6 +87,7 @@ function createCallService({
       language: 'English',
       window: '09:00–19:00 Asia/Kolkata',
       limits: 'At most one call per day; recommendations at most once per seven days.',
+      welcome: 'One welcome call after your first successful sign-in, with consent and a verified number. No repeat on later sign-ins.',
     };
   };
   const preferences = async (userId) => {
@@ -95,6 +98,7 @@ function createCallService({
     if (
       typeof body.reminders_enabled !== 'boolean' ||
       typeof body.recommendations_enabled !== 'boolean' ||
+      (body.welcome_enabled !== undefined && typeof body.welcome_enabled !== 'boolean') ||
       typeof body.phone_e164 !== 'string' ||
       (body.phone_e164 && !E164.test(body.phone_e164))
     )
@@ -108,12 +112,12 @@ function createCallService({
       await c.query('INSERT INTO call_preferences(user_id) VALUES($1) ON CONFLICT DO NOTHING', [userId]);
       await c.query('SELECT user_id FROM call_preferences WHERE user_id=$1 FOR UPDATE', [userId]);
       const { rows } = await c.query(
-        `UPDATE call_preferences SET phone_verified_at=CASE WHEN phone_e164 IS NOT DISTINCT FROM NULLIF($2,'') THEN phone_verified_at ELSE NULL END,phone_e164=NULLIF($2,''),reminders_enabled=$3,recommendations_enabled=$4,updated_at=NOW() WHERE user_id=$1 RETURNING *`,
-        [userId, body.phone_e164, body.reminders_enabled, body.recommendations_enabled],
+        `UPDATE call_preferences SET phone_verified_at=CASE WHEN phone_e164 IS NOT DISTINCT FROM NULLIF($2,'') THEN phone_verified_at ELSE NULL END,phone_e164=NULLIF($2,''),reminders_enabled=$3,recommendations_enabled=$4,welcome_enabled=COALESCE($5,welcome_enabled),consent_version='2026-10-15',updated_at=NOW() WHERE user_id=$1 RETURNING *`,
+        [userId, body.phone_e164, body.reminders_enabled, body.recommendations_enabled, body.welcome_enabled ?? null],
       );
       await c.query(
-        "INSERT INTO call_consent_events(user_id,reminders_enabled,recommendations_enabled,consent_version) VALUES($1,$2,$3,'2026-10-14')",
-        [userId, body.reminders_enabled, body.recommendations_enabled],
+        "INSERT INTO call_consent_events(user_id,reminders_enabled,recommendations_enabled,welcome_enabled,consent_version) VALUES($1,$2,$3,$4,'2026-10-15')",
+        [userId, body.reminders_enabled, body.recommendations_enabled, rows[0].welcome_enabled],
       );
       await c.query('COMMIT');
       await db.query(
@@ -173,6 +177,17 @@ function createCallService({
   const candidates = async (userId, prefs, preview = false) => {
     const result = [];
     const today = localTime(clock()).day;
+    if (prefs.welcome_enabled) {
+      const { rows } = await db.query(
+        `SELECT first_signed_in_at FROM users WHERE id=$1 AND email_verified AND first_signed_in_at IS NOT NULL AND first_signed_in_at >= $2::timestamptz - INTERVAL '7 days'`,
+        [userId, clock()],
+      );
+      if (rows.length) result.push({
+        kind: 'WELCOME',
+        payload: { phone_e164: prefs.phone_e164 },
+        key: `welcome:${userId}`,
+      });
+    }
     if (preview || prefs.reminders_enabled) {
       const { rows } = await db.query(
         `SELECT r.id,l.title,r.end_date::text end_date FROM rentals r JOIN listings l ON l.id=r.listing_id WHERE r.borrower_id=$1 AND r.status=ANY($2) AND r.payment_status='FULLY_PAID' AND l.demo_slug IS NULL AND r.end_date BETWEEN $3::date-1 AND $3::date+1`,
@@ -212,7 +227,7 @@ function createCallService({
       previews: list.map((j) => ({
         ...j,
         script: scriptFor(j.kind, j.payload),
-        eligible: j.kind === 'DUE_REMINDER' ? prefs.reminders_enabled : prefs.recommendations_enabled,
+        eligible: Boolean(prefs.phone_verified_at) && (j.kind === 'WELCOME' ? prefs.welcome_enabled : j.kind === 'DUE_REMINDER' ? prefs.reminders_enabled : prefs.recommendations_enabled),
       })),
       sample: {
         example: true,
@@ -225,6 +240,7 @@ function createCallService({
             .slice(0, 10),
         }),
       },
+      welcomeSample: { example: true, kind: 'WELCOME', script: scriptFor('WELCOME') },
       note: 'Preview only. No phone is called, and no real reminder is created for a demo rental.',
     };
   };
@@ -232,14 +248,16 @@ function createCallService({
     if (!ready(settings()) || !settings().enabled) return { queued: 0, mode: 'preview' };
     const users = (
       await db.query(
-        'SELECT * FROM call_preferences WHERE phone_verified_at IS NOT NULL AND (reminders_enabled OR recommendations_enabled)',
+        'SELECT * FROM call_preferences WHERE phone_verified_at IS NOT NULL AND (welcome_enabled OR reminders_enabled OR recommendations_enabled)',
       )
     ).rows;
     let queued = 0;
     for (const prefs of users) {
       for (const j of await candidates(prefs.user_id, prefs)) {
         const r = await db.query(
-          `INSERT INTO automated_calls(user_id,rental_id,listing_id,kind,dedupe_key,payload,script) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(dedupe_key) DO NOTHING`,
+          `INSERT INTO automated_calls(user_id,rental_id,listing_id,kind,dedupe_key,payload,script) VALUES($1,$2,$3,$4,$5,$6,$7)
+           ON CONFLICT(dedupe_key) DO UPDATE SET status='QUEUED',payload=EXCLUDED.payload,script=EXCLUDED.script,outcome=NULL,scheduled_at=NOW()
+           WHERE automated_calls.kind='WELCOME' AND automated_calls.status='CANCELLED' AND automated_calls.started_at IS NULL`,
           [
             prefs.user_id,
             j.rental_id || null,
@@ -259,9 +277,17 @@ function createCallService({
     if (
       !prefs?.phone_verified_at ||
       !E164.test(prefs.phone_e164 || '') ||
-      !(job.kind === 'DUE_REMINDER' ? prefs.reminders_enabled : prefs.recommendations_enabled)
+      !(job.kind === 'WELCOME' ? prefs.welcome_enabled : job.kind === 'DUE_REMINDER' ? prefs.reminders_enabled : prefs.recommendations_enabled)
     )
       return false;
+    if (job.kind === 'WELCOME') {
+      if (job.payload.phone_e164 !== prefs.phone_e164) return false;
+      const user = await client.query(
+        "SELECT id FROM users WHERE id=$1 AND email_verified AND first_signed_in_at IS NOT NULL AND first_signed_in_at >= $2::timestamptz - INTERVAL '7 days'",
+        [job.user_id, clock()],
+      );
+      return Boolean(user.rowCount);
+    }
     if (job.kind === 'DUE_REMINDER') {
       const r = await client.query(
         `SELECT r.end_date::text end_date,r.status FROM rentals r JOIN listings l ON l.id=r.listing_id WHERE r.id=$1 AND r.borrower_id=$2 AND r.payment_status='FULLY_PAID' AND l.demo_slug IS NULL`,
@@ -393,6 +419,7 @@ function createCallService({
         phone_e164: prefs.phone_e164,
         reminders_enabled: false,
         recommendations_enabled: false,
+        welcome_enabled: false,
       });
       await db.query("UPDATE automated_calls SET outcome='Opted out' WHERE id=$1", [id]);
       saySoft(response, 'Automated calls have been switched off. Goodbye.');
@@ -400,6 +427,15 @@ function createCallService({
       return response.toString();
     }
     if (kind === 'voice') {
+      // The generic welcome contains no account details and can be heard immediately.
+      if (job.kind === 'WELCOME') {
+        saySoft(response.gather({
+          numDigits: 1, timeout: 5,
+          action: `${settings().base}/api/calls/webhooks/${id}/answer`, method: 'POST',
+        }), job.script + ' Press 9 to stop automated calls.');
+        response.hangup();
+        return response.toString();
+      }
       saySoft(
         response.gather({
           numDigits: 1,

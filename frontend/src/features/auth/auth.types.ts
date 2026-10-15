@@ -40,6 +40,8 @@ export interface SignupPayload {
   username: string;
   email: string;
   password: string;
+  phone_number: string;
+  welcome_enabled: boolean;
 }
 
 export interface ForgotPasswordPayload {
@@ -65,6 +67,7 @@ export interface ResendOtpPayload {
 
 export interface LoginResponse {
   token: string;
+  welcomeCallSetupNeeded?: boolean;
   message?: string;
 }
 
@@ -88,6 +91,7 @@ export interface SignupFormData {
   email: string;
   password: string;
   confirmPassword: string;
+  phone_number: string;
 }
 
 export interface SignupFieldErrors {
@@ -96,6 +100,7 @@ export interface SignupFieldErrors {
   email?: string;
   password?: string;
   confirmPassword?: string;
+  phone_number?: string;
 }
 
 export type AuthLoadingState = 'idle' | 'loading' | 'success' | 'error';

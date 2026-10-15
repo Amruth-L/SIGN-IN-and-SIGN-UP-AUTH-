@@ -45,6 +45,8 @@ export async function signupUser(
     username: payload.username.trim().toLowerCase(),
     email: payload.email.trim().toLowerCase(),
     password: payload.password,
+    phone_number: payload.phone_number,
+    welcome_enabled: payload.welcome_enabled,
   });
   return res.data as MessageResponse;
 }

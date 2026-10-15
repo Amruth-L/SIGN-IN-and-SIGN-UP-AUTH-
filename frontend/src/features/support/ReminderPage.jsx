@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { Phone, Play, Volume2, ShieldCheck } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 const field =
   "mt-2 w-full rounded-lg border border-ink/15 px-3 py-3 text-sm outline-none focus:border-mesh-600";
 export default function ReminderPage() {
   const { api } = useAuth();
+  const [params] = useSearchParams();
   const [voices, setVoices] = useState([]);
   useEffect(() => {
     const synth = window.speechSynthesis;
@@ -20,6 +21,7 @@ export default function ReminderPage() {
       phone_e164: "",
       reminders_enabled: false,
       recommendations_enabled: false,
+      welcome_enabled: false,
     }),
     [preview, setPreview] = useState(null),
     [busy, setBusy] = useState(""),
@@ -33,6 +35,7 @@ export default function ReminderPage() {
         phone_e164: data.preferences.phone_e164 || "",
         reminders_enabled: data.preferences.reminders_enabled,
         recommendations_enabled: data.preferences.recommendations_enabled,
+        welcome_enabled: data.preferences.welcome_enabled,
       });
     } catch (e) {
       setNotice(e.response?.data?.error || "Could not load reminder settings.");
@@ -51,7 +54,9 @@ export default function ReminderPage() {
         await api.put("/api/calls/preferences", form);
         await load();
         setNotice(
-          "Preferences saved. You can turn either type of call off at any time.",
+          data?.status.mode === "preview"
+            ? "Preferences saved. No calls are placed in preview mode."
+            : "Preferences saved. You can turn any type of call off at any time.",
         );
       } else if (type === "preview") {
         const { data } = await api.get("/api/calls/preview");
@@ -118,6 +123,13 @@ export default function ReminderPage() {
           Choose which updates you want to hear. English first.
         </p>
       </header>
+      {params.get("welcome") === "1" && (
+        <section className="panel mt-6 p-5">
+          <h2 className="font-semibold">Welcome to CampusMesh!</h2>
+          <p className="mt-2 text-sm leading-6 text-ink/60">You chose a one-time welcome call. Verify your mobile number before it can be placed. In preview mode, you can listen to the welcome message here.</p>
+          <Link to="/choose-mode" className="mt-3 inline-block text-sm font-semibold text-mesh-700">Continue to CampusMesh →</Link>
+        </section>
+      )}
       {notice && (
         <p
           role="status"
@@ -144,7 +156,7 @@ export default function ReminderPage() {
                 {data.status.mode === "preview"
                   ? "The calling integration is ready to configure. You can save preferences and listen to sample scripts now."
                   : data.status.schedulerEnabled
-                    ? "Automatic reminders are enabled for verified, opted-in numbers."
+                    ? "Automatic calls are enabled for verified, opted-in numbers."
                     : "The scheduler is paused. No automatic calls will be placed."}
               </p>
             </div>
@@ -168,11 +180,16 @@ export default function ReminderPage() {
                 />
               </label>
               <p className="text-xs text-ink/55">
-                {data.preferences.phone_verified_at
+                {data.preferences.phone_verified_at && form.phone_e164 === data.preferences.phone_e164
                   ? "Phone number verified"
                   : "Phone verification is required before live calls."}
               </p>
               {[
+                [
+                  "welcome_enabled",
+                  "One-time welcome call",
+                  "One welcome after your first successful sign-in and phone verification. Later sign-ins never trigger another. Available during your first seven days; delivered in the calling hours below.",
+                ],
                 [
                   "reminders_enabled",
                   "Due-date reminders",
@@ -218,17 +235,19 @@ export default function ReminderPage() {
                     <button
                       type="button"
                       className="secondary-button"
-                      disabled={!!busy}
+                      disabled={!!busy || !form.phone_e164 || form.phone_e164 !== data.preferences.phone_e164}
                       onClick={() => action("verify")}
                     >
                       Send phone verification code
                     </button>
+                    {form.phone_e164 !== data.preferences.phone_e164 && <p className="mt-2 text-xs text-ink/55">Save your mobile number before requesting a verification code.</p>}
                     <label className="mt-3 block text-xs">
                       Verification code
                       <input
                         className={field}
                         inputMode="numeric"
                         autoComplete="one-time-code"
+                        maxLength={8}
                         value={code}
                         onChange={(e) => setCode(e.target.value)}
                       />
@@ -236,7 +255,7 @@ export default function ReminderPage() {
                     <button
                       type="button"
                       className="brand-button mt-3"
-                      disabled={!!busy || !code}
+                      disabled={!!busy || !code || form.phone_e164 !== data.preferences.phone_e164}
                       onClick={() => action("confirm")}
                     >
                       Verify phone
@@ -265,13 +284,15 @@ export default function ReminderPage() {
                 </button>
                 {preview && (
                   <div className="mt-5 space-y-4">
-                    {(preview.previews.length
+                    {((preview.previews.length
                       ? preview.previews
                       : [preview.sample]
-                    ).map((p, i) => (
+                    ).concat(preview.previews.some(p => p.kind === "WELCOME") ? [] : [preview.welcomeSample])).filter(Boolean).map((p, i) => (
                       <article key={i} className="rounded-lg bg-paper p-4">
                         <span className="text-xs font-semibold text-mesh-700">
-                          {p.example
+                          {p.kind === "WELCOME"
+                            ? p.example ? "Welcome call example" : "Your welcome call"
+                            : p.example
                             ? "Example only"
                             : p.kind === "DUE_REMINDER"
                               ? "Your rental reminder"
@@ -327,7 +348,9 @@ export default function ReminderPage() {
                   >
                     <div className="flex flex-wrap justify-between gap-2 text-xs">
                       <b>
-                        {c.kind === "DUE_REMINDER"
+                        {c.kind === "WELCOME"
+                          ? "Welcome call"
+                          : c.kind === "DUE_REMINDER"
                           ? "Due-date reminder"
                           : "Recommendation"}
                       </b>

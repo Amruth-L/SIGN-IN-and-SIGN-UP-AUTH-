@@ -86,7 +86,7 @@ export default function App() {
         <Route path="/" element={<LandingPage />} />
         <Route
           path="/login"
-          element={user ? <Navigate to="/choose-mode" replace /> : <Login />}
+          element={<Login />}
         />
         <Route
           path="/signup"

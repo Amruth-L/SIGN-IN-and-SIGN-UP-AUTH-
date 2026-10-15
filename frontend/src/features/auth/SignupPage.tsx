@@ -1,7 +1,7 @@
 import Brand from "../../components/Brand";
 import { useCallback, useState } from 'react';
 import { motion } from 'motion/react';
-import { ArrowRight, AtSign, Eye, EyeOff, Lock, Mail, User } from 'lucide-react';
+import { ArrowRight, AtSign, Eye, EyeOff, Lock, Mail, Phone, User } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { getApiError, signupUser } from './auth.service';
@@ -53,7 +53,9 @@ const Signup: React.FC = () => {
     email: '',
     password: '',
     confirmPassword: '',
+    phone_number: '',
   });
+  const [welcomeEnabled, setWelcomeEnabled] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<SignupFieldErrors>({});
   const [globalError, setGlobalError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -94,6 +96,9 @@ const Signup: React.FC = () => {
     if (form.password !== form.confirmPassword) {
       errors.confirmPassword = 'Passwords do not match.';
     }
+    if (!/^(\+[1-9]\d{7,14}|\d{10})$/.test(form.phone_number.trim().replace(/[\s()-]/g, ''))) {
+      errors.phone_number = 'Enter a 10-digit Indian mobile number, or include your country code.';
+    }
 
     setFieldErrors(errors);
     return Object.keys(errors).length === 0;
@@ -113,6 +118,8 @@ const Signup: React.FC = () => {
         username: form.username,
         email: form.email,
         password: form.password,
+        phone_number: form.phone_number,
+        welcome_enabled: welcomeEnabled,
       });
       const email = form.email.trim().toLowerCase();
       sessionStorage.setItem(`cm:otp:verify:${email}`, String(Date.now() + 60000));
@@ -228,6 +235,18 @@ const Signup: React.FC = () => {
               {fieldErrors.email && <span className="mt-2 block text-xs font-semibold text-red-600">{fieldErrors.email}</span>}
             </label>
 
+            <label className="block" htmlFor="signup-phone">
+              <span className="mb-2 block text-xs font-medium text-ink/65">Mobile number</span>
+              <span className="relative block">
+                <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/32" size={18} />
+                <input id="signup-phone" type="tel" autoComplete="tel" required
+                  className="h-13 w-full rounded-2xl border border-mesh-900/15 bg-white px-3 pl-12 text-sm outline-none focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100"
+                  placeholder="+91 98765 43210" value={form.phone_number}
+                  onChange={event => { update('phone_number', event.target.value); clearFieldError('phone_number'); }} />
+              </span>
+              {fieldErrors.phone_number && <span className="mt-2 block text-xs font-semibold text-red-600">{fieldErrors.phone_number}</span>}
+            </label>
+
             <div>
               <label className="mb-2 block text-xs font-medium text-ink/65" htmlFor="signup-password">Password</label>
               <span className="flex h-13 w-full items-center rounded-2xl border border-mesh-900/15 bg-white px-3 transition focus-within:border-mesh-500 focus-within:ring-4 focus-within:ring-mesh-100">
@@ -292,6 +311,14 @@ const Signup: React.FC = () => {
               </span>
               {fieldErrors.confirmPassword && <span className="mt-2 block text-xs font-semibold text-red-600">{fieldErrors.confirmPassword}</span>}
             </div>
+
+            <label className="flex items-start gap-3 rounded-xl border border-ink/10 p-4 text-sm">
+              <input type="checkbox" className="mt-1 size-4 shrink-0 accent-green-700" checked={welcomeEnabled}
+                onChange={event => setWelcomeEnabled(event.target.checked)} />
+              <span><strong className="block font-medium">Give me a welcome call</strong>
+                <span className="mt-1 block text-xs leading-5 text-ink/60">Optional. One automated call after your first sign-in and phone verification, in a soft female English voice. This does not enable reminders or promotional calls.</span>
+              </span>
+            </label>
 
             <button
               type="submit"

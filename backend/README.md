@@ -4,9 +4,17 @@ A complete Node.js backend for CampusMesh.
 
 ## Campus intelligence, support and reminder calls
 
-Run `npm run db:migrate` before starting the API. Migrations 004 and 005 add private support/call records and delivery estimate metadata. The Express API uses the server database connection; these private tables have RLS enabled with no browser-access policies.
+Run `npm run db:migrate` before starting the API. Migrations 004 and 005 add private support/call records and delivery estimate metadata; 006 adds one-time welcome calls. The Express API uses the server database connection; these private tables have RLS enabled with no browser-access policies.
 
-The frontend exposes `/insights`, `/support` and `/reminders`. The API starts its reminder worker once per minute with the server. **Default mode is preview: no provider account, SMS or telephone call is required.** `/api/calls/preview` generates text for current eligible rentals, or a clearly labelled example. Browser speech playback does not dial a phone.
+The frontend exposes `/insights`, `/support` and `/reminders`. The API starts its reminder worker once per minute with the server. **Default mode is preview: no provider account, SMS or telephone call is required.** `/api/calls/preview` generates text for current eligible rentals and welcome calls, with clearly labelled examples. Browser speech playback does not dial a phone.
+
+### One-time welcome call
+
+Signup requires `phone_number` (an E.164 number or a 10-digit Indian mobile number), plus optional `welcome_enabled: true`. The checkbox starts unchecked. Signup saves the number and this separate consent; it does not send phone SMS or dial. Email verification is unchanged. The first successful password login atomically records `users.first_signed_in_at`; invalid credentials and unverified email do not count. If welcome consent is enabled and phone ownership is not verified, that first login opens `/reminders?welcome=1` with the saved number and a skip link.
+
+After phone verification, the worker can queue one `WELCOME` job per account (`welcome:<user-id>`). Repeated logins, worker ticks and concurrent workers cannot place a second welcome attempt. A job cancelled before its first attempt can resume after consent is restored; an attempted, failed or uncertain call is never automatically redialled. Consent, verified number and first-login age are rechecked before dispatch. Welcome eligibility expires seven days after the first successful login to avoid stale onboarding calls when a provider is connected later. Existing call windows and daily limits apply, so this is not a promise of an immediate call.
+
+The generic welcome plays immediately after answer, in the same soft female English voice, without a press-1 step. It introduces CampusMesh and thanks the user for joining. Press 9 disables all automated call categories. Reminder and recommendation opt-ins remain separate. A welcome-script browser preview is available without a provider.
 
 ### Matching and predictions
 
@@ -38,7 +46,7 @@ CALLS_MODE=live
 CALLS_SCHEDULER_ENABLED=false
 ```
 
-`PUBLIC_API_URL` must be the externally reachable backend origin, with the same URL used for signature verification. Voice/status callback URLs are supplied on each call under `/api/calls/webhooks/:id/{voice,answer,status}`. Only valid provider-signed requests are accepted. Users must save an E.164 number, verify it by SMS and separately opt in to reminders and/or recommendations. Phone verification sends a real SMS only when the configured user explicitly requests it. Changing the phone clears verification.
+`PUBLIC_API_URL` must be the externally reachable backend origin, with the same URL used for signature verification. Voice/status callback URLs are supplied on each call under `/api/calls/webhooks/:id/{voice,answer,status}`. Only valid provider-signed requests are accepted. Users must save an E.164 number, verify it by SMS and separately opt in to welcome calls, reminders and/or recommendations. Phone verification sends a real SMS only when the configured user explicitly requests it. Changing the phone clears verification.
 
 Set `CALLS_SCHEDULER_ENABLED=true` only when ready to place calls, then restart the API. Both live mode and scheduler enablement are required for outbound calls. The worker needs a running server; it is not suitable for a serverless process that sleeps between requests. Provider account/geographic restrictions and number availability must be checked with the chosen provider before launch.
 
@@ -46,11 +54,13 @@ Calls run 09:00–19:00 Asia/Kolkata, at most once per rolling 24 hours per user
 
 Voice delivery uses female Indian English (`Polly.Aditi`) with SSML at 90% speed and soft volume for every spoken prompt. Browser previews prefer an installed female English voice, at 0.9 speed and 0.85 volume; the exact preview sound depends on the device. See [Twilio speech controls](https://www.twilio.com/docs/voice/twiml/say/text-speech).
 
-Calls first disclose that they are automated and ask the recipient to press 1 before speaking rental details; press 9 or say “stop” to turn off both call categories. Follow-up English questions use the same support assistant, limited to three turns and a two-minute call. No audio recording is requested. Calls do not book items, collect payment information, approve extensions or change rental state. Recommendation calls refer to rentals because CampusMesh currently has no purchase checkout.
+Calls disclose that they are automated. Rental details require the recipient to press 1; the generic welcome plays immediately. Press 9 (or say “stop” during a speech prompt) to turn off all call categories. Follow-up English questions use the same support assistant, limited to three turns and a two-minute call. No audio recording is requested. Calls do not book items, collect payment information, approve extensions or change rental state. Recommendation calls refer to rentals because CampusMesh currently has no purchase checkout.
 
 Provider references: [Voice calls](https://www.twilio.com/docs/voice/api/call-resource), [webhook signatures](https://www.twilio.com/docs/usage/security), [speech/DTMF Gather](https://www.twilio.com/docs/voice/twiml/gather), [phone verification](https://www.twilio.com/docs/verify/api/verification).
 
 ### Verification
+
+`WELCOME_E2E=1 node --test test/welcome-calls.contract.test.js` starts a temporary local API, creates a disposable signup, mocks email/SMS/Voice providers, checks concurrent first-login detection, phone verification, consent withdrawal and exactly one welcome attempt, then removes its records. Worker queries are scoped to the fixture. No real email, SMS or phone call is sent.
 
 `npm test` runs local unit tests. Against an idle development API on port 3003, `INTELLIGENCE_E2E=1 node --test test/calls-support.contract.test.js` creates disposable records, injects a fake phone provider, tests consent/call limits/webhook signatures/cancellation and authenticated data isolation, then cleans up. No real calls or SMS are made. The contract test expects preview configuration and no other enabled call users or queued jobs. Existing delivery and Wish Box contracts are opt-in via `DELIVERY_OFFERS_E2E=1` and `WISH_E2E=1` respectively; run them separately against an idle development environment.
 
