@@ -591,7 +591,7 @@ exports.getRentalStatus = async (req, res) => {
     const rentalRes = await pool.query(
       `
       SELECT r.*,
-        l.title as listing_title, l.image_url as listing_image,
+        l.title as listing_title, l.image_url as listing_image, (l.demo_slug IS NOT NULL) AS is_demo,
         l.category as listing_category, l.location as listing_location,
         bu.name as borrower_name, bu.email as borrower_email,
         ou.name as owner_name, ou.email as owner_email

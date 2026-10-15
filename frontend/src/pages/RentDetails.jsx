@@ -13,6 +13,7 @@ import {
   Info,
   MapPin,
   Package,
+  Phone,
   Radio,
   RotateCcw,
   Send,
@@ -233,6 +234,8 @@ export default function RentDetails() {
   const [pendingExtension, setPendingExtension] = useState(null);
   const [refund, setRefund] = useState(null);
   const [delivery, setDelivery] = useState(null);
+  const [callStatus, setCallStatus] = useState(null);
+  const [deliveryError, setDeliveryError] = useState("");
   const [loading, setLoading] = useState(true);
   const [connection, setConnection] = useState("reconnecting");
   const [error, setError] = useState("");
@@ -261,25 +264,31 @@ export default function RentDetails() {
   const load = useCallback(async () => {
     const token = localStorage.getItem("token");
     try {
-      const [rentalResponse, deliveryResponse] = await Promise.all([
-        fetch(API_BASE + "/api/rentals/" + rentalId + "/status", {
+      const read = async (path) => {
+        const response = await fetch(API_BASE + path, {
           headers: { Authorization: "Bearer " + token },
-        }),
-        fetch(API_BASE + "/api/delivery/rental/" + rentalId, {
-          headers: { Authorization: "Bearer " + token },
-        }),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not refresh this rental.");
+        return data;
+      };
+      // A temporary failure in delivery or call tracking must not hide a paid rental.
+      const [rentalResult, deliveryResult, callResult] = await Promise.allSettled([
+        read("/api/rentals/" + rentalId + "/status"),
+        read("/api/delivery/rental/" + rentalId),
+        read("/api/calls/rentals/" + rentalId + "/status"),
       ]);
-      const rentalData = await rentalResponse.json();
-      const deliveryData = await deliveryResponse.json();
-      if (!rentalResponse.ok)
-        throw new Error(rentalData.error || "Rental unavailable.");
+      if (rentalResult.status !== "fulfilled") throw rentalResult.reason;
+      const rentalData = rentalResult.value;
       setRental(rentalData.rental);
       setPayments(rentalData.payments || []);
       setExtensions(rentalData.extensions || []);
       setPendingExtension(rentalData.pending_extension || null);
       setRefund(rentalData.refund || null);
-      if (deliveryResponse.ok) setDelivery(deliveryData);
-      setError(deliveryResponse.ok ? "" : deliveryData.error || "");
+      if (deliveryResult.status === "fulfilled") setDelivery(deliveryResult.value);
+      setDeliveryError(deliveryResult.status === "fulfilled" ? "" : "Delivery tracking is temporarily unavailable. Your rental and payment are still recorded.");
+      setCallStatus(callResult.status === "fulfilled" ? callResult.value : null);
+      setError("");
     } catch (loadError) {
       setError(loadError.message || "Could not refresh this rental.");
     } finally {
@@ -653,6 +662,14 @@ export default function RentDetails() {
 
   const blockedCopy = useMemo(() => {
     if (!rental) return null;
+    if (rental.is_demo) {
+      return {
+        title: "Sample listing booking",
+        body: "This catalogue example has no live lender to fulfil the request. Use an item published by a student to test owner approval, delivery and automated calls.",
+        action: null,
+        tone: "amber",
+      };
+    }
     if (
       ["OWNER_PENDING", "RENTAL_PAYMENT_COMPLETED"].includes(rental.status)
     ) {
@@ -780,9 +797,14 @@ export default function RentDetails() {
         <div>
           <p className="text-4xl">⚠️</p>
           <h1 className="mt-3 font-display text-3xl">Rental unavailable</h1>
-          <p className="mt-2 text-sm text-ink/50">
+          <p className="mt-2 text-sm text-ink/70">
             {error || "Refresh or return to your rentals."}
           </p>
+          <p className="mt-3 text-sm text-ink/70">If you already paid, do not pay again. Retry loading your booking.</p>
+          <div className="mt-5 flex flex-wrap justify-center gap-3">
+            <button onClick={() => { setLoading(true); load(); }} className="rounded-xl bg-mesh-700 px-5 py-3 text-sm font-bold text-white">Retry</button>
+            <Link to="/my-rentals" className="rounded-xl border border-ink/20 bg-white px-5 py-3 text-sm font-bold text-ink">My rentals</Link>
+          </div>
         </div>
       </div>
     );
@@ -846,6 +868,24 @@ export default function RentDetails() {
         </section>
 
         {isDelivery && <Stepper rental={rental} delivery={delivery} />}
+
+        {isBorrower && (
+          <section className="rounded-2xl border border-ink/15 bg-white p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="flex items-center gap-2 text-base font-bold text-ink"><Phone size={18} className="text-mesh-700" /> {callStatus?.title || "Booking call status"}</h2>
+              <Link to="/reminders" className="text-sm font-bold text-mesh-700 underline underline-offset-4">Manage calls</Link>
+            </div>
+            {callStatus ? (
+              <>
+                {callStatus.latestCall && <p className="mt-2 text-sm font-semibold text-ink/80">Last attempt: {statusLabel(callStatus.latestCall.status)}{callStatus.latestCall.outcome ? ` · ${callStatus.latestCall.outcome}` : ""}</p>}
+                {callStatus.reasons?.length > 0 && <ul className="mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-ink/80">{callStatus.reasons.map(reason => <li key={reason.code}>{reason.message}</li>)}</ul>}
+                <p className="mt-3 text-xs font-semibold text-ink/65">Calling hours: {callStatus.callWindow}</p>
+              </>
+            ) : <p className="mt-2 text-sm text-ink/70">Call status could not be loaded. Check Reminders for your phone verification and call preferences.</p>}
+          </section>
+        )}
+
+        {deliveryError && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">{deliveryError}</p>}
 
         {feedbackMsg && (
           <div

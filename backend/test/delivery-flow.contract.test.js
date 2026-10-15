@@ -26,7 +26,7 @@ function expectOk(result, label) {
 }
 
 test(
-  'isolated booking, captured payment, delivery notifications and both handovers',
+  'isolated booking, paid rental details, delivery handovers and extension history',
   { skip: !enabled },
   async () => {
     require('dotenv').config({ quiet: true });
@@ -160,6 +160,32 @@ test(
         'verify rental payment',
       );
 
+      const paidRental = expectOk(
+        await call(renterToken, `/api/rentals/${rentalId}/status`),
+        'renter details after rental payment',
+      );
+      assert.equal(paidRental.rental.id, rentalId);
+      assert.equal(paidRental.rental.status, 'RENTAL_PAYMENT_COMPLETED');
+      assert.equal(paidRental.rental.payment_status, 'RENTAL_PAID');
+      assert.equal(paidRental.rental.listing_title, listing.title);
+      assert.equal(paidRental.payments.length, 1);
+      assert.equal(paidRental.payments[0].payment_type, 'RENTAL');
+      assert.equal(paidRental.payments[0].status, 'PAID');
+      assert.deepEqual(paidRental.extensions, []);
+      assert.equal(paidRental.pending_extension, null);
+      assert.equal(paidRental.refund, null);
+      const ownerPaidRental = expectOk(
+        await call(ownerToken, `/api/rentals/${rentalId}/status`),
+        'owner details after rental payment',
+      );
+      assert.equal(ownerPaidRental.rental.status, 'RENTAL_PAYMENT_COMPLETED');
+      assert.deepEqual(ownerPaidRental.payments, paidRental.payments);
+      assert.equal(
+        (await call(courierToken, `/api/rentals/${rentalId}/status`)).response.status,
+        403,
+        'An unrelated courier must not see private rental or payment details',
+      );
+
       assert.equal(
         (await pool.query('SELECT booking_confirmed_at FROM rentals WHERE id=$1', [rentalId])).rows[0]
           .booking_confirmed_at,
@@ -199,6 +225,23 @@ test(
         }),
         'verify deposit',
       );
+
+      const fullyPaidRental = expectOk(
+        await call(renterToken, `/api/rentals/${rentalId}/status`),
+        'renter details after deposit payment',
+      );
+      assert.equal(fullyPaidRental.rental.status, 'MATCHING_COURIER');
+      assert.equal(fullyPaidRental.rental.payment_status, 'FULLY_PAID');
+      assert.equal(fullyPaidRental.rental.deposit_status, 'HELD');
+      assert.deepEqual(
+        fullyPaidRental.payments.map(({ payment_type, status }) => ({ payment_type, status })),
+        [
+          { payment_type: 'RENTAL', status: 'PAID' },
+          { payment_type: 'SECURITY_DEPOSIT', status: 'PAID' },
+        ],
+      );
+      assert.deepEqual(fullyPaidRental.extensions, []);
+      assert.equal(fullyPaidRental.refund, null);
 
       assert(
         (await pool.query('SELECT booking_confirmed_at FROM rentals WHERE id=$1', [rentalId])).rows[0]
@@ -348,6 +391,67 @@ test(
         'final rental delivery status',
       );
       assert.equal(finalStatus.status, 'COMPLETED');
+
+      const activeRental = expectOk(
+        await call(renterToken, `/api/rentals/${rentalId}/status`),
+        'active rental details after handover',
+      );
+      assert.equal(activeRental.rental.status, 'RENTAL_ACTIVE');
+      assert.equal(activeRental.rental.payment_status, 'FULLY_PAID');
+      const extension = expectOk(
+        await call(renterToken, `/api/rentals/${rentalId}/extend-request`, {
+          method: 'POST',
+          body: JSON.stringify({ additional_days: 2, reason: 'Fixture extension request' }),
+        }),
+        'request rental extension',
+      ).extension;
+      const pendingExtension = expectOk(
+        await call(ownerToken, `/api/rentals/${rentalId}/status`),
+        'owner details with pending extension',
+      );
+      assert.equal(pendingExtension.extensions.length, 1);
+      assert.equal(pendingExtension.pending_extension.id, extension.id);
+      assert.equal(pendingExtension.pending_extension.status, 'PENDING');
+      assert.equal(pendingExtension.pending_extension.additional_days, 2);
+      assert.equal(Number(pendingExtension.pending_extension.additional_fee), Number(listing.rent_price) * 2);
+      assert.equal(
+        (await call(renterToken, `/api/rentals/${rentalId}/extend-request`, {
+          method: 'POST',
+          body: JSON.stringify({ additional_days: 1 }),
+        })).response.status,
+        409,
+        'Only one extension request can await owner approval',
+      );
+      assert.equal(
+        (await call(renterToken, `/api/rentals/${rentalId}/extend-respond`, {
+          method: 'POST',
+          body: JSON.stringify({ extension_id: extension.id, decision: 'REJECTED' }),
+        })).response.status,
+        403,
+        'The borrower cannot respond as the listing owner',
+      );
+      expectOk(
+        await call(ownerToken, `/api/rentals/${rentalId}/extend-respond`, {
+          method: 'POST',
+          body: JSON.stringify({ extension_id: extension.id, decision: 'REJECTED' }),
+        }),
+        'owner declines extension',
+      );
+      const declinedExtension = expectOk(
+        await call(renterToken, `/api/rentals/${rentalId}/status`),
+        'renter details with declined extension history',
+      );
+      assert.equal(declinedExtension.pending_extension, null);
+      assert.equal(declinedExtension.extensions.length, 1);
+      assert.equal(declinedExtension.extensions[0].id, extension.id);
+      assert.equal(declinedExtension.extensions[0].status, 'REJECTED');
+      assert.ok(declinedExtension.extensions[0].responded_at);
+      assert.equal(declinedExtension.rental.status, 'RENTAL_ACTIVE');
+      assert.equal(declinedExtension.rental.end_date, activeRental.rental.end_date);
+      assert.equal(declinedExtension.rental.rental_fee, activeRental.rental.rental_fee);
+      assert.equal(declinedExtension.rental.booking_amount, activeRental.rental.booking_amount);
+      assert.deepEqual(declinedExtension.payments, activeRental.payments);
+      assert.equal(declinedExtension.refund, null);
     } finally {
       if (server) await new Promise((resolve) => server.close(resolve));
       realtime.setIO(null);

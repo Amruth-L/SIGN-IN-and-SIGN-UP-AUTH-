@@ -129,9 +129,9 @@ export default function ReminderPage() {
         <section className="panel mt-6 p-5">
           <h2 className="font-semibold">Welcome to CampusMesh!</h2>
           <p className="mt-2 text-sm leading-6 text-ink/60">
-            We’re happy you’re here! You chose automated calls. Verify your
-            mobile number to receive them, or continue to explore. In preview
-            mode, you can listen to example messages here.
+            We’re happy you’re here! Your call preferences are saved. Check the
+            setup status below to see whether your number is ready for calls.
+            You can continue to explore CampusMesh while setup is pending.
           </p>
           <Link
             to="/choose-mode"
@@ -154,22 +154,26 @@ export default function ReminderPage() {
       ) : (
         <>
           <div
-            className={`my-6 flex items-start gap-3 rounded-xl border p-4 ${data.status.mode === "preview" ? "border-ink/10 bg-paper" : "border-mesh-200 bg-mesh-50"}`}
+            className={`my-6 flex items-start gap-3 rounded-xl border p-4 ${data.accountReadiness?.state === "blocked" ? "border-amber-200 bg-amber-50" : "border-mesh-200 bg-mesh-50"}`}
           >
             <Phone size={20} className="mt-0.5 shrink-0 text-mesh-600" />
             <div>
               <h2 className="text-sm font-semibold">
-                {data.status.mode === "preview"
-                  ? "Preview mode · No real calls"
-                  : "Calling provider connected"}
+                {data.accountReadiness?.title || "Your automatic call setup"}
               </h2>
-              <p className="mt-1 text-xs leading-5 text-ink/60">
-                {data.status.mode === "preview"
-                  ? "The calling integration is ready to configure. You can save preferences and listen to sample scripts now."
-                  : data.status.schedulerEnabled
-                    ? "Automatic calls are enabled for verified, opted-in numbers."
-                    : "The scheduler is paused. No automatic calls will be placed."}
-              </p>
+              {data.accountReadiness?.reasons?.length ? (
+                <ul className="mt-2 list-disc space-y-2 pl-4 text-sm leading-6 text-ink/80">
+                  {data.accountReadiness.reasons.map((reason) => (
+                    <li key={reason.code}>{reason.message}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-1 text-sm leading-6 text-ink/70">
+                  Automatic calls are enabled for your saved preferences. Each
+                  rental must also meet the booking or reminder conditions
+                  below.
+                </p>
+              )}
             </div>
           </div>
           {data.status.trialMode && (

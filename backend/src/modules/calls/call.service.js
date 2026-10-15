@@ -7,6 +7,7 @@ const fail = (status, message) => {
 };
 const { saySoft: speak } = require('./voice');
 const { webhookUrl } = require('./webhook-auth');
+const { accountReadiness, bookingReadiness } = require('./call-readiness');
 const E164 = /^\+[1-9]\d{7,14}$/;
 const activeRentalStatuses = [
   'RENTAL_ACTIVE',
@@ -120,6 +121,7 @@ function createCallService({
       phoneVerificationConfigured: Boolean(ready(c) && c.verify),
       language: 'English',
       window: '09:00–19:00 Asia/Kolkata',
+      withinCallWindow: inCallWindow(clock()),
       limits:
         'At least 30 minutes between calls, at most three per day. One reminder per day and one recommendation per seven days.',
       welcome:
@@ -129,6 +131,29 @@ function createCallService({
   const preferences = async (userId) => {
     await db.query('INSERT INTO call_preferences(user_id) VALUES($1) ON CONFLICT DO NOTHING', [userId]);
     return (await db.query('SELECT * FROM call_preferences WHERE user_id=$1', [userId])).rows[0];
+  };
+  const accountStatus = (prefs) => accountReadiness(status(), prefs);
+  const bookingStatus = async (userId, rentalId) => {
+    const { rows } = await db.query(
+      `SELECT r.id,r.status,r.payment_status,r.booking_confirmed_at,l.demo_slug
+       FROM rentals r JOIN listings l ON l.id=r.listing_id WHERE r.id=$1 AND r.borrower_id=$2`,
+      [rentalId, userId],
+    );
+    if (!rows[0]) fail(404, 'Rental not found.');
+    const prefs = await preferences(userId);
+    const calls = await db.query(
+      `SELECT id,status,outcome,last_error,created_at,started_at FROM automated_calls
+       WHERE rental_id=$1 AND user_id=$2 AND kind='BOOKING_CONFIRMATION' ORDER BY created_at DESC LIMIT 1`,
+      [rentalId, userId],
+    );
+    return bookingReadiness({
+      rental: rows[0],
+      preferences: prefs,
+      status: status(),
+      latestCall: calls.rows[0],
+      bookingStatuses,
+      now: clock(),
+    });
   };
   const updatePreferences = async (userId, body) => {
     if (
@@ -603,6 +628,8 @@ function createCallService({
   };
   return {
     status,
+    accountStatus,
+    bookingStatus,
     preferences,
     updatePreferences,
     verifyPhone,

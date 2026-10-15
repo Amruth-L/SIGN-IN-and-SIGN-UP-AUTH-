@@ -281,6 +281,13 @@ export default function RentSummary() {
           <p className="[color:var(--text-muted,_#6b7280)] [font-size:0.95rem] m-0">Review your rental before confirming payment</p>
         </div>
 
+        {listing.demo_slug && (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+            <p className="font-bold">Sample catalogue item</p>
+            <p>This item demonstrates the rental screens. It has no live lender and will not arrange a real delivery or automated call. Choose a student-published item to complete the full rental flow.</p>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[1fr_420px]">
           {/* Left Column — Item Details & Date Picker */}
           <div className="space-y-4">
@@ -352,7 +359,7 @@ export default function RentSummary() {
                   className="mt-2 inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-mesh-600 px-5 text-sm font-extrabold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg disabled:pointer-events-none disabled:bg-ink/15 disabled:text-ink/35 disabled:shadow-none"
                   disabled={isBtnDisabled}
                 >
-                  {submitting ? 'Processing…' : `Buy now · ${breakdown ? formatCurrency(breakdown.bookingAmount) : '₹0.00'}`}
+                  {submitting ? 'Processing…' : `Pay rental fee · ${breakdown ? formatCurrency(breakdown.bookingAmount) : '₹0.00'}`}
                 </button>
               </form>
             </div>
