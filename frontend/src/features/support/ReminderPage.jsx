@@ -22,6 +22,7 @@ export default function ReminderPage() {
       reminders_enabled: false,
       recommendations_enabled: false,
       welcome_enabled: false,
+      booking_enabled: false,
     }),
     [preview, setPreview] = useState(null),
     [busy, setBusy] = useState(""),
@@ -36,6 +37,7 @@ export default function ReminderPage() {
         reminders_enabled: data.preferences.reminders_enabled,
         recommendations_enabled: data.preferences.recommendations_enabled,
         welcome_enabled: data.preferences.welcome_enabled,
+        booking_enabled: data.preferences.booking_enabled,
       });
     } catch (e) {
       setNotice(e.response?.data?.error || "Could not load reminder settings.");
@@ -126,8 +128,17 @@ export default function ReminderPage() {
       {params.get("welcome") === "1" && (
         <section className="panel mt-6 p-5">
           <h2 className="font-semibold">Welcome to CampusMesh!</h2>
-          <p className="mt-2 text-sm leading-6 text-ink/60">You chose a one-time welcome call. Verify your mobile number before it can be placed. In preview mode, you can listen to the welcome message here.</p>
-          <Link to="/choose-mode" className="mt-3 inline-block text-sm font-semibold text-mesh-700">Continue to CampusMesh →</Link>
+          <p className="mt-2 text-sm leading-6 text-ink/60">
+            We’re happy you’re here! You chose automated calls. Verify your
+            mobile number to receive them, or continue to explore. In preview
+            mode, you can listen to example messages here.
+          </p>
+          <Link
+            to="/choose-mode"
+            className="mt-3 inline-block text-sm font-semibold text-mesh-700"
+          >
+            Continue to CampusMesh →
+          </Link>
         </section>
       )}
       {notice && (
@@ -180,11 +191,17 @@ export default function ReminderPage() {
                 />
               </label>
               <p className="text-xs text-ink/55">
-                {data.preferences.phone_verified_at && form.phone_e164 === data.preferences.phone_e164
+                {data.preferences.phone_verified_at &&
+                form.phone_e164 === data.preferences.phone_e164
                   ? "Phone number verified"
                   : "Phone verification is required before live calls."}
               </p>
               {[
+                [
+                  "booking_enabled",
+                  "Booking confirmations",
+                  "One thank-you call per fully paid rental, with pickup or delivery guidance and the return date. Nighttime bookings wait until 9 am. Unpaid, cancelled, and demo orders never trigger calls.",
+                ],
                 [
                   "welcome_enabled",
                   "One-time welcome call",
@@ -193,7 +210,7 @@ export default function ReminderPage() {
                 [
                   "reminders_enabled",
                   "Due-date reminders",
-                  "A reminder the day before, on the due date, and once if overdue. Calls stop when you return the item or an extension changes the due date.",
+                  "Reminders four days before, the day before, on the due date, and once the next day if overdue. Calls stop when you return the item or an extension changes the due date.",
                 ],
                 [
                   "recommendations_enabled",
@@ -235,12 +252,21 @@ export default function ReminderPage() {
                     <button
                       type="button"
                       className="secondary-button"
-                      disabled={!!busy || !form.phone_e164 || form.phone_e164 !== data.preferences.phone_e164}
+                      disabled={
+                        !!busy ||
+                        !form.phone_e164 ||
+                        form.phone_e164 !== data.preferences.phone_e164
+                      }
                       onClick={() => action("verify")}
                     >
                       Send phone verification code
                     </button>
-                    {form.phone_e164 !== data.preferences.phone_e164 && <p className="mt-2 text-xs text-ink/55">Save your mobile number before requesting a verification code.</p>}
+                    {form.phone_e164 !== data.preferences.phone_e164 && (
+                      <p className="mt-2 text-xs text-ink/55">
+                        Save your mobile number before requesting a verification
+                        code.
+                      </p>
+                    )}
                     <label className="mt-3 block text-xs">
                       Verification code
                       <input
@@ -255,7 +281,11 @@ export default function ReminderPage() {
                     <button
                       type="button"
                       className="brand-button mt-3"
-                      disabled={!!busy || !code || form.phone_e164 !== data.preferences.phone_e164}
+                      disabled={
+                        !!busy ||
+                        !code ||
+                        form.phone_e164 !== data.preferences.phone_e164
+                      }
                       onClick={() => action("confirm")}
                     >
                       Verify phone
@@ -284,30 +314,50 @@ export default function ReminderPage() {
                 </button>
                 {preview && (
                   <div className="mt-5 space-y-4">
-                    {((preview.previews.length
+                    {(preview.previews.length
                       ? preview.previews
                       : [preview.sample]
-                    ).concat(preview.previews.some(p => p.kind === "WELCOME") ? [] : [preview.welcomeSample])).filter(Boolean).map((p, i) => (
-                      <article key={i} className="rounded-lg bg-paper p-4">
-                        <span className="text-xs font-semibold text-mesh-700">
-                          {p.kind === "WELCOME"
-                            ? p.example ? "Welcome call example" : "Your welcome call"
-                            : p.example
-                            ? "Example only"
-                            : p.kind === "DUE_REMINDER"
-                              ? "Your rental reminder"
-                              : "Item recommendation"}
-                        </span>
-                        <p className="mt-3 text-sm leading-6">{p.script}</p>
-                        <button
-                          className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-mesh-700"
-                          onClick={() => listen(p.script)}
-                        >
-                          <Volume2 size={15} />
-                          Listen in browser
-                        </button>
-                      </article>
-                    ))}
+                    )
+                      .concat(
+                        preview.previews.some((p) => p.kind === "WELCOME")
+                          ? []
+                          : [preview.welcomeSample],
+                      )
+                      .concat(
+                        preview.previews.some(
+                          (p) => p.kind === "BOOKING_CONFIRMATION",
+                        )
+                          ? []
+                          : [preview.bookingSample],
+                      )
+                      .filter(Boolean)
+                      .map((p, i) => (
+                        <article key={i} className="rounded-lg bg-paper p-4">
+                          <span className="text-xs font-semibold text-mesh-700">
+                            {p.kind === "BOOKING_CONFIRMATION"
+                              ? p.example
+                                ? "Booking call example"
+                                : "Your booking confirmation"
+                              : p.kind === "WELCOME"
+                                ? p.example
+                                  ? "Welcome call example"
+                                  : "Your welcome call"
+                                : p.example
+                                  ? "Example only"
+                                  : p.kind === "DUE_REMINDER"
+                                    ? "Your rental reminder"
+                                    : "Item recommendation"}
+                          </span>
+                          <p className="mt-3 text-sm leading-6">{p.script}</p>
+                          <button
+                            className="mt-3 inline-flex items-center gap-2 text-xs font-semibold text-mesh-700"
+                            onClick={() => listen(p.script)}
+                          >
+                            <Volume2 size={15} />
+                            Listen in browser
+                          </button>
+                        </article>
+                      ))}
                     <p className="text-xs leading-5 text-ink/50">
                       {preview.note}
                     </p>
@@ -348,11 +398,13 @@ export default function ReminderPage() {
                   >
                     <div className="flex flex-wrap justify-between gap-2 text-xs">
                       <b>
-                        {c.kind === "WELCOME"
-                          ? "Welcome call"
-                          : c.kind === "DUE_REMINDER"
-                          ? "Due-date reminder"
-                          : "Recommendation"}
+                        {c.kind === "BOOKING_CONFIRMATION"
+                          ? "Booking confirmation"
+                          : c.kind === "WELCOME"
+                            ? "Welcome call"
+                            : c.kind === "DUE_REMINDER"
+                              ? "Due-date reminder"
+                              : "Recommendation"}
                       </b>
                       <span>{c.status.toLowerCase()}</span>
                     </div>

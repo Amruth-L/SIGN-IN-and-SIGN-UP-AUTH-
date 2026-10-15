@@ -42,6 +42,7 @@ export interface SignupPayload {
   password: string;
   phone_number: string;
   welcome_enabled: boolean;
+  rental_calls_enabled?: boolean;
 }
 
 export interface ForgotPasswordPayload {

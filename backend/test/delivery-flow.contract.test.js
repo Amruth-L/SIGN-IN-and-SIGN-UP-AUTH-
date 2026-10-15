@@ -1,136 +1,365 @@
 /* global fetch */
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 
 const enabled = process.env.DELIVERY_E2E === '1';
-const baseUrl = process.env.DELIVERY_API_URL || 'http://localhost:3003';
-const password = process.env.DELIVERY_E2E_PASSWORD || 'CampusMesh@123';
-const users = {
-  owner: process.env.DELIVERY_E2E_OWNER_EMAIL || 'studenta@dbit.co.in',
-  renter: process.env.DELIVERY_E2E_RENTER_EMAIL || 'studentb@dbit.co.in',
-  courier: process.env.DELIVERY_E2E_COURIER_EMAIL || 'studentc@dbit.co.in',
-};
+let baseUrl = process.env.DELIVERY_API_URL || 'http://localhost:3003';
 
 async function call(token, path, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...(options.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(`${baseUrl}${path}`, { ...options, headers });
   let data = null;
-  try { data = await response.json(); } catch {}
+  try {
+    data = await response.json();
+  } catch {}
   return { response, data };
 }
 
-async function login(email) {
-  const { response, data } = await call(null, '/login', {
-    method: 'POST',
-    body: JSON.stringify({ email, password }),
-  });
-  assert.equal(response.status, 200, `Could not login ${email}: ${JSON.stringify(data)}`);
-  return data;
-}
-
 function expectOk(result, label) {
-  assert.ok(result.response.ok, `${label} failed (${result.response.status}): ${JSON.stringify(result.data)}`);
+  assert.ok(
+    result.response.ok,
+    `${label} failed (${result.response.status}): ${JSON.stringify(result.data)}`,
+  );
   return result.data;
 }
 
-test('three-user rental delivery contract', { skip: !enabled }, async () => {
-  expectOk(await call(null, '/health'), 'health');
-  const [owner, renter, courier] = await Promise.all([
-    login(users.owner), login(users.renter), login(users.courier),
-  ]);
-  const ownerToken = owner.token;
-  const renterToken = renter.token;
-  const courierToken = courier.token;
+test(
+  'isolated booking, captured payment, delivery notifications and both handovers',
+  { skip: !enabled },
+  async () => {
+    require('dotenv').config({ quiet: true });
+    const pool = require('../src/config/database');
+    const jwt = require('jsonwebtoken');
+    const ids = Array.from({ length: 3 }, () => crypto.randomUUID());
+    const listingId = crypto.randomUUID();
+    let server;
+    const orders = new Map();
+    const events = [];
+    const secret = 'fixture-gateway-secret';
+    process.env.RAZORPAY_KEY_ID = 'rzp_test_fixture';
+    process.env.RAZORPAY_KEY_SECRET = secret;
+    const gatewayPath = require.resolve('../src/config/razorpay');
+    require.cache[gatewayPath] = {
+      id: gatewayPath,
+      filename: gatewayPath,
+      loaded: true,
+      exports: {
+        orders: {
+          create: async (data) => {
+            const order = { ...data, id: 'order_' + crypto.randomBytes(8).toString('hex') };
+            orders.set(order.id, order);
+            return order;
+          },
+          fetch: async (id) => orders.get(id),
+        },
+        payments: {
+          fetch: async (id) => {
+            const order = orders.get('order_' + id.slice(4));
+            return {
+              id,
+              order_id: order.id,
+              currency: order.currency,
+              amount: order.amount,
+              captured: true,
+              status: 'captured',
+            };
+          },
+        },
+      },
+    };
+    const signatureFor = (orderId) =>
+      crypto
+        .createHmac('sha256', secret)
+        .update(orderId + '|pay_' + orderId.slice(6))
+        .digest('hex');
+    const realtime = require('../src/shared/realtime');
+    realtime.setIO({ to: (room) => ({ emit: (event, data) => events.push({ room, event, data }) }) });
+    try {
+      assert.equal(
+        (
+          await pool.query(
+            'SELECT COUNT(*)::int n FROM courier_route_availability c JOIN users u ON u.id=c.courier_id WHERE c.is_active AND c.available_until>NOW() AND u.delivery_available',
+          )
+        ).rows[0].n,
+        0,
+        'Do not publish offers while a real courier is online',
+      );
+      for (const [i, id] of ids.entries())
+        await pool.query('INSERT INTO users(id,name,email,email_verified) VALUES($1,$2,$3,TRUE)', [
+          id,
+          ['QA Owner', 'QA Renter', 'QA Courier'][i],
+          `qa-flow-${id}@dbit.co.in`,
+        ]);
+      await pool.query(
+        "INSERT INTO listings(id,owner_id,title,description,category,rent_price,deposit,delivery_charge,delivery_available,pickup_location_id) VALUES($1,$2,'QA delivery calculator','Fixture','Electronics',25,100,30,TRUE,'library-ground-floor-rental-counter-02')",
+        [listingId, ids[0]],
+      );
+      server = require('../src/app').listen(0, '127.0.0.1');
+      await new Promise((resolve) => server.once('listening', resolve));
+      baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-  const listings = expectOk(await call(ownerToken, '/listings'), 'listings');
-  const listing = listings.find((item) => item.owner_id === owner.user.id && item.rent_price > 0 && item.is_active !== false);
-  assert.ok(listing, 'No active rental listing found for the configured owner.');
-  const locations = expectOk(await call(renterToken, '/api/campus/locations'), 'campus locations');
-  const destination = locations.find((item) => item.id === 'hostel-ground-floor-204' && item.id !== listing.pickup_location_id)
-    || locations.find((item) => item.id === 'library-ground-floor-rental-counter-02' && item.id !== listing.pickup_location_id)
-    || locations.find((item) => item.id !== listing.pickup_location_id && item.location_type === 'ROOM');
-  assert.ok(destination, 'No destination campus location available.');
+      expectOk(await call(null, '/health'), 'health');
+      const [owner, renter, courier] = ids.map((id) => ({
+        user: { id },
+        token: jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '10m' }),
+      }));
+      const ownerToken = owner.token;
+      const renterToken = renter.token;
+      const courierToken = courier.token;
 
-  const start = new Date(Date.now() + (30 + (Date.now() % 365)) * 86400000);
-  const end = new Date(start.getTime() + 86400000);
-  const dateOnly = (value) => value.toISOString().slice(0, 10);
-  const booking = expectOk(await call(renterToken, '/api/rentals/book', {
-    method: 'POST',
-    body: JSON.stringify({
-      listing_id: listing.id,
-      start_date: dateOnly(start),
-      end_date: dateOnly(end),
-      delivery_requested: true,
-      drop_location_id: destination.id,
-    }),
-  }), 'create rental');
-  const rentalId = booking.rental.id;
+      const listing = (await pool.query('SELECT * FROM listings WHERE id=$1', [listingId])).rows[0];
+      const locations = expectOk(await call(renterToken, '/api/campus/locations'), 'campus locations');
+      const destination =
+        locations.find(
+          (item) => item.id === 'hostel-ground-floor-204' && item.id !== listing.pickup_location_id,
+        ) ||
+        locations.find(
+          (item) =>
+            item.id === 'library-ground-floor-rental-counter-02' && item.id !== listing.pickup_location_id,
+        ) ||
+        locations.find((item) => item.id !== listing.pickup_location_id && item.location_type === 'ROOM');
+      assert.ok(destination, 'No destination campus location available.');
 
-  const rentalOrder = expectOk(await call(renterToken, '/api/payment/create-rental-order', {
-    method: 'POST', body: JSON.stringify({ booking_id: rentalId }),
-  }), 'create rental order');
-  expectOk(await call(renterToken, '/api/payment/verify-rental', {
-    method: 'POST',
-    body: JSON.stringify({ booking_id: rentalId, gateway_order_id: rentalOrder.order_id, gateway_payment_id: `sim_payment_${rentalId}`, gateway_signature: 'simulated' }),
-  }), 'verify rental payment');
+      const start = new Date(Date.now() + (30 + (Date.now() % 365)) * 86400000);
+      const end = new Date(start.getTime() + 86400000);
+      const dateOnly = (value) => value.toISOString().slice(0, 10);
+      const booking = expectOk(
+        await call(renterToken, '/api/rentals/book', {
+          method: 'POST',
+          body: JSON.stringify({
+            listing_id: listing.id,
+            start_date: dateOnly(start),
+            end_date: dateOnly(end),
+            delivery_requested: true,
+            drop_location_id: destination.id,
+          }),
+        }),
+        'create rental',
+      );
+      const rentalId = booking.rental.id;
 
-  const ownerRequests = expectOk(await call(ownerToken, '/api/rentals/my-listings-requests'), 'owner request queue');
-  const ownerRequest = ownerRequests.requests.find((request) => request.id === rentalId);
-  assert.ok(ownerRequest?.actionable, 'The paid request is not actionable in the owner queue.');
-  expectOk(await call(ownerToken, '/api/rentals/respond', {
-    method: 'POST', body: JSON.stringify({ rental_id: rentalId, response: 'ACCEPTED' }),
-  }), 'owner accept');
+      const rentalOrder = expectOk(
+        await call(renterToken, '/api/payment/create-rental-order', {
+          method: 'POST',
+          body: JSON.stringify({ booking_id: rentalId }),
+        }),
+        'create rental order',
+      );
+      expectOk(
+        await call(renterToken, '/api/payment/verify-rental', {
+          method: 'POST',
+          body: JSON.stringify({
+            booking_id: rentalId,
+            gateway_order_id: rentalOrder.order_id,
+            gateway_payment_id: 'pay_' + rentalOrder.order_id.slice(6),
+            gateway_signature: signatureFor(rentalOrder.order_id),
+          }),
+        }),
+        'verify rental payment',
+      );
 
-  const depositOrder = expectOk(await call(renterToken, '/api/payment/create-deposit-order', {
-    method: 'POST', body: JSON.stringify({ booking_id: rentalId }),
-  }), 'create deposit order');
-  expectOk(await call(renterToken, '/api/payment/verify-deposit', {
-    method: 'POST',
-    body: JSON.stringify({ booking_id: rentalId, gateway_order_id: depositOrder.order_id, gateway_payment_id: `sim_deposit_${rentalId}`, gateway_signature: 'simulated' }),
-  }), 'verify deposit');
+      assert.equal(
+        (await pool.query('SELECT booking_confirmed_at FROM rentals WHERE id=$1', [rentalId])).rows[0]
+          .booking_confirmed_at,
+        null,
+        'Rental fee alone is not fully paid',
+      );
+      const ownerRequests = expectOk(
+        await call(ownerToken, '/api/rentals/my-listings-requests'),
+        'owner request queue',
+      );
+      const ownerRequest = ownerRequests.requests.find((request) => request.id === rentalId);
+      assert.ok(ownerRequest?.actionable, 'The paid request is not actionable in the owner queue.');
+      expectOk(
+        await call(ownerToken, '/api/rentals/respond', {
+          method: 'POST',
+          body: JSON.stringify({ rental_id: rentalId, response: 'ACCEPTED' }),
+        }),
+        'owner accept',
+      );
 
-  const routePayload = {
-    origin_location_id: listing.pickup_location_id,
-    destination_location_id: destination.id,
-    available_until: new Date(Date.now() + 2 * 3600000).toISOString(),
-    max_detour_meters: 750,
-  };
-  const routeSaves = await Promise.all(Array.from({ length: 10 }, () => call(courierToken, '/api/courier/routes', {
-    method: 'POST', body: JSON.stringify(routePayload),
-  })));
-  assert.ok(routeSaves.every(({ response }) => response.status !== 500), 'A parallel route save returned 500.');
-  assert.ok(routeSaves.some(({ response }) => response.ok), 'No parallel route save succeeded.');
-  const currentRoute = expectOk(await call(courierToken, '/api/courier/routes/current'), 'current route');
-  assert.ok(currentRoute.route && currentRoute.delivery_available, 'Courier did not end with one active online route.');
+      const depositOrder = expectOk(
+        await call(renterToken, '/api/payment/create-deposit-order', {
+          method: 'POST',
+          body: JSON.stringify({ booking_id: rentalId }),
+        }),
+        'create deposit order',
+      );
+      expectOk(
+        await call(renterToken, '/api/payment/verify-deposit', {
+          method: 'POST',
+          body: JSON.stringify({
+            booking_id: rentalId,
+            gateway_order_id: depositOrder.order_id,
+            gateway_payment_id: 'pay_' + depositOrder.order_id.slice(6),
+            gateway_signature: signatureFor(depositOrder.order_id),
+          }),
+        }),
+        'verify deposit',
+      );
 
-  const available = expectOk(await call(courierToken, '/api/delivery/available'), 'available deliveries');
-  const offer = available.deliveries.find((delivery) => delivery.rental_id === rentalId);
-  assert.ok(offer, 'Courier did not receive the rental delivery offer.');
-  assert.equal(offer.customer_id, renter.user.id);
-  assert.equal(offer.seller_id, owner.user.id);
-  assert.equal(offer.listing_title, listing.title);
-  assert.ok(offer.pickup_location && offer.drop_location && offer.offer_expires_at, 'Offer is missing delivery details or expiry.');
+      assert(
+        (await pool.query('SELECT booking_confirmed_at FROM rentals WHERE id=$1', [rentalId])).rows[0]
+          .booking_confirmed_at,
+      );
+      const routePayload = {
+        origin_location_id: listing.pickup_location_id,
+        destination_location_id: destination.id,
+        available_until: new Date(Date.now() + 2 * 3600000).toISOString(),
+        max_detour_meters: 750,
+      };
+      const routeSaves = await Promise.all(
+        Array.from({ length: 10 }, () =>
+          call(courierToken, '/api/courier/routes', {
+            method: 'POST',
+            body: JSON.stringify(routePayload),
+          }),
+        ),
+      );
+      assert.ok(
+        routeSaves.every(({ response }) => response.status !== 500),
+        'A parallel route save returned 500.',
+      );
+      assert.ok(
+        routeSaves.some(({ response }) => response.ok),
+        'No parallel route save succeeded.',
+      );
+      const currentRoute = expectOk(await call(courierToken, '/api/courier/routes/current'), 'current route');
+      assert.ok(
+        currentRoute.route && currentRoute.delivery_available,
+        'Courier did not end with one active online route.',
+      );
 
-  const deliveryId = offer.delivery_id;
-  expectOk(await call(courierToken, `/api/delivery/${deliveryId}/accept`, { method: 'POST', body: '{}' }), 'courier accept');
-  const active = expectOk(await call(courierToken, '/api/delivery/my-deliveries'), 'active delivery');
-  assert.ok(active.some((delivery) => delivery.id === deliveryId && delivery.status === 'COURIER_ASSIGNED'));
+      const available = expectOk(await call(courierToken, '/api/delivery/available'), 'available deliveries');
+      const offer = available.deliveries.find((delivery) => delivery.rental_id === rentalId);
+      assert.ok(offer, 'Courier did not receive the rental delivery offer.');
+      assert.equal(offer.customer_id, renter.user.id);
+      assert.equal(offer.seller_id, owner.user.id);
+      assert.equal(offer.listing_title, listing.title);
+      assert.ok(
+        offer.pickup_location && offer.drop_location && offer.offer_expires_at,
+        'Offer is missing delivery details or expiry.',
+      );
 
-  expectOk(await call(courierToken, `/api/delivery/${deliveryId}/status`, { method: 'POST', body: JSON.stringify({ status: 'GOING_TO_PICKUP' }) }), 'go to pickup');
-  expectOk(await call(courierToken, `/api/delivery/${deliveryId}/status`, { method: 'POST', body: JSON.stringify({ status: 'ARRIVED_AT_PICKUP' }) }), 'arrive at pickup');
-  const pickupCredential = expectOk(await call(ownerToken, `/api/delivery/${deliveryId}/handover/PICKUP`), 'pickup credential');
-  expectOk(await call(courierToken, `/api/delivery/${deliveryId}/verify-handover`, {
-    method: 'POST', body: JSON.stringify({ stage: 'PICKUP', method: 'QR', value: pickupCredential.qr }),
-  }), 'pickup verification');
-  expectOk(await call(courierToken, `/api/delivery/${deliveryId}/status`, { method: 'POST', body: JSON.stringify({ status: 'ARRIVED_AT_DESTINATION' }) }), 'arrive at destination');
-  const deliveryCredential = expectOk(await call(renterToken, `/api/delivery/${deliveryId}/handover/DELIVERY`), 'delivery credential');
-  expectOk(await call(courierToken, `/api/delivery/${deliveryId}/verify-handover`, {
-    method: 'POST', body: JSON.stringify({ stage: 'DELIVERY', method: 'OTP', value: deliveryCredential.otp }),
-  }), 'delivery verification');
+      const deliveryId = offer.delivery_id;
+      assert(
+        events.some(
+          (e) =>
+            e.room === `user:${courier.user.id}` &&
+            e.event === 'delivery:offer' &&
+            e.data.delivery_id === deliveryId,
+        ),
+        'Matched courier receives offer notification',
+      );
+      expectOk(
+        await call(courierToken, `/api/delivery/${deliveryId}/accept`, { method: 'POST', body: '{}' }),
+        'courier accept',
+      );
+      for (const id of ids)
+        assert(
+          events.some((e) => e.room === `user:${id}` && e.event === 'delivery:assigned'),
+          'All participants receive assignment notification',
+        );
+      const active = expectOk(await call(courierToken, '/api/delivery/my-deliveries'), 'active delivery');
+      assert.ok(
+        active.some((delivery) => delivery.id === deliveryId && delivery.status === 'COURIER_ASSIGNED'),
+      );
 
-  const history = expectOk(await call(renterToken, '/api/activity/history?limit=20'), 'renter history');
-  assert.ok(history.records.some((record) => record.rental_id === rentalId && record.role === 'RENTER' && record.status === 'COMPLETED'));
-  const finalStatus = expectOk(await call(renterToken, `/api/delivery/rental/${rentalId}`), 'final rental delivery status');
-  assert.equal(finalStatus.status, 'COMPLETED');
-});
+      expectOk(
+        await call(courierToken, `/api/delivery/${deliveryId}/status`, {
+          method: 'POST',
+          body: JSON.stringify({ status: 'GOING_TO_PICKUP' }),
+        }),
+        'go to pickup',
+      );
+      expectOk(
+        await call(courierToken, `/api/delivery/${deliveryId}/status`, {
+          method: 'POST',
+          body: JSON.stringify({ status: 'ARRIVED_AT_PICKUP' }),
+        }),
+        'arrive at pickup',
+      );
+      assert.equal(
+        (await call(courierToken, `/api/delivery/${deliveryId}/handover/PICKUP`)).response.status,
+        403,
+      );
+      const pickupCredential = expectOk(
+        await call(ownerToken, `/api/delivery/${deliveryId}/handover/PICKUP`),
+        'pickup credential',
+      );
+      expectOk(
+        await call(courierToken, `/api/delivery/${deliveryId}/verify-handover`, {
+          method: 'POST',
+          body: JSON.stringify({ stage: 'PICKUP', method: 'QR', value: pickupCredential.qr }),
+        }),
+        'pickup verification',
+      );
+      expectOk(
+        await call(courierToken, `/api/delivery/${deliveryId}/status`, {
+          method: 'POST',
+          body: JSON.stringify({ status: 'ARRIVED_AT_DESTINATION' }),
+        }),
+        'arrive at destination',
+      );
+      const deliveryCredential = expectOk(
+        await call(renterToken, `/api/delivery/${deliveryId}/handover/DELIVERY`),
+        'delivery credential',
+      );
+      expectOk(
+        await call(courierToken, `/api/delivery/${deliveryId}/verify-handover`, {
+          method: 'POST',
+          body: JSON.stringify({ stage: 'DELIVERY', method: 'OTP', value: deliveryCredential.otp }),
+        }),
+        'delivery verification',
+      );
+
+      assert(
+        events.some(
+          (e) =>
+            e.room === `user:${renter.user.id}` &&
+            e.event === 'delivery:status' &&
+            e.data.status === 'COMPLETED',
+        ),
+      );
+      const repeated = expectOk(
+        await call(renterToken, '/api/payment/verify-deposit', {
+          method: 'POST',
+          body: JSON.stringify({
+            booking_id: rentalId,
+            gateway_order_id: depositOrder.order_id,
+            gateway_payment_id: 'pay_' + depositOrder.order_id.slice(6),
+            gateway_signature: signatureFor(depositOrder.order_id),
+          }),
+        }),
+        'repeat payment',
+      );
+      assert.equal(repeated.status, 'RENTAL_ACTIVE', 'Payment replay cannot restart a delivered order');
+      const history = expectOk(await call(renterToken, '/api/activity/history?limit=20'), 'renter history');
+      assert.ok(
+        history.records.some(
+          (record) =>
+            record.rental_id === rentalId && record.role === 'RENTER' && record.status === 'COMPLETED',
+        ),
+      );
+      const finalStatus = expectOk(
+        await call(renterToken, `/api/delivery/rental/${rentalId}`),
+        'final rental delivery status',
+      );
+      assert.equal(finalStatus.status, 'COMPLETED');
+    } finally {
+      if (server) await new Promise((resolve) => server.close(resolve));
+      realtime.setIO(null);
+      await pool.query(
+        'DELETE FROM transaction_events WHERE rental_id IN (SELECT id FROM rentals WHERE listing_id=$1)',
+        [listingId],
+      );
+      await pool.query('DELETE FROM delivery_requests WHERE listing_id=$1', [listingId]);
+      await pool.query('DELETE FROM rentals WHERE listing_id=$1', [listingId]);
+      await pool.query('DELETE FROM listings WHERE id=$1', [listingId]);
+      await pool.query('DELETE FROM users WHERE id=ANY($1::uuid[])', [ids]);
+      await pool.end();
+    }
+  },
+);

@@ -281,6 +281,10 @@ class PaymentService {
         [bookingId],
       );
       const depositAlreadyPaid = payCheck.rows.length > 0;
+      if (depositAlreadyPaid && booking.payment_status === 'FULLY_PAID') {
+        await client.query('COMMIT');
+        return { message: 'Payment already processed.', status: booking.status, delivery_id: booking.outbound_delivery_id };
+      }
       if (!depositAlreadyPaid) {
         const paymentUpdate = await client.query(
           "UPDATE payments SET transaction_id=$1,status='PAID' WHERE rental_id=$2 AND payment_type='SECURITY_DEPOSIT' AND transaction_id=$3 AND status='PENDING'",
@@ -305,7 +309,7 @@ class PaymentService {
         nextStatus = 'MATCHING_COURIER';
         await client.query(
           `UPDATE rentals SET status='MATCHING_COURIER', deposit_status='HELD',
-           payment_status='FULLY_PAID', qr_code_hash=NULL, qr_generated_at=NULL, updated_at=NOW()
+           payment_status='FULLY_PAID', booking_confirmed_at=COALESCE(booking_confirmed_at,NOW()), qr_code_hash=NULL, qr_generated_at=NULL, updated_at=NOW()
            WHERE id=$1`,
           [bookingId],
         );
@@ -316,7 +320,7 @@ class PaymentService {
         nextStatus = 'QR_GENERATED';
         await client.query(
           `UPDATE rentals SET status='QR_GENERATED', deposit_status='HELD',
-           payment_status='FULLY_PAID', qr_code_hash=$1, qr_generated_at=NOW(), updated_at=NOW()
+           payment_status='FULLY_PAID', booking_confirmed_at=COALESCE(booking_confirmed_at,NOW()), qr_code_hash=$1, qr_generated_at=NOW(), updated_at=NOW()
            WHERE id=$2`,
           [qrCodeHash, bookingId],
         );

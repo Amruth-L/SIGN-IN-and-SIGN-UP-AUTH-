@@ -47,6 +47,7 @@ export async function signupUser(
     password: payload.password,
     phone_number: payload.phone_number,
     welcome_enabled: payload.welcome_enabled,
+    rental_calls_enabled: payload.rental_calls_enabled,
   });
   return res.data as MessageResponse;
 }

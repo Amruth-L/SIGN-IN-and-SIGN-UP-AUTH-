@@ -56,6 +56,7 @@ const Signup: React.FC = () => {
     phone_number: '',
   });
   const [welcomeEnabled, setWelcomeEnabled] = useState(false);
+  const [rentalCallsEnabled, setRentalCallsEnabled] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<SignupFieldErrors>({});
   const [globalError, setGlobalError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -120,6 +121,7 @@ const Signup: React.FC = () => {
         password: form.password,
         phone_number: form.phone_number,
         welcome_enabled: welcomeEnabled,
+        rental_calls_enabled: rentalCallsEnabled,
       });
       const email = form.email.trim().toLowerCase();
       sessionStorage.setItem(`cm:otp:verify:${email}`, String(Date.now() + 60000));
@@ -311,6 +313,14 @@ const Signup: React.FC = () => {
               </span>
               {fieldErrors.confirmPassword && <span className="mt-2 block text-xs font-semibold text-red-600">{fieldErrors.confirmPassword}</span>}
             </div>
+
+            <label className="flex items-start gap-3 rounded-xl border border-ink/10 p-4 text-sm">
+              <input type="checkbox" className="mt-1 size-4 shrink-0 accent-green-700" checked={rentalCallsEnabled}
+                onChange={event => setRentalCallsEnabled(event.target.checked)} />
+              <span><strong className="block font-medium">Call me about my rentals</strong>
+                <span className="mt-1 block text-xs leading-5 text-ink/60">Optional. Booking confirmations after payment and return reminders starting four days before the due date. Requires phone verification. Change these settings anytime.</span>
+              </span>
+            </label>
 
             <label className="flex items-start gap-3 rounded-xl border border-ink/10 p-4 text-sm">
               <input type="checkbox" className="mt-1 size-4 shrink-0 accent-green-700" checked={welcomeEnabled}

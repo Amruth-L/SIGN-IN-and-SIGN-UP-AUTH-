@@ -54,15 +54,17 @@ test('signup, verified first sign-in, welcome consent and exactly one provider a
       return { status: response.status, data: await response.json() };
     };
     const signup = { name: 'QA Welcome', username: `qa_${suffix}`, email, password: 'FixtureWelcome123!',
-      phone_number: '+1 (500) 555-0009', welcome_enabled: true };
+      phone_number: '+1 (500) 555-0009', welcome_enabled: true, rental_calls_enabled: true };
     assert.equal((await request('/signup', { ...signup, phone_number: '' })).status, 400);
     assert.equal((await request('/signup', { ...signup, welcome_enabled: 'true' })).status, 400);
+    assert.equal((await request('/signup', { ...signup, rental_calls_enabled: 'true' })).status, 400);
     assert.equal((await request('/signup', signup)).status, 201);
     userId = (await pool.query('SELECT id FROM users WHERE email=$1', [email])).rows[0].id;
     let prefs = await service.preferences(userId);
     assert.equal(prefs.phone_e164, '+15005550009');
     assert.equal(prefs.welcome_enabled, true);
-    assert.equal(prefs.reminders_enabled, false);
+    assert.equal(prefs.reminders_enabled, true);
+    assert.equal(prefs.booking_enabled, true);
     assert.equal(prefs.recommendations_enabled, false);
     assert.equal(prefs.phone_verified_at, null);
     assert.equal(sends + sms, 0, 'Signup must not dial or send phone SMS');

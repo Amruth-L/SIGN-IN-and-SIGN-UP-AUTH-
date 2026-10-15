@@ -15,10 +15,10 @@ async function recordFirstSignIn(userId, db = pool) {
   );
   if (!first.rowCount) return false;
   const { rows } = await db.query(
-    'SELECT welcome_enabled,phone_verified_at FROM call_preferences WHERE user_id=$1',
+    'SELECT welcome_enabled,booking_enabled,reminders_enabled,phone_verified_at FROM call_preferences WHERE user_id=$1',
     [userId],
   );
-  return Boolean(rows[0]?.welcome_enabled && !rows[0].phone_verified_at);
+  return Boolean((rows[0]?.welcome_enabled || rows[0]?.booking_enabled || rows[0]?.reminders_enabled) && !rows[0].phone_verified_at);
 }
 
 module.exports = { normalizePhone, recordFirstSignIn };

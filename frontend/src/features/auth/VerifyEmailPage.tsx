@@ -28,7 +28,7 @@ export default function VerifyEmailPage() {
     try {
       await verifyEmail(api, { email: email.trim().toLowerCase(), otp });
       setVerified(true);
-      setSuccess('You’re verified. Your campus is waiting!');
+      setSuccess('Welcome to CampusMesh! We’re happy you’re here. Sign in to borrow, lend, or earn by delivering.');
     } catch (caught) { setError(getApiError(caught)); }
     finally { setBusy(null); }
   };

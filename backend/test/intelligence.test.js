@@ -63,6 +63,8 @@ test('calling windows and due stages use India dates across UTC midnight', () =>
   assert.equal(inCallWindow(new Date('2026-10-14T03:29:00Z')), false);
   assert.equal(inCallWindow(new Date('2026-10-14T03:30:00Z')), true);
   assert.equal(inCallWindow(new Date('2026-10-14T13:30:00Z')), false);
+  assert.equal(reminderStage('2026-10-18', '2026-10-14'), 'in 4 days');
+  assert.equal(reminderStage('2026-10-17', '2026-10-14'), null);
   assert.equal(reminderStage('2026-10-15', '2026-10-14'), 'tomorrow');
   assert.equal(reminderStage('2026-10-12', '2026-10-14'), null);
   assert.match(

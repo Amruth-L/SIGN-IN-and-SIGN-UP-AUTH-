@@ -79,7 +79,7 @@ async function matchDelivery(deliveryId, client = pool) {
       AND NOT (cra.courier_id = ANY($3::uuid[]))
       AND NOT EXISTS (SELECT 1 FROM delivery_offers previous WHERE previous.delivery_id=$4
         AND previous.courier_id=cra.courier_id AND (previous.status IN ('DECLINED','ACCEPTED')
-          OR (previous.status='EXPIRED' AND previous.offered_at >= cra.created_at)))`,
+          OR (previous.status='EXPIRED' AND previous.route_availability_id=cra.id)))`,
     [task.customer_id, task.seller_id, task.declined_by || [], deliveryId]);
   const ranked = candidates.rows.map(candidate => {
     const scored = scoreCandidate({ ...candidate, origin: candidate.origin_node, destination: candidate.destination_node },
@@ -101,12 +101,12 @@ async function matchDelivery(deliveryId, client = pool) {
     }
   }
   for (const candidate of ranked) {
-    const { rows } = await client.query(`INSERT INTO delivery_offers (delivery_id, courier_id, match_score, score_breakdown, expires_at)
-      VALUES ($1,$2,$3,$4,NOW() + INTERVAL '5 minutes') ON CONFLICT (delivery_id, courier_id)
+    const { rows } = await client.query(`INSERT INTO delivery_offers (delivery_id, courier_id, match_score, score_breakdown, route_availability_id, expires_at)
+      SELECT $1,$2,$3,$4,$5,NOW() + INTERVAL '5 minutes' WHERE EXISTS (SELECT 1 FROM courier_route_availability WHERE id=$5 AND is_active AND available_until>NOW()) ON CONFLICT (delivery_id, courier_id)
       DO UPDATE SET match_score=EXCLUDED.match_score, score_breakdown=EXCLUDED.score_breakdown,
-        status='PENDING', offered_at=NOW(), expires_at=EXCLUDED.expires_at, responded_at=NULL
-      WHERE delivery_offers.status='EXPIRED' AND delivery_offers.offered_at < $5
-      RETURNING *`, [deliveryId, candidate.courier_id, candidate.score, candidate.breakdown, new Date(candidate.created_at).toISOString()]);
+        status='PENDING', route_availability_id=EXCLUDED.route_availability_id, offered_at=NOW(), expires_at=EXCLUDED.expires_at, responded_at=NULL
+      WHERE delivery_offers.status IN ('EXPIRED','PENDING') AND delivery_offers.route_availability_id IS DISTINCT FROM EXCLUDED.route_availability_id
+      RETURNING *`, [deliveryId, candidate.courier_id, candidate.score, candidate.breakdown, candidate.id]);
     if (rows[0]?.status === 'PENDING') emitUser(candidate.courier_id, 'delivery:offer', { ...rows[0], delivery: safeTask });
   }
   if (!ranked.length && task.status !== 'RETURN_MATCHING') {
