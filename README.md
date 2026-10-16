@@ -6,11 +6,11 @@ CampusMesh is a campus-only rental, route-matched courier, and private Xerox del
 
 Deploy the repository root as a **Node web service**, using Node 22, build command `npm run build`, start command `npm start`, and health-check path `/health`. Set `SERVE_FRONTEND=true` and `NODE_ENV=production`. The root build explicitly uses the deployed origin for API and Socket.IO traffic, and the backend serves the compiled frontend and SPA deep links. Startup applies pending migrations; it never resets or seeds the database.
 
-Configure secrets in the hosting dashboard, never Git: `DATABASE_URL`, `JWT_SECRET`, `EMAIL_USER`, `EMAIL_PASS`, `RAZORPAY_KEY_ID` and `RAZORPAY_KEY_SECRET`. Set `DATABASE_SSL=true` for the Supabase session-pooler connection, and set `FRONTEND_ORIGIN` and `PUBLIC_API_URL` to the actual public HTTPS origin. Let the host supply `PORT`.
+Configure secrets in the hosting dashboard, never Git. Use [backend/.env.example](backend/.env.example) as the configuration reference: set `DATABASE_URL`, `JWT_SECRET`, your chosen email provider's credentials, and Razorpay credentials when payments are needed. Set `DATABASE_SSL=true` for the Supabase session-pooler connection, and set `FRONTEND_ORIGIN` and `PUBLIC_API_URL` to the actual public HTTPS origin. Let the host supply `PORT`.
 
 Keep test Razorpay credentials for preview testing. Calls stay disabled with `CALLS_MODE=preview` and `CALLS_SCHEDULER_ENABLED=false`; model-generated support additionally needs OpenAI credentials. The English help library and browser voice previews work without those providers. Campus Print remains locked as coming soon. See [backend configuration](backend/README.md) for the complete support/calling setup.
 
-Render's free web services pause when idle and block outbound SMTP ports. Use the Amazon SES HTTPS adapter (`EMAIL_PROVIDER=ses`) with a verified sender, SES sending permissions and production access for general recipients; see [email setup](backend/README.md#otp-email-on-render-free-amazon-ses-https). Gmail SMTP requires a host permitting SMTP. Always-running background reminders also need an always-on service. See [Render's free-tier limitations](https://render.com/docs/free). Compute-plan selection is separate from code preparation; no paid deployment is created by building locally.
+Render's free web services pause when idle and block outbound SMTP ports. Use a configured HTTPS email adapter (`EMAIL_PROVIDER=lambda` or `ses`); see [email setup](backend/README.md#otp-email-on-render-free). SES needs a verified sender, sending permissions and production access for general recipients. Direct Gmail SMTP requires a host permitting SMTP. Always-running background reminders also need an always-on service. See [Render's free-tier limitations](https://render.com/docs/free). Compute-plan selection is separate from code preparation; no paid deployment is created by building locally.
 
 A multi-stage `Dockerfile` is also included. It excludes `.env` files and runs as the non-root Node user. Docker is optional for the native Node deployment.
 
@@ -38,16 +38,18 @@ A multi-stage `Dockerfile` is also included. It excludes `.env` files and runs a
 ```text
 .
 ├── backend/
-│   ├── server.js                 # Express application entry point
-│   ├── config/                   # PostgreSQL and Razorpay configuration
-│   ├── controllers/              # Request handlers and business logic
-│   ├── middleware/               # Authentication and payment verification
-│   ├── routes/                   # API route definitions
-│   ├── services/                 # Payment services
-│   ├── utils/                    # Pricing and email utilities
-│   ├── seed.js                   # Database schema and sample-data setup
+│   ├── .env.example              # Server configuration template; no real secrets
+│   ├── src/server.js             # Express application entry point
+│   ├── src/config/               # PostgreSQL and Razorpay configuration
+│   ├── src/modules/              # Auth, rentals, deliveries, payments and calls
+│   ├── src/db/                   # Migrations and optional demo seed data
+│   ├── lambda/otp-mailer/        # Optional AWS Lambda email adapter
+│   ├── test/                     # Backend tests
 │   └── Postman_Collection.json   # API requests for Postman
 └── frontend/
+    ├── .env.example              # Public browser configuration template
+    ├── public/images/            # Catalog and category images
+    ├── src/features/             # Feature screens and flows
     ├── src/pages/                # Application screens
     ├── src/components/           # Shared UI components
     ├── src/context/              # Authentication state
@@ -64,59 +66,41 @@ A multi-stage `Dockerfile` is also included. It excludes `.env` files and runs a
 
 ## Prerequisites
 
-- Node.js and npm
+- Node.js 22.12+ within the Node 22 release line, and npm (see `package.json`)
 - A PostgreSQL database (the project is configured for Supabase PostgreSQL)
-- Razorpay credentials for real payments; the backend can fall back to simulation mode when credentials are not configured
+- Razorpay test credentials for payment testing, or live credentials for real payments
 
 ## Configuration
 
-Create `backend/.env` with the following values:
+From the project root, copy both templates, then fill in your own configuration:
 
-```env
-PORT=3003
-DATABASE_URL=postgres://USER:PASSWORD@HOST:PORT/DATABASE
-JWT_SECRET=replace_with_a_long_random_secret
-
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your_supabase_anon_key
-SUPABASE_SERVICE_ROLE_KEY=server_only_service_role_key
-SUPABASE_XEROX_BUCKET=xerox-private
-XEROX_RETENTION_DAYS=7
-
-EMAIL_USER=your_email_address
-EMAIL_PASS=your_email_app_password
-
-RAZORPAY_KEY_ID=your_razorpay_key_id
-RAZORPAY_KEY_SECRET=your_razorpay_key_secret
+```bash
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
 ```
 
-Do not commit `.env` or real credentials. For frontend payment configuration, optionally create `frontend/.env`:
+The [backend example](backend/.env.example) documents database, OTP email, S3 photos, payments, support and calling settings. The [frontend example](frontend/.env.example) contains only public browser settings. Never place AWS secrets, database credentials, service-role keys or calling-provider secrets in a `VITE_` variable: Vite includes these values in the browser bundle.
 
-```env
-VITE_RAZORPAY_KEY_ID=your_razorpay_key_id
-```
+Actual `.env` files, dependencies, builds, logs, private deployment files and archives are ignored by Git. Only `.env.example` templates belong in source archives. The archive does not contain hosted environment settings or database records; configure your own services after extracting it. See [LOCAL_SETUP.md](LOCAL_SETUP.md) for setup steps and optional demo data.
 
-The frontend currently expects the backend at `http://localhost:3003`.
+The examples use `http://localhost:3003` for the API and `http://localhost:5173` for the frontend. Calling defaults to preview mode; a copied example does not activate real calls.
 
 ## Installation and setup
 
 Install dependencies in both applications:
 
 ```bash
-cd backend
-npm install
-
-cd ../frontend
-npm install
+npm ci --prefix backend
+npm ci --prefix frontend
 ```
 
-Apply idempotent migrations, then seed the presentation accounts and activity:
+Apply idempotent migrations:
 
 ```bash
-cd backend
-npm run migrate
-npm run seed
+npm run migrate --prefix backend
 ```
+
+For an isolated development database only, `npm run seed --prefix backend` adds presentation accounts, catalog items and sample courier availability. Do not run the demo seed against your hosted user database.
 
 ## Running locally
 
