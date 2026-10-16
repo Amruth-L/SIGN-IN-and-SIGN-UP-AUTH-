@@ -22,6 +22,7 @@ export default function ReminderPage() {
       reminders_enabled: false,
       recommendations_enabled: false,
       welcome_enabled: false,
+      login_calls_enabled: false,
       booking_enabled: false,
     }),
     [preview, setPreview] = useState(null),
@@ -54,7 +55,10 @@ export default function ReminderPage() {
           data.status.provider !== "authkey" &&
           data.status.recommendationsAvailable !== false &&
           data.preferences.recommendations_enabled,
-        welcome_enabled: data.preferences.welcome_enabled,
+        welcome_enabled:
+          Boolean(data.preferences.welcome_enabled) &&
+          !data.preferences.login_calls_enabled,
+        login_calls_enabled: Boolean(data.preferences.login_calls_enabled),
         booking_enabled: data.preferences.booking_enabled,
       });
     } catch (e) {
@@ -93,7 +97,7 @@ export default function ReminderPage() {
         if (data.verified) {
           setCode("");
           setNotice(
-            "Phone verified. Your enabled welcome and rental reminder calls can now run automatically during calling hours.",
+            "Phone verified. Your enabled sign-in greetings, welcome and rental calls can now run automatically during calling hours.",
           );
         } else {
           setVerificationRetry(Number(data.retryAfter) || 0);
@@ -159,10 +163,12 @@ export default function ReminderPage() {
       </header>
       {params.get("welcome") === "1" && (
         <section className="panel mt-6 p-5">
-          <h2 className="font-semibold">Welcome to CampusMesh!</h2>
+          <h2 className="font-semibold">You’re signed in</h2>
           <p className="mt-2 text-sm leading-6 text-ink/60">
-            We’re happy you’re here! Your call preferences are saved. Check the
-            setup status below to see whether your number is ready for calls.
+            Your call preferences are saved. Verify your saved number once
+            when calling is available. Enabled greetings and rental updates
+            then run automatically during calling hours. Check the setup status
+            below to see whether your number is ready.
             You can continue to explore CampusMesh while setup is pending.
           </p>
           <Link
@@ -250,6 +256,11 @@ export default function ReminderPage() {
               </p>
               {[
                 [
+                  "login_calls_enabled",
+                  "Call me after sign-in",
+                  "Automatic English greetings after successful sign-ins, once your saved number is verified and calling is available. No call button is needed. Calls run 9 am–7 pm India time, at least 30 minutes apart and at most three times a day across all call types. This replaces the one-time welcome call.",
+                ],
+                [
                   "booking_enabled",
                   "Booking confirmations",
                   "One thank-you call per fully paid rental, with pickup or delivery guidance and the return date. Nighttime bookings wait until 9 am. Unpaid, cancelled, and demo orders never trigger calls.",
@@ -257,7 +268,7 @@ export default function ReminderPage() {
                 [
                   "welcome_enabled",
                   "One-time welcome call",
-                  "One welcome after your first successful sign-in and phone verification. Later sign-ins never trigger another. Available during your first seven days; delivered in the calling hours below.",
+                  "One welcome after your first successful sign-in and phone verification. Later sign-ins never trigger another. Available during your first seven days. Choose this instead of sign-in greetings if you want just one welcome.",
                 ],
                 [
                   "reminders_enabled",
@@ -286,9 +297,19 @@ export default function ReminderPage() {
                       key === "recommendations_enabled" &&
                       !recommendationsAvailable
                     }
-                    onChange={(e) =>
-                      setForm({ ...form, [key]: e.target.checked })
-                    }
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setForm((current) => ({
+                        ...current,
+                        [key]: checked,
+                        ...(checked && key === "login_calls_enabled"
+                          ? { welcome_enabled: false }
+                          : {}),
+                        ...(checked && key === "welcome_enabled"
+                          ? { login_calls_enabled: false }
+                          : {}),
+                      }));
+                    }}
                   />
                   <span>
                     <strong className="block text-sm">{title}</strong>
@@ -302,8 +323,8 @@ export default function ReminderPage() {
                 Enabling a switch opts you in to that type of automated
                 CampusMesh call. Calls use your verified number.{" "}
                 {supportsInteractiveCalls
-                  ? "Disable a switch here or press 9 during a call to opt out."
-                  : "To opt out, disable the switch here and save your preferences."}
+                  ? "Disable any switch here and save, or press 9 during a call to stop all automated calls, including sign-in greetings."
+                  : "To stop a call type, disable its switch and save. To stop all calls, turn off every switch, including sign-in greetings."}
               </p>
               <button disabled={!!busy} className="brand-button w-full">
                 {busy === "save" ? "Saving…" : "Save preferences"}
@@ -313,8 +334,8 @@ export default function ReminderPage() {
                   <div className="border-t border-ink/10 pt-4">
                     <p className="mb-3 text-xs leading-5 text-ink/65">
                       {voiceVerification
-                        ? "Verify your number once by entering the code from an automated call. Enabled welcome and due-date calls then run automatically; no manual registration with the calling provider is needed."
-                        : "Verify your number once using an SMS code. Your enabled welcome and due-date calls then run automatically during calling hours."}
+                        ? "Verify your number once by entering the code from an automated call. Enabled sign-in greetings, welcome and rental calls then run automatically; no manual registration with the calling provider is needed."
+                        : "Verify your number once using an SMS code. Your enabled sign-in greetings, welcome and rental calls then run automatically during calling hours."}
                     </p>
                     <button
                       type="button"
@@ -399,6 +420,11 @@ export default function ReminderPage() {
                       : [preview.sample]
                     )
                       .concat(
+                        preview.previews.some((p) => p.kind === "SIGN_IN_GREETING")
+                          ? []
+                          : [preview.signInSample],
+                      )
+                      .concat(
                         preview.previews.some((p) => p.kind === "WELCOME")
                           ? []
                           : [preview.welcomeSample],
@@ -423,15 +449,19 @@ export default function ReminderPage() {
                               ? p.example
                                 ? "Booking call example"
                                 : "Your booking confirmation"
-                              : p.kind === "WELCOME"
+                              : p.kind === "SIGN_IN_GREETING"
                                 ? p.example
-                                  ? "Welcome call example"
-                                  : "Your welcome call"
-                                : p.example
-                                  ? "Example only"
-                                  : p.kind === "DUE_REMINDER"
-                                    ? "Your rental reminder"
-                                    : "Item recommendation"}
+                                  ? "Sign-in greeting example"
+                                  : "Your sign-in greeting"
+                                : p.kind === "WELCOME"
+                                  ? p.example
+                                    ? "Welcome call example"
+                                    : "Your welcome call"
+                                  : p.example
+                                    ? "Example only"
+                                    : p.kind === "DUE_REMINDER"
+                                      ? "Your rental reminder"
+                                      : "Item recommendation"}
                           </span>
                           <p className="mt-3 text-sm leading-6">{p.script}</p>
                           <button
@@ -485,11 +515,13 @@ export default function ReminderPage() {
                       <b>
                         {c.kind === "BOOKING_CONFIRMATION"
                           ? "Booking confirmation"
-                          : c.kind === "WELCOME"
-                            ? "Welcome call"
-                            : c.kind === "DUE_REMINDER"
-                              ? "Due-date reminder"
-                              : "Recommendation"}
+                          : c.kind === "SIGN_IN_GREETING"
+                            ? "Sign-in greeting"
+                            : c.kind === "WELCOME"
+                              ? "Welcome call"
+                              : c.kind === "DUE_REMINDER"
+                                ? "Due-date reminder"
+                                : "Recommendation"}
                       </b>
                       <span>
                         {c.provider === "authkey" && c.status === "SENT"

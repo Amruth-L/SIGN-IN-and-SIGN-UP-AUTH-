@@ -28,7 +28,7 @@ function accountReadiness(status, preferences) {
   if (status.provider === 'authkey' && preferences.phone_e164 && !/^\+91[6-9]\d{9}$/.test(preferences.phone_e164))
     reasons.push(reason('PHONE_UNSUPPORTED', 'This calling service supports Indian mobile numbers. Save +91 followed by your 10-digit mobile number.'));
   if (
-    !['welcome_enabled', 'booking_enabled', 'reminders_enabled', ...(status.recommendationsAvailable === false ? [] : ['recommendations_enabled'])].some(
+    !['welcome_enabled', 'login_calls_enabled', 'booking_enabled', 'reminders_enabled', ...(status.recommendationsAvailable === false ? [] : ['recommendations_enabled'])].some(
       (key) => preferences[key],
     )
   )

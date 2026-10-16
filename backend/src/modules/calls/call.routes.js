@@ -4,6 +4,7 @@ const router = express.Router();
 const pool = require('../../config/database');
 const auth = require('../../middleware/authMiddleware');
 const { createCallService, config, ready } = require('./call.service');
+const { requestTick } = require('./call.worker');
 const { saySoft } = require('./voice');
 const { authenticateWebhook } = require('./webhook-auth');
 const service = createCallService();
@@ -96,8 +97,10 @@ router.get('/rentals/:id/status', async (req, res) => {
 router.put('/preferences', async (req, res) =>
   res.json(await service.updatePreferences(req.user.id, req.body)),
 );
-router.post('/verify-phone', async (req, res) =>
-  res.json(await service.verifyPhone(req.user.id, req.body.code)),
-);
+router.post('/verify-phone', async (req, res) => {
+  const result = await service.verifyPhone(req.user.id, req.body.code);
+  res.json(result);
+  if (result.verified) requestTick();
+});
 router.get('/preview', async (req, res) => res.json(await service.preview(req.user.id)));
 module.exports = router;

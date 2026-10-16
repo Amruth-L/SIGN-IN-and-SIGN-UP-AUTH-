@@ -90,6 +90,7 @@ function spokenDate(value) {
 const consentFor = (kind) =>
   ({
     WELCOME: 'welcome_enabled',
+    SIGN_IN_GREETING: 'login_calls_enabled',
     BOOKING_CONFIRMATION: 'booking_enabled',
     DUE_REMINDER: 'reminders_enabled',
     RECOMMENDATION: 'recommendations_enabled',
@@ -105,6 +106,8 @@ const bookingStatuses = [
 function scriptFor(kind, data) {
   if (kind === 'WELCOME')
     return "Hi! This is CampusMesh's automated assistant. Welcome to CampusMesh! We’re happy to have you here. You can rent useful items, lend what you own, or earn by delivering on your campus. Open the app to get started. Thanks for joining our campus community!";
+  if (kind === 'SIGN_IN_GREETING')
+    return "Hello! This is CampusMesh's automated assistant. Welcome back to CampusMesh! We’re happy to see you again. Open the app to browse items, manage your rentals, or help with a delivery. Thank you for using CampusMesh.";
   if (kind === 'BOOKING_CONFIRMATION')
     return `Hi! This is CampusMesh's automated assistant. Thank you for booking ${data.title}. We’re happy to help you get what you need! Your payment is confirmed. ${data.delivery_requested ? 'Open My rentals to see your delivery assignment and tracking.' : 'Open My rentals for your pickup details and handover code.'} Your agreed return date is ${spokenDate(data.end_date)}. Enjoy your rental!`;
   if (kind === 'DUE_REMINDER')
@@ -116,7 +119,7 @@ function providerScript(kind, data, c) {
   // Authkey's simple TTS API has no authenticated IVR flow. Keep item names
   // and account details in the app, and never advertise unsupported keypad actions.
   const ending = ' You can turn off calls in Reminders in CampusMesh. Goodbye.';
-  if (kind === 'WELCOME') return scriptFor(kind, data) + ending;
+  if (kind === 'WELCOME' || kind === 'SIGN_IN_GREETING') return scriptFor(kind, data) + ending;
   if (kind === 'BOOKING_CONFIRMATION')
     return `Hello! This is CampusMesh's automated assistant. Thank you for placing your rental order. Your booking is confirmed. Open My rentals for ${data.delivery_requested ? 'delivery tracking' : 'pickup details'}. Your agreed return date is ${spokenDate(data.end_date)}.` + ending;
   if (kind === 'DUE_REMINDER')
@@ -154,6 +157,8 @@ function createCallService({
         (providerName(c) === 'twilio' ? ' One recommendation per seven days.' : ''),
       welcome:
         'One welcome call after your first successful sign-in, with consent and a verified number. No repeat on later sign-ins.',
+      signIn:
+        'Optional greetings after successful sign-ins, using your verified number. Only the latest sign-in within 24 hours is eligible; repeat-call limits apply.',
     };
   };
   const preferences = async (userId) => {
@@ -191,6 +196,7 @@ function createCallService({
       typeof body.recommendations_enabled !== 'boolean' ||
       (body.booking_enabled !== undefined && typeof body.booking_enabled !== 'boolean') ||
       (body.welcome_enabled !== undefined && typeof body.welcome_enabled !== 'boolean') ||
+      (body.login_calls_enabled !== undefined && typeof body.login_calls_enabled !== 'boolean') ||
       typeof body.phone_e164 !== 'string' ||
       (body.phone_e164 && !E164.test(body.phone_e164))
     )
@@ -204,7 +210,7 @@ function createCallService({
       await c.query('INSERT INTO call_preferences(user_id) VALUES($1) ON CONFLICT DO NOTHING', [userId]);
       await c.query('SELECT user_id FROM call_preferences WHERE user_id=$1 FOR UPDATE', [userId]);
       const { rows } = await c.query(
-        `UPDATE call_preferences SET phone_verified_at=CASE WHEN phone_e164 IS NOT DISTINCT FROM NULLIF($2,'') THEN phone_verified_at ELSE NULL END,phone_e164=NULLIF($2,''),reminders_enabled=$3,recommendations_enabled=$4,welcome_enabled=COALESCE($5,welcome_enabled),booking_enabled=COALESCE($6,booking_enabled),consent_version='2026-10-15',updated_at=NOW() WHERE user_id=$1 RETURNING *`,
+        `UPDATE call_preferences SET phone_verified_at=CASE WHEN phone_e164 IS NOT DISTINCT FROM NULLIF($2,'') THEN phone_verified_at ELSE NULL END,phone_e164=NULLIF($2,''),reminders_enabled=$3,recommendations_enabled=$4,welcome_enabled=COALESCE($5,welcome_enabled),booking_enabled=COALESCE($6,booking_enabled),login_calls_enabled=COALESCE($7,login_calls_enabled),consent_version='2026-10-16',updated_at=NOW() WHERE user_id=$1 RETURNING *`,
         [
           userId,
           body.phone_e164,
@@ -212,18 +218,20 @@ function createCallService({
           body.recommendations_enabled,
           body.welcome_enabled ?? null,
           body.booking_enabled ?? null,
+          body.login_calls_enabled ?? null,
         ],
       );
       await c.query('DELETE FROM call_phone_verifications WHERE user_id=$1 AND phone_e164 IS DISTINCT FROM NULLIF($2,\'\')',
         [userId, body.phone_e164]);
       await c.query(
-        "INSERT INTO call_consent_events(user_id,reminders_enabled,recommendations_enabled,welcome_enabled,booking_enabled,consent_version) VALUES($1,$2,$3,$4,$5,'2026-10-15')",
+        "INSERT INTO call_consent_events(user_id,reminders_enabled,recommendations_enabled,welcome_enabled,booking_enabled,login_calls_enabled,consent_version) VALUES($1,$2,$3,$4,$5,$6,'2026-10-16')",
         [
           userId,
           body.reminders_enabled,
           body.recommendations_enabled,
           rows[0].welcome_enabled,
           rows[0].booking_enabled,
+          rows[0].login_calls_enabled,
         ],
       );
       await c.query('COMMIT');
@@ -231,7 +239,7 @@ function createCallService({
       // Preserve still-eligible jobs when saving unrelated settings. Revalidate before dispatch.
       await db.query(
         `UPDATE automated_calls SET status='CANCELLED',outcome='Preferences changed' WHERE user_id=$1 AND status='QUEUED' AND
-        ($2::boolean IS FALSE OR (kind='WELCOME' AND NOT $3) OR (kind='BOOKING_CONFIRMATION' AND NOT $4) OR (kind='DUE_REMINDER' AND NOT $5) OR (kind='RECOMMENDATION' AND NOT $6))`,
+        ($2::boolean IS FALSE OR (kind='WELCOME' AND (NOT $3 OR $7)) OR (kind='BOOKING_CONFIRMATION' AND NOT $4) OR (kind='DUE_REMINDER' AND NOT $5) OR (kind='RECOMMENDATION' AND NOT $6) OR (kind='SIGN_IN_GREETING' AND NOT $7))`,
         [
           userId,
           Boolean(rows[0].phone_verified_at),
@@ -239,6 +247,7 @@ function createCallService({
           rows[0].booking_enabled,
           rows[0].reminders_enabled,
           rows[0].recommendations_enabled,
+          rows[0].login_calls_enabled,
         ],
       );
       return rows[0];
@@ -299,7 +308,21 @@ function createCallService({
   const candidates = async (userId, prefs, preview = false) => {
     const result = [];
     const today = localTime(clock()).day;
-    if (prefs.welcome_enabled) {
+    if (prefs.login_calls_enabled) {
+      const { rows } = await db.query(
+        `SELECT last_sign_in_id,last_signed_in_at FROM users WHERE id=$1 AND email_verified
+         AND last_sign_in_id IS NOT NULL AND last_signed_in_at >= $2::timestamptz - INTERVAL '24 hours'
+         AND last_signed_in_at <= $2::timestamptz AND last_sign_in_phone=$3`,
+        [userId, clock(), prefs.phone_e164],
+      );
+      if (rows.length)
+        result.push({
+          kind: 'SIGN_IN_GREETING',
+          payload: { sign_in_id: rows[0].last_sign_in_id, phone_e164: prefs.phone_e164 },
+          key: `signin:${userId}:${rows[0].last_sign_in_id}`,
+        });
+    }
+    if (prefs.welcome_enabled && !prefs.login_calls_enabled) {
       const { rows } = await db.query(
         `SELECT first_signed_in_at FROM users WHERE id=$1 AND email_verified AND first_signed_in_at IS NOT NULL AND first_signed_in_at >= $2::timestamptz - INTERVAL '7 days'`,
         [userId, clock()],
@@ -388,6 +411,7 @@ function createCallService({
         }, settings()),
       },
       welcomeSample: { example: true, kind: 'WELCOME', script: providerScript('WELCOME', {}, settings()) },
+      signInSample: { example: true, kind: 'SIGN_IN_GREETING', script: providerScript('SIGN_IN_GREETING', {}, settings()) },
       note: 'Preview only. No phone is called, and no real reminder is created for a demo rental.',
     };
   };
@@ -395,17 +419,19 @@ function createCallService({
     if (!ready(settings()) || !settings().enabled) return { queued: 0, mode: 'preview' };
     const users = (
       await db.query(
-        'SELECT * FROM call_preferences WHERE phone_verified_at IS NOT NULL AND (welcome_enabled OR booking_enabled OR reminders_enabled OR recommendations_enabled)',
+        'SELECT * FROM call_preferences WHERE phone_verified_at IS NOT NULL AND (welcome_enabled OR login_calls_enabled OR booking_enabled OR reminders_enabled OR recommendations_enabled)',
       )
     ).rows;
     let queued = 0;
     for (const prefs of users) {
       if (providerName(settings()) === 'authkey' && !supportsPhone(prefs.phone_e164)) continue;
       for (const j of await candidates(prefs.user_id, prefs)) {
-        const r = await db.query(
+        const persist = (target) => target.query(
           `INSERT INTO automated_calls(user_id,rental_id,listing_id,kind,dedupe_key,payload,script,provider) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
            ON CONFLICT(dedupe_key) DO UPDATE SET status='QUEUED',payload=EXCLUDED.payload,script=EXCLUDED.script,provider=EXCLUDED.provider,outcome=NULL,scheduled_at=NOW()
-           WHERE automated_calls.kind IN ('WELCOME','BOOKING_CONFIRMATION','DUE_REMINDER') AND automated_calls.status='CANCELLED' AND automated_calls.started_at IS NULL`,
+           WHERE automated_calls.status='CANCELLED' AND automated_calls.started_at IS NULL
+           AND (automated_calls.kind IN ('WELCOME','BOOKING_CONFIRMATION','DUE_REMINDER')
+             OR (automated_calls.kind='SIGN_IN_GREETING' AND automated_calls.outcome='Calling provider changed before dispatch'))`,
           [
             prefs.user_id,
             j.rental_id || null,
@@ -417,18 +443,75 @@ function createCallService({
             providerName(settings()),
           ],
         );
-        queued += r.rowCount;
+        if (j.kind !== 'SIGN_IN_GREETING') {
+          queued += (await persist(db)).rowCount;
+          continue;
+        }
+        const client = await db.connect();
+        try {
+          await client.query('BEGIN');
+          // Match the event again under the same user lock used by sign-in. A
+          // stale concurrent enqueuer must never cancel the newer greeting.
+          // NO KEY UPDATE preserves serialization without blocking the user FK
+          // KEY SHARE locks taken by concurrent preference/consent writes.
+          const current = await client.query(
+            `SELECT id FROM users WHERE id=$1 AND email_verified AND last_sign_in_id=$2
+             AND last_signed_in_at >= $3::timestamptz - INTERVAL '24 hours'
+             AND last_signed_in_at <= $3::timestamptz AND last_sign_in_phone=$4 FOR NO KEY UPDATE`,
+            [prefs.user_id, j.payload.sign_in_id, clock(), prefs.phone_e164],
+          );
+          if (current.rowCount) {
+            await client.query(
+              `UPDATE automated_calls SET status='CANCELLED',outcome='Superseded by a newer sign-in'
+               WHERE user_id=$1 AND kind='SIGN_IN_GREETING' AND status='QUEUED' AND dedupe_key<>$2`,
+              [prefs.user_id, j.key],
+            );
+            queued += (await persist(client)).rowCount;
+          }
+          await client.query('COMMIT');
+        } catch (error) {
+          await client.query('ROLLBACK');
+          throw error;
+        } finally {
+          client.release();
+        }
       }
     }
     return { queued };
   };
-  const eligible = async (job, prefs, client) => {
+  const eligible = async (job, prefs, client, { acceptedSignIn = false } = {}) => {
     if ((job.provider || providerName(settings())) === 'authkey' &&
         (!supportsPhone(prefs?.phone_e164) || job.kind === 'RECOMMENDATION')) return false;
     if (!prefs?.phone_verified_at || !E164.test(prefs.phone_e164 || '') || !prefs[consentFor(job.kind)])
       return false;
+    if (job.kind === 'SIGN_IN_GREETING') {
+      if (job.payload.phone_e164 !== prefs.phone_e164 ||
+          !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(job.payload.sign_in_id || '')) return false;
+      if (acceptedSignIn) {
+        // A later login supersedes queued greetings, not a call already accepted
+        // by Twilio. Keep checking its original durable intent and current
+        // consent/phone ownership without requiring it to remain the latest.
+        if ((job.provider || 'twilio') !== 'twilio' || !job.started_at ||
+            !['SENT', 'RINGING', 'ANSWERED'].includes(job.status) ||
+            !/^CA[\da-f]{32}$/i.test(job.provider_sid || '')) return false;
+        const event = await client.query(
+          `SELECT e.attempt_id FROM sign_in_call_events e JOIN users u ON u.id=e.user_id
+           WHERE e.user_id=$1 AND u.email_verified AND e.attempt_id=$2 AND e.phone_e164=$4
+           AND e.created_at >= $3::timestamptz - INTERVAL '24 hours' AND e.created_at <= $3::timestamptz`,
+          [job.user_id, job.payload.sign_in_id, clock(), prefs.phone_e164],
+        );
+        return Boolean(event.rowCount);
+      }
+      const user = await client.query(
+        `SELECT id FROM users WHERE id=$1 AND email_verified AND last_sign_in_id=$2
+         AND last_signed_in_at >= $3::timestamptz - INTERVAL '24 hours'
+         AND last_signed_in_at <= $3::timestamptz AND last_sign_in_phone=$4`,
+        [job.user_id, job.payload.sign_in_id, clock(), prefs.phone_e164],
+      );
+      return Boolean(user.rowCount);
+    }
     if (job.kind === 'WELCOME') {
-      if (job.payload.phone_e164 !== prefs.phone_e164) return false;
+      if (prefs.login_calls_enabled || job.payload.phone_e164 !== prefs.phone_e164) return false;
       const user = await client.query(
         "SELECT id FROM users WHERE id=$1 AND email_verified AND first_signed_in_at IS NOT NULL AND first_signed_in_at >= $2::timestamptz - INTERVAL '7 days'",
         [job.user_id, clock()],
@@ -508,9 +591,13 @@ function createCallService({
         [job.user_id, job.id, job.kind],
       );
       if (cap.rowCount) {
-        await client.query("UPDATE automated_calls SET scheduled_at=NOW()+INTERVAL '1 hour' WHERE id=$1", [
-          job.id,
-        ]);
+        if (job.kind === 'SIGN_IN_GREETING') {
+          // Greetings suppressed by repeat-call limits expire permanently for
+          // this event, rather than building a backlog of delayed login calls.
+          await client.query("UPDATE automated_calls SET status='CANCELLED',outcome='Sign-in greeting skipped by repeat-call limits' WHERE id=$1", [job.id]);
+        } else {
+          await client.query("UPDATE automated_calls SET scheduled_at=NOW()+INTERVAL '1 hour' WHERE id=$1", [job.id]);
+        }
         await client.query('COMMIT');
         return { limited: true };
       }
@@ -579,8 +666,20 @@ function createCallService({
       response.hangup();
       return response.toString();
     }
+    const signInGreeting = job.kind === 'SIGN_IN_GREETING';
+    const acceptedSignIn = signInGreeting && Boolean(job.started_at) &&
+      ['SENT', 'RINGING', 'ANSWERED'].includes(job.status) && /^CA[\da-f]{32}$/i.test(job.provider_sid || '');
+    // A normally signed Twilio callback can arrive before calls.create returns
+    // its SID. That DISPATCHING path still requires the latest sign-in; only
+    // recorded provider acceptance permits checking the original event instead.
+    const pendingSignIn = signInGreeting && job.status === 'DISPATCHING' && Boolean(job.started_at) &&
+      /^CA[\da-f]{32}$/i.test(body.CallSid || '');
+    if (signInGreeting && !acceptedSignIn && !pendingSignIn) {
+      response.hangup();
+      return response.toString();
+    }
     const prefs = await preferences(job.user_id);
-    if (!(await eligible(job, prefs, db))) {
+    if (!(await eligible(job, prefs, db, { acceptedSignIn }))) {
       saySoft(response, 'This reminder is no longer needed. Goodbye.');
       response.hangup();
       return response.toString();
@@ -591,6 +690,7 @@ function createCallService({
         reminders_enabled: false,
         recommendations_enabled: false,
         welcome_enabled: false,
+        login_calls_enabled: false,
         booking_enabled: false,
       });
       await db.query("UPDATE automated_calls SET outcome='Opted out' WHERE id=$1", [id]);
@@ -600,7 +700,7 @@ function createCallService({
     }
     if (kind === 'voice') {
       // The generic welcome contains no account details and can be heard immediately.
-      if (job.kind === 'WELCOME') {
+      if (job.kind === 'WELCOME' || job.kind === 'SIGN_IN_GREETING') {
         saySoft(
           response.gather({
             numDigits: 1,

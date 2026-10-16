@@ -16,7 +16,7 @@ import type {
 } from './auth.types';
 
 /**
- * Calls POST /login with email + password.
+ * Calls POST /login with email, password and an optional retry-stable attempt ID.
  * Returns the JWT token on success.
  */
 export async function loginUser(
@@ -27,6 +27,7 @@ export async function loginUser(
   const res = await api.post('/login', {
     email: payload.email.trim().toLowerCase(),
     password: payload.password,
+    login_attempt_id: payload.login_attempt_id,
   });
   return res.data as LoginResponse;
 }
@@ -47,6 +48,7 @@ export async function signupUser(
     password: payload.password,
     phone_number: payload.phone_number,
     welcome_enabled: payload.welcome_enabled,
+    login_calls_enabled: payload.login_calls_enabled,
     rental_calls_enabled: payload.rental_calls_enabled,
   });
   return res.data as MessageResponse;

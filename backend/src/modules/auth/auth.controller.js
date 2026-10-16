@@ -1,8 +1,10 @@
 const pool = require('../../config/database');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { randomUUID } = require('node:crypto');
 const { sendCode, consumeCode } = require('./otp.service');
-const { normalizePhone, recordFirstSignIn } = require('./onboarding.service');
+const { normalizePhone, recordFirstSignIn, recordSuccessfulSignIn } = require('./onboarding.service');
+const { requestTick } = require('../calls/call.worker');
 const emailOf = value => typeof value === 'string' ? value.trim().toLowerCase() : '';
 const validEmail = email => /^[^\s@]+@dbit\.co\.in$/.test(email);
 const respondError = (res, result, extra = {}) => {
@@ -20,6 +22,9 @@ exports.signup = async (req, res) => {
   const phone = normalizePhone(req.body.phone_number);
   const welcome = req.body.welcome_enabled === true;
   const rentalCalls = req.body.rental_calls_enabled === true;
+  const loginCalls = req.body.login_calls_enabled === true;
+  if (req.body.login_calls_enabled !== undefined && typeof req.body.login_calls_enabled !== 'boolean')
+    return res.status(400).json({ error: 'Choose whether you want calls after successful sign-ins.' });
   if (req.body.rental_calls_enabled !== undefined && typeof req.body.rental_calls_enabled !== 'boolean')
     return res.status(400).json({ error: 'Choose whether you want rental calls.' });
   if (typeof name !== 'string' || !name.trim() || typeof username !== 'string' || !/^[a-zA-Z0-9_]{3,20}$/.test(username.trim()))
@@ -44,11 +49,11 @@ exports.signup = async (req, res) => {
         'INSERT INTO users(name,username,email,password,phone_number) VALUES($1,$2,$3,$4,$5) RETURNING id',
         [name.trim(), username.trim().toLowerCase(), email, hash, phone]);
       await client.query(
-        "INSERT INTO call_preferences(user_id,phone_e164,welcome_enabled,booking_enabled,reminders_enabled,consent_version) VALUES($1,$2,$3,$4,$4,'2026-10-15')",
-        [rows[0].id, phone, welcome, rentalCalls]);
+        "INSERT INTO call_preferences(user_id,phone_e164,welcome_enabled,booking_enabled,reminders_enabled,login_calls_enabled,consent_version) VALUES($1,$2,$3,$4,$4,$5,'2026-10-16')",
+        [rows[0].id, phone, welcome, rentalCalls, loginCalls]);
       await client.query(
-        "INSERT INTO call_consent_events(user_id,reminders_enabled,recommendations_enabled,welcome_enabled,booking_enabled,consent_version) VALUES($1,$3,FALSE,$2,$3,'2026-10-15')",
-        [rows[0].id, welcome, rentalCalls]);
+        "INSERT INTO call_consent_events(user_id,reminders_enabled,recommendations_enabled,welcome_enabled,booking_enabled,login_calls_enabled,consent_version) VALUES($1,$3,FALSE,$2,$3,$4,'2026-10-16')",
+        [rows[0].id, welcome, rentalCalls, loginCalls]);
       await client.query('COMMIT');
     } catch (error) {
       await client.query('ROLLBACK');
@@ -119,6 +124,10 @@ exports.resetPassword = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+    const attemptId = req.body.login_attempt_id === undefined ? randomUUID() : req.body.login_attempt_id;
+    if (typeof attemptId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(attemptId)) {
+      return res.status(400).json({ error: 'Invalid sign-in attempt. Please try again.' });
+    }
 
     if (typeof email !== 'string' || !email.trim() || typeof password !== 'string' || !password) {
       return res.status(400).json({ error: 'Email and password are required' });
@@ -148,10 +157,13 @@ exports.login = async (req, res) => {
       { expiresIn: '7d' }
     );
     const welcomeCallSetupNeeded = await recordFirstSignIn(user.id);
+    const signIn = await recordSuccessfulSignIn(user.id, attemptId);
+    const callSetupNeeded = welcomeCallSetupNeeded || signIn.setupNeeded;
 
     res.json({
       token,
-      welcomeCallSetupNeeded,
+      welcomeCallSetupNeeded: callSetupNeeded,
+      callSetupNeeded,
       user: {
         id: user.id,
         name: user.name,
@@ -165,6 +177,9 @@ exports.login = async (req, res) => {
         created_at: user.created_at
       }
     });
+    // The durable sign-in event is committed before returning. Wake the worker
+    // without putting a provider request on the authentication response path.
+    requestTick();
   } catch (error) {
     console.error('[Login Error]', error.message || error);
     return serverError(res, error);

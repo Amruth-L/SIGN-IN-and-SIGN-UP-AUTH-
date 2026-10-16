@@ -33,6 +33,7 @@ export interface AuthContextValue {
 export interface LoginPayload {
   email: string;
   password: string;
+  login_attempt_id?: string;
 }
 
 export interface SignupPayload {
@@ -42,6 +43,7 @@ export interface SignupPayload {
   password: string;
   phone_number: string;
   welcome_enabled: boolean;
+  login_calls_enabled?: boolean;
   rental_calls_enabled?: boolean;
 }
 

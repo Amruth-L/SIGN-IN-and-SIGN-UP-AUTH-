@@ -24,7 +24,7 @@ async function install() {
     DECLARE request_id bigint; local_now timestamp := now() AT TIME ZONE 'Asia/Kolkata';
     BEGIN
       IF local_now::time < time '09:00' OR local_now::time >= time '19:00' THEN RETURN NULL; END IF;
-      IF NOT EXISTS(SELECT 1 FROM public.call_preferences WHERE phone_verified_at IS NOT NULL AND (welcome_enabled OR booking_enabled OR reminders_enabled OR recommendations_enabled)) THEN RETURN NULL; END IF;
+      IF NOT EXISTS(SELECT 1 FROM public.call_preferences WHERE phone_verified_at IS NOT NULL AND (login_calls_enabled OR welcome_enabled OR booking_enabled OR reminders_enabled OR recommendations_enabled)) THEN RETURN NULL; END IF;
       SELECT net.http_post(
         url := (SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='campusmesh_calls_url') || '/api/call-scheduler/tick',
         headers := jsonb_build_object('Content-Type','application/json','Authorization','Bearer '||(SELECT decrypted_secret FROM vault.decrypted_secrets WHERE name='campusmesh_calls_secret')),

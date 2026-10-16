@@ -9,6 +9,9 @@ require.cache[mailPath] = { id: mailPath, filename: mailPath, loaded: true, expo
   messages.push({ email, subject, code });
 } };
 process.env.JWT_SECRET = 'isolated-auth-workflow-fixture-only';
+const workerPath = require.resolve('../src/modules/calls/call.worker');
+require.cache[workerPath] = { id: workerPath, filename: workerPath, loaded: true,
+  exports: { requestTick: () => false } };
 const auth = require('../src/modules/auth/auth.controller');
 const profile = require('../src/modules/profile/profile.controller');
 
@@ -29,7 +32,8 @@ function database(t) {
       return result(state.user);
     }
     if (sql.startsWith('INSERT INTO call_preferences')) {
-      state.preferences = { welcome_enabled: p[2], booking_enabled: p[3], reminders_enabled: p[3], phone_verified_at: null };
+      state.preferences = { welcome_enabled: p[2], booking_enabled: p[3], reminders_enabled: p[3],
+        login_calls_enabled: p[4] ?? false, phone_e164: p[1], phone_verified_at: null };
       return result();
     }
     if (sql.startsWith('INSERT INTO call_consent_events')) return result();

@@ -55,7 +55,7 @@ const Signup: React.FC = () => {
     confirmPassword: '',
     phone_number: '',
   });
-  const [welcomeEnabled, setWelcomeEnabled] = useState(false);
+  const [loginCallsEnabled, setLoginCallsEnabled] = useState(false);
   const [rentalCallsEnabled, setRentalCallsEnabled] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<SignupFieldErrors>({});
   const [globalError, setGlobalError] = useState('');
@@ -120,7 +120,8 @@ const Signup: React.FC = () => {
         email: form.email,
         password: form.password,
         phone_number: form.phone_number,
-        welcome_enabled: welcomeEnabled,
+        welcome_enabled: false,
+        login_calls_enabled: loginCallsEnabled,
         rental_calls_enabled: rentalCallsEnabled,
       });
       const email = form.email.trim().toLowerCase();
@@ -323,10 +324,10 @@ const Signup: React.FC = () => {
             </label>
 
             <label className="flex items-start gap-3 rounded-xl border border-ink/10 p-4 text-sm">
-              <input type="checkbox" className="mt-1 size-4 shrink-0 accent-green-700" checked={welcomeEnabled}
-                onChange={event => setWelcomeEnabled(event.target.checked)} />
-              <span><strong className="block font-medium">Give me a welcome call</strong>
-                <span className="mt-1 block text-xs leading-5 text-ink/60">Optional. One automated call in English after your first sign-in and phone verification, once calling is available. This does not enable reminders or promotional calls.</span>
+              <input type="checkbox" className="mt-1 size-4 shrink-0 accent-green-700" checked={loginCallsEnabled}
+                onChange={event => setLoginCallsEnabled(event.target.checked)} />
+              <span><strong className="block font-medium">Call me after sign-in</strong>
+                <span className="mt-1 block text-xs leading-5 text-ink/60">Optional. Automatic English greetings after successful sign-ins, once your saved number is verified and calling is available. No call button is needed. Calls run 9 am–7 pm India time, at least 30 minutes apart and at most three times a day across all call types. Turn this off anytime in Reminders.</span>
               </span>
             </label>
 

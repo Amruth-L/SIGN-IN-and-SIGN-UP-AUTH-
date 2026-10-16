@@ -1,5 +1,5 @@
 import Brand from "../../components/Brand";
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'motion/react';
 import { ArrowRight, Eye, EyeOff, Lock, Mail } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -15,6 +15,8 @@ export default function LoginPage() {
   const [loadingState, setLoadingState] = useState<AuthLoadingState>('idle');
   const [error, setError] = useState('');
   const [needsVerification, setNeedsVerification] = useState(false);
+  const loginAttempt = useRef<string | null>(null);
+  const submitting = useRef(false);
 
   useEffect(() => {
     const rememberedEmail = localStorage.getItem('cm_remember');
@@ -27,21 +29,32 @@ export default function LoginPage() {
   }, [isAuthenticated, loadingState, navigate]);
 
   const update = useCallback(
-    (field: keyof LoginFormData, value: string | boolean) =>
-      setForm(current => ({ ...current, [field]: value })),
+    (field: keyof LoginFormData, value: string | boolean) => {
+      if (field === 'email' || field === 'password') loginAttempt.current = null;
+      setForm(current => ({ ...current, [field]: value }));
+    },
     [],
   );
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (submitting.current || loadingState === 'success') return;
+    submitting.current = true;
     setError('');
     setNeedsVerification(false);
     setLoadingState('loading');
     try {
-      const data = await loginUser(api, { email: form.email, password: form.password });
+      // Keep this ID after an uncertain response so retrying the same sign-in
+      // cannot create another greeting if the server already accepted it.
+      loginAttempt.current ??= crypto.randomUUID();
+      const data = await loginUser(api, {
+        email: form.email, password: form.password,
+        login_attempt_id: loginAttempt.current,
+      });
       await login(data.token);
       if (form.remember) localStorage.setItem('cm_remember', form.email.trim().toLowerCase());
       else localStorage.removeItem('cm_remember');
+      loginAttempt.current = null;
       setLoadingState('success');
       navigate(data.welcomeCallSetupNeeded ? '/reminders?welcome=1' : '/choose-mode');
     } catch (caught: unknown) {
@@ -50,7 +63,12 @@ export default function LoginPage() {
       if (caught && typeof caught === 'object' && 'response' in caught) {
         const response = (caught as { response?: { status?: number } }).response;
         setNeedsVerification(response?.status === 403);
+        const status = response?.status;
+        if (status && status >= 400 && status < 500 && status !== 408 && status !== 499)
+          loginAttempt.current = null;
       }
+    } finally {
+      submitting.current = false;
     }
   };
 
@@ -86,7 +104,7 @@ export default function LoginPage() {
               <span className="text-xs font-medium text-ink/65 mb-2 block">University email</span>
               <span className="relative block">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/32" size={18} />
-                <input id="login-email" type="email" className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100 h-13 rounded-2xl pl-12" placeholder="student@dbit.co.in" autoComplete="email" required value={form.email} onChange={event => update('email', event.target.value)} />
+                <input id="login-email" type="email" className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100 h-13 rounded-2xl pl-12" placeholder="student@dbit.co.in" autoComplete="email" required disabled={loadingState === 'loading'} value={form.email} onChange={event => update('email', event.target.value)} />
               </span>
             </label>
             <label className="block">
@@ -96,7 +114,7 @@ export default function LoginPage() {
               </span>
               <span className="relative block">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/32" size={18} />
-                <input id="login-password" type={showPassword ? 'text' : 'password'} className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100 h-13 rounded-2xl px-12" placeholder="Enter your password" autoComplete="current-password" required value={form.password} onChange={event => update('password', event.target.value)} />
+                <input id="login-password" type={showPassword ? 'text' : 'password'} className="h-11 w-full rounded-xl border border-mesh-900/15 bg-white px-3 text-sm outline-none transition focus:border-mesh-500 focus:ring-4 focus:ring-mesh-100 h-13 rounded-2xl px-12" placeholder="Enter your password" autoComplete="current-password" required disabled={loadingState === 'loading'} value={form.password} onChange={event => update('password', event.target.value)} />
                 <button type="button" onClick={() => setShowPassword(current => !current)} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-2 text-ink/38 hover:bg-mesh-50" aria-label={showPassword ? 'Hide password' : 'Show password'}>
                   {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
                 </button>
@@ -109,6 +127,10 @@ export default function LoginPage() {
               {loadingState === 'loading' ? 'Signing in…' : <>Sign in <ArrowRight size={17} /></>}
             </button>
           </form>
+          <p className="mt-4 text-center text-xs text-ink/55">
+            <Link to="/reminders" className="font-medium text-mesh-700">Enable sign-in calls in Reminders</Link>
+            {" "}after signing in.
+          </p>
           <p className="mt-7 text-center text-sm text-ink/45">
             New to CampusMesh? <Link to="/signup" className="font-semibold text-mesh-700">Create an account</Link>
           </p>
