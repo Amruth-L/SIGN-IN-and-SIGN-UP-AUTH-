@@ -71,7 +71,7 @@ exports.getAvailableDeliveries = async (req, res) => {
   const userId = req.user.id;
   try {
     const routeResult = await pool.query(
-      "SELECT cra.available_until, u.delivery_available FROM courier_route_availability cra JOIN users u ON u.id=cra.courier_id WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW() ORDER BY cra.created_at DESC LIMIT 1",
+      "SELECT cra.available_until, cra.availability_mode, u.delivery_available FROM courier_route_availability cra JOIN users u ON u.id=cra.courier_id WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW() ORDER BY cra.created_at DESC LIMIT 1",
       [userId],
     );
     const route = routeResult.rows[0] || null;
@@ -97,7 +97,7 @@ exports.getAvailableDeliveries = async (req, res) => {
         "SELECT COUNT(*)::int AS count FROM delivery_requests WHERE courier_id IS NULL AND status IN ('MATCHING_COURIER','AVAILABLE','NO_COURIER_AVAILABLE','RETURN_MATCHING') AND customer_id IS DISTINCT FROM $1 AND seller_id IS DISTINCT FROM $1",
         [userId],
       );
-      reason = open.rows[0].count > 0 ? 'NO_ROUTE_MATCH' : 'NO_OPEN_REQUESTS';
+      reason = open.rows[0].count > 0 && route.availability_mode === 'ROUTE' ? 'NO_ROUTE_MATCH' : 'NO_OPEN_REQUESTS';
     }
 
     res.json({
@@ -245,7 +245,7 @@ exports.acceptDelivery = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const availability = await client.query("SELECT delivery_available, EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW()) AS route_active FROM users WHERE id=$1 FOR UPDATE", [userId]);
+    const availability = await client.query("SELECT delivery_available, EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW()) AS route_active FROM users WHERE id=$1 FOR NO KEY UPDATE", [userId]);
     if (!availability.rows[0]?.delivery_available || !availability.rows[0]?.route_active) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'Go online before accepting a delivery.' });
@@ -259,15 +259,19 @@ exports.acceptDelivery = async (req, res) => {
     }
     // Lock the task before its offers. Competing couriers must not each hold
     // their own offer while waiting for the same task (a deadlock).
-    const task = await client.query('SELECT courier_id, status FROM delivery_requests WHERE id=$1 FOR UPDATE', [id]);
+    const task = await client.query('SELECT courier_id, status, task_type FROM delivery_requests WHERE id=$1 FOR UPDATE', [id]);
     if (!task.rows[0] || task.rows[0].courier_id || !['AVAILABLE','MATCHING_COURIER','RETURN_MATCHING','NO_COURIER_AVAILABLE'].includes(task.rows[0].status)) {
       await client.query('ROLLBACK');
       return res.status(409).json({ error: 'This delivery is no longer available.' });
     }
+    if (task.rows[0].task_type === 'RENTAL_RETURN' && !req.body?.offer_id) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Refresh and review the current return destination before accepting.' });
+    }
     const offer = await client.query(
       `UPDATE delivery_offers SET status='ACCEPTED', responded_at=NOW()
-      WHERE delivery_id=$1 AND courier_id=$2 AND status='PENDING' AND expires_at>NOW() AND (route_availability_id IS NULL OR EXISTS(SELECT 1 FROM courier_route_availability cra WHERE cra.id=route_availability_id AND cra.is_active AND cra.available_until>NOW())) RETURNING match_score, score_breakdown`,
-      [id, userId],
+      WHERE delivery_id=$1 AND courier_id=$2 AND ($3::text IS NULL OR id::text=$3) AND status='PENDING' AND expires_at>NOW() AND (route_availability_id IS NULL OR EXISTS(SELECT 1 FROM courier_route_availability cra WHERE cra.id=route_availability_id AND cra.is_active AND cra.available_until>NOW())) RETURNING match_score, score_breakdown`,
+      [id, userId, req.body?.offer_id || null],
     );
     if (!offer.rowCount) {
       await client.query('ROLLBACK');
@@ -514,7 +518,7 @@ exports.getRentalDeliveryStatus = async (req, res) => {
     if (!rental) return res.status(403).json({ error: 'You do not have access to this rental delivery.' });
 
     const result = await pool.query(
-      "SELECT dr.*, l.title AS listing_title, l.image_url AS listing_image, l.category AS listing_category, owner.name AS owner_name, owner.hostel AS owner_hostel, renter.name AS renter_name, renter.hostel AS renter_hostel, courier.name AS courier_name, courier.phone_number AS courier_phone, courier.hostel AS courier_hostel FROM delivery_requests dr JOIN rentals r ON r.id=dr.rental_id LEFT JOIN listings l ON l.id=dr.listing_id LEFT JOIN users owner ON owner.id=dr.seller_id LEFT JOIN users renter ON renter.id=dr.customer_id LEFT JOIN users courier ON courier.id=dr.courier_id WHERE dr.rental_id=$1 ORDER BY CASE WHEN dr.status IN ('MATCHING_COURIER','COURIER_ASSIGNED','GOING_TO_PICKUP','ARRIVED_AT_PICKUP','IN_TRANSIT','ARRIVED_AT_DESTINATION','RETURN_MATCHING','RETURN_COURIER_ASSIGNED','RETURN_IN_TRANSIT') THEN 0 WHEN dr.id=r.outbound_delivery_id THEN 1 WHEN dr.id=r.return_delivery_id THEN 2 ELSE 3 END, dr.created_at DESC LIMIT 1",
+      "SELECT dr.*, l.title AS listing_title, l.image_url AS listing_image, l.category AS listing_category, owner.name AS owner_name, owner.hostel AS owner_hostel, renter.name AS renter_name, renter.hostel AS renter_hostel, courier.name AS courier_name, courier.phone_number AS courier_phone, courier.hostel AS courier_hostel FROM delivery_requests dr JOIN rentals r ON r.id=dr.rental_id LEFT JOIN listings l ON l.id=dr.listing_id LEFT JOIN users owner ON owner.id=r.owner_id LEFT JOIN users renter ON renter.id=r.borrower_id LEFT JOIN users courier ON courier.id=dr.courier_id WHERE dr.rental_id=$1 ORDER BY CASE WHEN dr.status IN ('MATCHING_COURIER','COURIER_ASSIGNED','GOING_TO_PICKUP','ARRIVED_AT_PICKUP','IN_TRANSIT','ARRIVED_AT_DESTINATION','RETURN_LOCATION_PENDING','RETURN_MATCHING','RETURN_COURIER_ASSIGNED','RETURN_IN_TRANSIT') THEN 0 WHEN dr.id=r.outbound_delivery_id THEN 1 WHEN dr.id=r.return_delivery_id THEN 2 ELSE 3 END, dr.created_at DESC LIMIT 1",
       [rentalId],
     );
 
@@ -572,7 +576,7 @@ exports.getRentalDeliveryStatus = async (req, res) => {
     const nextAction = blockedBy === 'SECURITY_DEPOSIT'
       ? 'Pay the security deposit before a courier can accept.'
       : blockedBy === 'ROUTE_MATCH'
-        ? 'Waiting for an online courier with a matching route.'
+        ? 'Waiting for an available courier to accept.'
         : nextHandshake
           ? 'Complete the ' + nextHandshake.replaceAll('_', ' ').toLowerCase() + ' handover.'
           : delivery.status === 'MATCHING_COURIER'
@@ -592,8 +596,8 @@ exports.getRentalDeliveryStatus = async (req, res) => {
       status: delivery.status,
       blocked_by: blockedBy,
       next_action: nextAction,
-      owner: { id: delivery.seller_id, name: delivery.owner_name || null, hostel: delivery.owner_hostel || null },
-      renter: { id: delivery.customer_id, name: delivery.renter_name || null, hostel: delivery.renter_hostel || null },
+      owner: { id: rental.owner_id, name: delivery.owner_name || null, hostel: delivery.owner_hostel || null },
+      renter: { id: rental.borrower_id, name: delivery.renter_name || null, hostel: delivery.renter_hostel || null },
       courier: delivery.courier_id
         ? { id: delivery.courier_id, name: delivery.courier_name || null, hostel: delivery.courier_hostel || null, phone: delivery.courier_phone || null }
         : null,

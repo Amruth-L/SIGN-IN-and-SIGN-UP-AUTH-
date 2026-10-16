@@ -19,7 +19,7 @@ export default function RouteSetup({
         <div>
           <span className="text-xs font-medium text-ink/65">Your availability</span>
           <h2 className="mt-1 flex items-center gap-2 font-semibold">
-            <Route size={18} /> Your delivery route
+            <Route size={18} /> Delivery availability
           </h2>
         </div>
         <button
@@ -34,8 +34,14 @@ export default function RouteSetup({
           {online ? "Go offline" : "Offline"}
         </button>
       </div>
+      <p className="mb-4 text-xs leading-5 text-ink/65">Go online to receive campus delivery and return requests. Each offer shows the pickup, drop-off and your earning.</p>
+      <label className="mb-4 flex items-center gap-2 text-xs font-medium">
+        <input type="checkbox" checked={form.availability_mode === 'ROUTE'} disabled={routeSaving}
+          onChange={e => setForm({ ...form, availability_mode: e.target.checked ? 'ROUTE' : 'OPEN' })}/>
+        Only requests along a route (optional)
+      </label>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
-        {[
+        {form.availability_mode === "ROUTE" && [
           ["origin_location_id", "Starting point"],
           ["destination_location_id", "Heading to"],
         ].map(([name, title]) => (
@@ -67,7 +73,7 @@ export default function RouteSetup({
             }
           />
         </label>
-        <label>
+        {form.availability_mode === "ROUTE" && <label>
           <span className="text-xs font-medium text-ink/65 mb-1 block">
             Maximum detour · {form.max_detour_meters} m
           </span>
@@ -83,10 +89,10 @@ export default function RouteSetup({
               setForm({ ...form, max_detour_meters: Number(e.target.value) })
             }
           />
-        </label>
+        </label>}
       </div>
       <button disabled={routeSaving} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-mesh-600 px-5 text-sm font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-mesh-700 hover:shadow-lg active:translate-y-0 disabled:pointer-events-none disabled:opacity-50 mt-4 w-full">
-        {routeSaving ? "Saving route…" : "Save route & go online"}
+        {routeSaving ? "Saving…" : online ? "Update availability" : "Go online"}
       </button>
     </form>
   );

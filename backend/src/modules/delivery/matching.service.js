@@ -52,7 +52,21 @@ function scoreCandidate(route, task, reliability = 100) {
 }
 
 
-async function matchDelivery(deliveryId, client = pool) {
+async function matchDelivery(deliveryId, connection) {
+  const client = connection || await pool.connect();
+  const notifications = [];
+  try {
+    await client.query('BEGIN');
+    await client.query('SELECT id FROM delivery_requests WHERE id=$1 FOR UPDATE', [deliveryId]);
+    const result = await matchLockedDelivery(deliveryId, client, notifications);
+    await client.query('COMMIT');
+    for (const [user, payload] of notifications) emitUser(user, 'delivery:offer', payload);
+    return result;
+  } catch (error) { await client.query('ROLLBACK'); throw error; }
+  finally { if (!connection) client.release(); }
+}
+
+async function matchLockedDelivery(deliveryId, client, notifications) {
   const deliveryResult = await client.query(`SELECT dr.*, p.route_node_id pickup_node, d.route_node_id destination_node
     FROM delivery_requests dr JOIN campus_locations p ON p.id = dr.pickup_location_id
     JOIN campus_locations d ON d.id = dr.destination_location_id WHERE dr.id = $1`, [deliveryId]);
@@ -66,7 +80,7 @@ async function matchDelivery(deliveryId, client = pool) {
       COALESCE((SELECT 100.0*(COUNT(*) FILTER(WHERE d.status IN ('COMPLETED','DELIVERED'))+2)/(COUNT(*)+4) FROM delivery_requests d LEFT JOIN listings history_listing ON history_listing.id=d.listing_id WHERE d.courier_id=cra.courier_id AND d.status IN ('COMPLETED','DELIVERED','FAILED') AND history_listing.demo_slug IS NULL AND u.email NOT LIKE 'qa-%'),50) courier_reliability_score,
       o.route_node_id origin_node, d.route_node_id destination_node
     FROM courier_route_availability cra JOIN users u ON u.id = cra.courier_id
-    JOIN campus_locations o ON o.id = cra.origin_location_id JOIN campus_locations d ON d.id = cra.destination_location_id
+    LEFT JOIN campus_locations o ON o.id = cra.origin_location_id LEFT JOIN campus_locations d ON d.id = cra.destination_location_id
     WHERE cra.is_active AND cra.available_until > NOW() AND u.delivery_available
       AND NOT EXISTS (SELECT 1 FROM wish_requests w WHERE w.courier_id=cra.courier_id AND w.status IN ('CHECKING','QUOTED','PAYMENT_PENDING'))
       AND cra.courier_id NOT IN (SELECT courier_id FROM delivery_requests WHERE courier_id IS NOT NULL AND status IN (
@@ -82,6 +96,16 @@ async function matchDelivery(deliveryId, client = pool) {
           OR (previous.status='EXPIRED' AND previous.route_availability_id=cra.id)))`,
     [task.customer_id, task.seller_id, task.declined_by || [], deliveryId]);
   const ranked = candidates.rows.map(candidate => {
+    if (candidate.availability_mode === 'OPEN') {
+      const taskPath = routeFor(task.pickup_node, task.destination_node);
+      if (!taskPath) return null;
+      const eta = predictEta(taskPath.distanceMeters, model);
+      // No current position is known: only estimate the journey after pickup.
+      return { ...candidate, score: 10, breakdown: {
+        availabilityMode: 'OPEN', eta, routeDistanceMeters: taskPath.distanceMeters,
+        explanation: 'You are online for campus requests. Review the pickup, drop-off and earning, then accept or decline.',
+      } };
+    }
     const scored = scoreCandidate({ ...candidate, origin: candidate.origin_node, destination: candidate.destination_node },
       { pickup: task.pickup_node, destination: task.destination_node }, candidate.courier_reliability_score);
     if (!scored) return null;
@@ -89,7 +113,7 @@ async function matchDelivery(deliveryId, client = pool) {
     const toPickup = routeFor(candidate.origin_node, task.pickup_node);
     if (Date.now() + (toPickup.etaMinutes + eta.upper + routeFor(task.destination_node,candidate.destination_node).etaMinutes) * 60000 > new Date(candidate.available_until).getTime()) return null;
     return { ...candidate, ...scored, breakdown: { ...scored.breakdown, eta, routeDistanceMeters: scored.taskPath.distanceMeters, detourMeters: Math.max(0,toPickup.distanceMeters+scored.taskPath.distanceMeters+routeFor(task.destination_node,candidate.destination_node).distanceMeters-scored.courierPath.distanceMeters), explanation: 'Matches your direction, detour limit and available time. You choose whether to accept.' } };
-  }).filter(Boolean).sort((a, b) => b.score - a.score).slice(0, 3);
+  }).filter(Boolean).sort((a, b) => b.score - a.score);
   if (ranked.length) {
     const movedToMatching = await client.query("UPDATE delivery_requests SET status = 'MATCHING_COURIER', updated_at=NOW() WHERE id = $1 AND status IN ('AVAILABLE', 'NO_COURIER_AVAILABLE')", [deliveryId]);
     if (movedToMatching.rowCount && task.rental_id) {
@@ -107,7 +131,7 @@ async function matchDelivery(deliveryId, client = pool) {
         status='PENDING', route_availability_id=EXCLUDED.route_availability_id, offered_at=NOW(), expires_at=EXCLUDED.expires_at, responded_at=NULL
       WHERE delivery_offers.status IN ('EXPIRED','PENDING') AND delivery_offers.route_availability_id IS DISTINCT FROM EXCLUDED.route_availability_id
       RETURNING *`, [deliveryId, candidate.courier_id, candidate.score, candidate.breakdown, candidate.id]);
-    if (rows[0]?.status === 'PENDING') emitUser(candidate.courier_id, 'delivery:offer', { ...rows[0], delivery: safeTask });
+    if (rows[0]?.status === 'PENDING') notifications.push([candidate.courier_id, { ...rows[0], delivery: safeTask }]);
   }
   if (!ranked.length && task.status !== 'RETURN_MATCHING') {
     const noCourier = await client.query("UPDATE delivery_requests SET status = 'NO_COURIER_AVAILABLE', updated_at=NOW() WHERE id = $1 AND status IN ('MATCHING_COURIER','AVAILABLE')", [deliveryId]);

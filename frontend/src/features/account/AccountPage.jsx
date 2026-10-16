@@ -188,6 +188,7 @@ function RentalProgress({ rental }) {
 
 
 const ownerStatusLabel = (request) => {
+  if (request.return_actionable) return "Confirm return destination";
   if (request.actionable) return "Needs your response";
   if (request.status === "DEPOSIT_PENDING") return "Deposit pending";
   if (request.status === "MATCHING_COURIER") return "Finding courier";
@@ -216,7 +217,7 @@ function ConnectionBadge({ state }) {
 
 function OwnerRequestQueue({ requests, summary, loading, connection, error, responding, onRespond, selectedListingId, onClearFilter }) {
   const [requestFilter, setRequestFilter] = useState("pending");
-  const pending = requests.filter((request) => request.actionable);
+  const pending = requests.filter((request) => request.actionable || request.return_actionable);
   const visible = selectedListingId
     ? requests.filter((request) => request.listing_id === selectedListingId)
     : requestFilter === "pending" ? pending : requests;
@@ -274,7 +275,7 @@ function OwnerRequestQueue({ requests, summary, loading, connection, error, resp
                     {request.delivery?.courier && <span className="flex items-center gap-1"><Truck size={14} className="text-mesh-600" /> Courier: <b className="text-ink/75">{request.delivery.courier.name}</b></span>}
                   </div>
                   <p className="mt-3 text-xs font-semibold text-mesh-800">Next: {request.next_action}</p>
-                  {request.delivery?.status === "ARRIVED_AT_PICKUP" && request.delivery?.id && (
+                  {request.delivery?.task_type !== "RENTAL_RETURN" && request.delivery?.status === "ARRIVED_AT_PICKUP" && request.delivery?.id && (
                     <HandoverCredential deliveryId={request.delivery.id} stage="PICKUP" title="Show pickup QR & OTP to the courier" />
                   )}
                 </div>
@@ -283,7 +284,7 @@ function OwnerRequestQueue({ requests, summary, loading, connection, error, resp
                     <button onClick={() => onRespond(request.id, "ACCEPTED")} disabled={!!responding[request.id]} className="min-h-11 rounded-xl bg-mesh-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50">{responding[request.id] === "ACCEPTED" ? "Accepting…" : "Accept request"}</button>
                     <button onClick={() => onRespond(request.id, "REJECTED")} disabled={!!responding[request.id]} className="min-h-11 rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50">{responding[request.id] === "REJECTED" ? "Rejecting…" : "Reject"}</button>
                   </>}
-                  <Link to={`/rent-details/${request.id}`} className="rounded-xl border border-ink/10 bg-white px-3 py-2 text-center text-xs font-semibold text-ink/65 transition hover:border-mesh-300 hover:bg-mesh-50">Details</Link>
+                  <Link to={`/rent-details/${request.id}`} className="rounded-xl border border-ink/10 bg-white px-3 py-2 text-center text-xs font-semibold text-ink/65 transition hover:border-mesh-300 hover:bg-mesh-50">{request.return_actionable ? "Choose return destination" : "Details"}</Link>
                 </div>
               </div>
             </article>

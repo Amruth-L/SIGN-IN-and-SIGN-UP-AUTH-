@@ -1,5 +1,4 @@
 const pool = require('../../config/database');
-const { matchDelivery } = require('../delivery/matching.service');
 const { ensureOutboundDelivery } = require('../delivery/delivery-request.service');
 const { emitUser } = require('../../shared/realtime');
 const paymentService = require('../payments/payment.service');
@@ -261,84 +260,14 @@ exports.respondToBooking = async (req, res) => {
   }
 };
 
+const returns = require('./return.service');
 exports.requestReturn = async (req, res) => {
-  const rentalResult = await pool.query(
-    `SELECT r.*, l.title, l.pickup_location_id,
-    r.drop_location_id borrower_location
-    FROM rentals r JOIN listings l ON l.id=r.listing_id WHERE r.id=$1`,
-    [req.params.id],
-  );
-  const rental = rentalResult.rows[0];
-  if (!rental) return res.status(404).json({ error: 'Rental not found.' });
-  if (rental.borrower_id !== req.user.id)
-    return res.status(403).json({ error: 'Only the borrower can request a return.' });
-  if (!['RENTAL_ACTIVE', 'RETURN_MATCHING', 'RETURN_PENDING'].includes(rental.status))
-    return res.status(409).json({ error: 'The rental must be active before a return can be requested.' });
-
-  const mode = req.body.mode || (rental.delivery_requested ? 'COURIER' : 'DIRECT');
-
-  // Direct In-Person Return
-  if (mode === 'DIRECT') {
-    await pool.query(
-      "UPDATE rentals SET status='RETURN_PENDING', updated_at=NOW() WHERE id=$1",
-      [rental.id],
-    );
-    await pool.query(
-      `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
-       VALUES ($1, 'DIRECT_RETURN_INITIATED', $2, $3)`,
-      [rental.id, req.user.id, { mode: 'DIRECT' }],
-    );
-    emitUser(rental.owner_id, 'rental:status', { rental_id: rental.id, status: 'RETURN_PENDING' });
-    emitUser(rental.borrower_id, 'rental:status', { rental_id: rental.id, status: 'RETURN_PENDING' });
-    return res.status(200).json({
-      message: 'Direct return initiated. Please hand over the item to the owner for inspection.',
-      status: 'RETURN_PENDING',
-      mode: 'DIRECT',
-    });
-  }
-
-  // Courier Return
-  const borrowerLoc = rental.borrower_location || rental.drop_location_id || 'hostel_block_b';
-  const ownerLoc = rental.pickup_location_id || 'admin';
-  const locs = await pool.query('SELECT * FROM campus_locations WHERE id=ANY($1)', [
-    [borrowerLoc, ownerLoc],
-  ]);
-  const byId = Object.fromEntries(locs.rows.map((x) => [x.id, x]));
-  const label = (x) => x ? [x.building_name, x.floor_name, x.room_name].filter(Boolean).join(' · ') : 'Campus Location';
-
-  const returnFee = Number(rental.delivery_fee) > 0 ? Number(rental.delivery_fee) : 15.00;
-  const { rows } = await pool.query(
-    `INSERT INTO delivery_requests (rental_id,listing_id,customer_id,seller_id,pickup_location,drop_location,
-    pickup_location_id,destination_location_id,task_type,item_description,delivery_fee,courier_earning,status)
-    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'RENTAL_RETURN',$9,$10,$11,'RETURN_MATCHING') RETURNING *`,
-    [
-      rental.id,
-      rental.listing_id,
-      rental.owner_id,
-      rental.borrower_id,
-      label(byId[borrowerLoc]),
-      label(byId[ownerLoc]),
-      borrowerLoc,
-      ownerLoc,
-      `Return: ${rental.title}`,
-      returnFee,
-      Number(returnFee) * 0.7,
-    ],
-  );
-  await pool.query(
-    "UPDATE rentals SET status='RETURN_MATCHING',return_delivery_id=$1,updated_at=NOW() WHERE id=$2",
-    [rows[0].id, rental.id],
-  );
-  await pool.query(
-    `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
-     VALUES ($1, 'COURIER_RETURN_INITIATED', $2, $3)`,
-    [rental.id, req.user.id, { delivery_id: rows[0].id }],
-  );
-
-  emitUser(rental.owner_id, 'rental:status', { rental_id: rental.id, status: 'RETURN_MATCHING' });
-  emitUser(rental.borrower_id, 'rental:status', { rental_id: rental.id, status: 'RETURN_MATCHING' });
-  await matchDelivery(rows[0].id);
-  res.status(201).json(rows[0]);
+  try { res.json(await returns.requestReturn(req.params.id,req.user.id,req.body.mode)); }
+  catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not request the return.' }); }
+};
+exports.confirmReturnDestination = async (req, res) => {
+  try { res.json(await returns.confirmReturnDestination(req.params.id,req.user.id,req.body.location_id)); }
+  catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Could not update the return destination.' }); }
 };
 
 // POST /api/rentals/:id/extend-request
@@ -734,7 +663,7 @@ exports.getOwnerRequests = async (req, res) => {
         pickup.room_name AS pickup_room_name,
         dropoff.building_name AS drop_building_name, dropoff.floor_name AS drop_floor_name,
         dropoff.room_name AS drop_room_name,
-        dr.id AS delivery_id, dr.status AS delivery_status, dr.courier_id,
+        dr.id AS delivery_id, dr.status AS delivery_status, dr.task_type AS delivery_task_type, dr.courier_id,
         dr.pickup_location AS delivery_pickup_location, dr.drop_location AS delivery_drop_location,
         dr.pickup_location_id AS delivery_pickup_location_id,
         dr.destination_location_id AS delivery_destination_location_id,
@@ -750,8 +679,8 @@ exports.getOwnerRequests = async (req, res) => {
       LEFT JOIN LATERAL (
         SELECT d.*
         FROM delivery_requests d
-        WHERE d.rental_id = r.id AND d.task_type = 'RENTAL_OUTBOUND'
-        ORDER BY d.created_at DESC
+        WHERE d.rental_id = r.id
+        ORDER BY CASE WHEN d.id=r.return_delivery_id THEN 0 ELSE 1 END, d.created_at DESC
         LIMIT 1
       ) dr ON TRUE
       LEFT JOIN users courier ON courier.id = dr.courier_id
@@ -769,6 +698,7 @@ exports.getOwnerRequests = async (req, res) => {
       const completedRental = ['COMPLETED', 'DEPOSIT_REFUNDED'].includes(row.status);
       const delivery = row.delivery_id ? {
         id: row.delivery_id,
+        task_type: row.delivery_task_type,
         status: row.delivery_status,
         pickup: {
           id: row.delivery_pickup_location_id || row.listing_pickup_location_id,
@@ -787,7 +717,9 @@ exports.getOwnerRequests = async (req, res) => {
 
       let blocked_by = null;
       let next_action = 'View rental details';
-      if (actionable) {
+      if (row.delivery_status === 'RETURN_LOCATION_PENDING') {
+        next_action = 'Confirm or change the return destination';
+      } else if (actionable) {
         next_action = 'Review and respond to this booking';
       } else if (['BOOKING_PAYMENT_PENDING', 'BOOKING_REQUESTED', 'OWNER_PENDING', 'RENTAL_PAYMENT_COMPLETED'].includes(row.status)) {
         blocked_by = row.rental_fee_paid ? 'PAYMENT_RECONCILIATION' : 'BOOKING_PAYMENT';
@@ -796,7 +728,7 @@ exports.getOwnerRequests = async (req, res) => {
         blocked_by = 'DEPOSIT';
         next_action = 'Waiting for renter to pay the refundable deposit';
       } else if (row.status === 'MATCHING_COURIER' || row.status === 'NO_COURIER_AVAILABLE') {
-        next_action = row.status === 'NO_COURIER_AVAILABLE' ? 'Waiting for a courier route that matches' : 'Searching for an online courier';
+        next_action = row.status === 'NO_COURIER_AVAILABLE' ? 'Waiting for an available courier to accept' : 'Searching for an online courier';
       } else if (row.delivery_status === 'COURIER_ASSIGNED') {
         next_action = 'Courier assigned; waiting for pickup';
       } else if (row.delivery_status === 'ARRIVED_AT_PICKUP') {
@@ -841,7 +773,8 @@ exports.getOwnerRequests = async (req, res) => {
         blocked_by,
         next_action,
         actionable,
-        phase: actionable ? 'PENDING' : activeRental ? 'ACTIVE' : completedRental ? 'COMPLETED' : 'HISTORY',
+        return_actionable: row.delivery_status === 'RETURN_LOCATION_PENDING',
+        phase: actionable || row.delivery_status === 'RETURN_LOCATION_PENDING' ? 'PENDING' : activeRental ? 'ACTIVE' : completedRental ? 'COMPLETED' : 'HISTORY',
       };
     });
 

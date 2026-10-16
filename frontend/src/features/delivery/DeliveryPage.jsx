@@ -46,7 +46,7 @@ export default function DeliveryPage() {
   const [lastUpdated, setLastUpdated] = useState(null);
   const [scanner, setScanner] = useState(false);
   const [verify, setVerify] = useState({ stage: "PICKUP", method: "OTP", value: "" });
-  const [form, setForm] = useState({ origin_location_id: "", destination_location_id: "", available_until: toLocalDateTime(new Date(Date.now() + 7200000)), max_detour_meters: 250 });
+  const [form, setForm] = useState({ availability_mode: "OPEN", origin_location_id: "", destination_location_id: "", available_until: toLocalDateTime(new Date(Date.now() + 7200000)), max_detour_meters: 250 });
 
   const load = useCallback(async () => {
     const results = await Promise.allSettled([
@@ -84,7 +84,7 @@ export default function DeliveryPage() {
       setDeclaredRoute(r.value.data?.navigation);
       const saved = r.value.data?.route;
       if (saved && !routeInitialized.current) {
-        setForm({ origin_location_id: saved.origin_location_id, destination_location_id: saved.destination_location_id, available_until: toLocalDateTime(new Date(saved.available_until)), max_detour_meters: saved.max_detour_meters });
+        setForm({ availability_mode: saved.availability_mode || "ROUTE", origin_location_id: saved.origin_location_id || locationList[0]?.id || "", destination_location_id: saved.destination_location_id || locationList[1]?.id || "", available_until: toLocalDateTime(new Date(saved.available_until)), max_detour_meters: saved.max_detour_meters });
         routeInitialized.current = true;
       }
     }
@@ -142,30 +142,30 @@ export default function DeliveryPage() {
     if (routeSaving) return;
     setRouteSaving(true);
     try {
-      const { data } = await api.post("/api/courier/routes", { ...form, available_until: new Date(form.available_until).toISOString() });
+      const { data } = await api.post("/api/courier/availability", { ...form, available_until: new Date(form.available_until).toISOString() });
       setOnline(Boolean(data.delivery_available));
-      setDeclaredRoute(data.navigation || data.route);
-      setNotice("You are online. Matching delivery requests in real time.");
+      setDeclaredRoute(data.navigation || undefined);
+      setNotice("You are online. New requests appear here and in your notification bell. You choose which to accept.");
       window.dispatchEvent(new Event("campusmesh:delivery-change"));
       await load();
     } catch (error) {
-      setNotice(error.response?.data?.error || "Could not save route.");
+      setNotice(error.response?.data?.error || "Could not save availability.");
     } finally {
       setRouteSaving(false);
     }
   };
   const toggleOnline = async () => {
-    try { if (online) { await api.delete("/api/courier/routes/current"); setOnline(false); setNotice("You are offline. New delivery requests are paused."); window.dispatchEvent(new Event("campusmesh:delivery-change")); await load(); } else setNotice("Save a route to go online."); } catch (error) { setNotice(error.response?.data?.error || "Could not update availability."); }
+    try { if (online) { await api.delete("/api/courier/routes/current"); setOnline(false); setNotice("You are offline. New delivery requests are paused."); window.dispatchEvent(new Event("campusmesh:delivery-change")); await load(); } else setNotice("Choose your available-until time and go online."); } catch (error) { setNotice(error.response?.data?.error || "Could not update availability."); }
   };
   const accept = async (offer) => {
     if (busyId) return;
     setBusyId(offer.delivery_id);
-    try { await api.post(`/api/delivery/${offer.delivery_id}/accept`); setNotice("Delivery accepted. Head to the pickup point."); setView("active"); window.dispatchEvent(new Event("campusmesh:delivery-change")); await load(); } catch (error) { setNotice(error.response?.data?.error || "That delivery is no longer available."); } finally { setBusyId(""); }
+    try { await api.post(`/api/delivery/${offer.delivery_id}/accept`, { offer_id: offer.offer_id }); setNotice("Delivery accepted. Head to the pickup point."); setView("active"); window.dispatchEvent(new Event("campusmesh:delivery-change")); await load(); } catch (error) { setNotice(error.response?.data?.error || "That delivery is no longer available."); } finally { setBusyId(""); }
   };
   const decline = async (offer) => {
     if (busyId) return;
     setBusyId(offer.delivery_id);
-    try { await api.post(`/api/delivery/${offer.delivery_id}/decline`); setNotice("Request skipped."); window.dispatchEvent(new Event("campusmesh:delivery-change")); await load(); } catch (error) { setNotice(error.response?.data?.error || "Could not skip this request."); } finally { setBusyId(""); }
+    try { await api.post(`/api/delivery/${offer.delivery_id}/decline`, { offer_id: offer.offer_id }); setNotice("Request skipped."); window.dispatchEvent(new Event("campusmesh:delivery-change")); await load(); } catch (error) { setNotice(error.response?.data?.error || "Could not skip this request."); } finally { setBusyId(""); }
   };
   const checkpoint = async (target) => {
     const location = target === "pickup" ? pickup : destination;
@@ -205,7 +205,7 @@ export default function DeliveryPage() {
             {view === 'active' && <div className="space-y-5"><ActiveTask task={active} route={route} verify={verify} setVerify={setVerify} onVerify={confirm} onAdvance={advance} onCheckpoint={checkpoint} onScan={() => setScanner(true)}/>{active && active.task_type !== "WISH_DELIVERY" && <CampusRouteMap campus={campus} route={route} position={position} pickup={pickup} destination={destination}/>}</div>}
             {view === 'history' && <CompletedDeliveries deliveries={tasks}/>}
           </div>
-          <aside className="space-y-4"><RouteSetup form={form} setForm={setForm} locations={locations} onSubmit={saveRoute} online={online} onToggle={toggleOnline} routeSaving={routeSaving}/><div className="px-2 text-xs leading-6 text-ink/55">Requests are matched to your route. Accept one delivery at a time. Earnings are recorded after the handover is complete.</div>{active && view !== 'active' && <button onClick={() => setView('active')} className="secondary-button w-full"><Truck size={16}/> Continue current delivery</button>}</aside>
+          <aside className="order-first space-y-4 lg:order-last"><RouteSetup form={form} setForm={setForm} locations={locations} onSubmit={saveRoute} online={online} onToggle={toggleOnline} routeSaving={routeSaving}/><div className="px-2 text-xs leading-6 text-ink/55">Receive requests while CampusMesh is open. Review both locations and accept or decline. Accept one delivery at a time. Earnings are recorded after the handover is complete.</div>{active && view !== 'active' && <button onClick={() => setView('active')} className="secondary-button w-full"><Truck size={16}/> Continue current delivery</button>}</aside>
         </div>
       </div>
     </main>

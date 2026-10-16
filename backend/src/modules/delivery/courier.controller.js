@@ -9,18 +9,19 @@ const loadLocations = async (originId, destinationId) => {
 
 exports.upsertRoute = async (req, res) => {
   const { origin_location_id, destination_location_id, available_until, max_detour_meters = 250 } = req.body;
-  if (!origin_location_id || !destination_location_id || !available_until) return res.status(400).json({ error: 'Origin, destination, and available-until time are required.' });
+  const open = req.body.availability_mode === 'OPEN';
+  if ((!open && (!origin_location_id || !destination_location_id)) || !available_until) return res.status(400).json({ error: 'Origin, destination, and available-until time are required.' });
   if (Number.isNaN(new Date(available_until).getTime()) || new Date(available_until) <= new Date()) return res.status(400).json({ error: 'Choose an available-until time in the future.' });
-  if (origin_location_id === destination_location_id) return res.status(400).json({ error: 'Choose two different locations.' });
-  const locations = await loadLocations(origin_location_id, destination_location_id);
-  const route = routeFor(locations[origin_location_id], locations[destination_location_id]);
-  if (!route) return res.status(422).json({ error: 'No campus route connects those locations.' });
+  if (!open && origin_location_id === destination_location_id) return res.status(400).json({ error: 'Choose two different locations.' });
+  const locations = open ? {} : await loadLocations(origin_location_id, destination_location_id);
+  const route = open ? null : routeFor(locations[origin_location_id], locations[destination_location_id]);
+  if (!open && !route) return res.status(422).json({ error: 'No campus route connects those locations.' });
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     // Serialize route replacement per courier so rapid saves cannot race the
     // partial one-active-route unique index.
-    const courier = await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [req.user.id]);
+    const courier = await client.query('SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE', [req.user.id]);
     if (!courier.rowCount) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Courier account not found.' });
@@ -28,8 +29,8 @@ exports.upsertRoute = async (req, res) => {
     await client.query("UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW() WHERE courier_id=$1 AND status='PENDING'", [req.user.id]);
     await client.query('UPDATE courier_route_availability SET is_active = FALSE WHERE courier_id = $1 AND is_active', [req.user.id]);
     const { rows } = await client.query(`INSERT INTO courier_route_availability
-      (courier_id, origin_location_id, destination_location_id, route_node_ids, available_until, max_detour_meters)
-      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`, [req.user.id, origin_location_id, destination_location_id, route.nodes, available_until, Math.max(50, Number(max_detour_meters))]);
+      (courier_id, origin_location_id, destination_location_id, route_node_ids, available_until, max_detour_meters, availability_mode)
+      VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [req.user.id, open ? null : origin_location_id, open ? null : destination_location_id, route?.nodes || [], available_until, Math.max(50, Math.min(750, Number(max_detour_meters) || 250)), open ? 'OPEN' : 'ROUTE']);
     await client.query("UPDATE users SET delivery_available=TRUE, active_mode='DELIVERY' WHERE id=$1", [req.user.id]);
     await client.query('COMMIT');
     try {
@@ -53,21 +54,21 @@ exports.currentRoute = async (req, res) => {
   await pool.query('UPDATE courier_route_availability SET is_active=FALSE WHERE courier_id=$1 AND is_active AND available_until <= NOW()', [req.user.id]);
   const { rows } = await pool.query(`SELECT cra.*, u.delivery_available, o.building_name origin_name, d.building_name destination_name
     FROM courier_route_availability cra JOIN users u ON u.id=cra.courier_id
-    JOIN campus_locations o ON o.id=cra.origin_location_id
-    JOIN campus_locations d ON d.id=cra.destination_location_id WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW() ORDER BY cra.created_at DESC LIMIT 1`, [req.user.id]);
+    LEFT JOIN campus_locations o ON o.id=cra.origin_location_id
+    LEFT JOIN campus_locations d ON d.id=cra.destination_location_id WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW() ORDER BY cra.created_at DESC LIMIT 1`, [req.user.id]);
   if (!rows[0]) {
     await pool.query('UPDATE users SET delivery_available=FALSE WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW())', [req.user.id]);
     return res.json({ route: null, delivery_available: false });
   }
   const locations = await loadLocations(rows[0].origin_location_id, rows[0].destination_location_id);
-  res.json({ route: rows[0], delivery_available: Boolean(rows[0].delivery_available), navigation: routeFor(locations[rows[0].origin_location_id], locations[rows[0].destination_location_id]) });
+  res.json({ route: rows[0], delivery_available: Boolean(rows[0].delivery_available), navigation: rows[0].availability_mode === 'OPEN' ? null : routeFor(locations[rows[0].origin_location_id], locations[rows[0].destination_location_id]) });
 };
 
 exports.deactivateRoute = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [req.user.id]);
+    await client.query('SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE', [req.user.id]);
     await client.query('UPDATE courier_route_availability SET is_active=FALSE WHERE courier_id=$1 AND is_active', [req.user.id]);
     await client.query('UPDATE users SET delivery_available=FALSE WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM courier_route_availability cra WHERE cra.courier_id=$1 AND cra.is_active AND cra.available_until > NOW())', [req.user.id]);
     await client.query("UPDATE delivery_offers SET status='EXPIRED', responded_at=NOW() WHERE courier_id=$1 AND status='PENDING'", [req.user.id]);
@@ -101,10 +102,10 @@ exports.declineOffer = async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query('SELECT id FROM users WHERE id=$1 FOR UPDATE', [req.user.id]);
+    await client.query('SELECT id FROM users WHERE id=$1 FOR NO KEY UPDATE', [req.user.id]);
     await client.query('SELECT id FROM delivery_requests WHERE id=$1 FOR UPDATE', [req.params.id]);
     const { rows } = await client.query(`UPDATE delivery_offers SET status='DECLINED', responded_at=NOW()
-      WHERE delivery_id=$1 AND courier_id=$2 AND status='PENDING' AND expires_at>NOW() RETURNING *`, [req.params.id, req.user.id]);
+      WHERE delivery_id=$1 AND courier_id=$2 AND ($3::text IS NULL OR id::text=$3) AND status='PENDING' AND expires_at>NOW() RETURNING *`, [req.params.id, req.user.id, req.body?.offer_id || null]);
     if (!rows[0]) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Active offer not found.' });

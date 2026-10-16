@@ -1,3 +1,4 @@
+import ReturnDestination from '../features/delivery/components/ReturnDestination';
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 import {
@@ -50,6 +51,7 @@ const RENTAL_STATUS = {
   QR_GENERATED: { label: "Ready for pickup", tone: "green" },
   COURIER_ASSIGNED: { label: "Courier assigned", tone: "blue" },
   RENTAL_ACTIVE: { label: "Rental active", tone: "green" },
+  RETURN_LOCATION_PENDING: { label: "Waiting for return destination", tone: "amber" },
   RETURN_MATCHING: { label: "Return courier matching", tone: "blue" },
   RETURN_PENDING: { label: "Awaiting owner return inspection", tone: "amber" },
   COMPLETED: { label: "Completed & Refunded", tone: "green" },
@@ -66,6 +68,7 @@ const DELIVERY_STATUS = {
   ARRIVED_AT_PICKUP: { label: "At pickup", tone: "green" },
   IN_TRANSIT: { label: "In transit", tone: "blue" },
   ARRIVED_AT_DESTINATION: { label: "At destination", tone: "green" },
+  RETURN_LOCATION_PENDING: { label: "Waiting for return destination", tone: "amber" },
   RETURN_MATCHING: { label: "Matching return courier", tone: "blue" },
   RETURN_COURIER_ASSIGNED: { label: "Return courier assigned", tone: "blue" },
   RETURN_IN_TRANSIT: { label: "Return item in transit", tone: "blue" },
@@ -570,7 +573,7 @@ export default function RentDetails() {
         text:
           returnMode === "DIRECT"
             ? "Direct return initiated! Hand over the item to the owner."
-            : "Return delivery request created! Searching for a campus courier.",
+            : "Return requested. The owner will confirm the destination before couriers are notified.",
       });
       await load();
     } catch (err) {
@@ -710,7 +713,7 @@ export default function RentDetails() {
     if (delivery?.status === "NO_COURIER_AVAILABLE") {
       return {
         title: "Waiting for a matching courier",
-        body: "No online courier currently has a route that covers this pickup and destination. The request will be retried automatically.",
+        body: "No courier has accepted yet. The request will be offered to available students automatically.",
         action: null,
         tone: "amber",
       };
@@ -718,7 +721,7 @@ export default function RentDetails() {
     if (delivery?.status === "MATCHING_COURIER") {
       return {
         title: "Searching for an online courier",
-        body: "Eligible couriers are being matched by their saved campus route. This page will update automatically.",
+        body: "Online couriers can review the pickup and destination and accept the request. This page will update automatically.",
         action: null,
         tone: "blue",
       };
@@ -762,6 +765,9 @@ export default function RentDetails() {
         actionFn: () => setShowInspectionModal(true),
         tone: "amber",
       };
+    }
+    if (delivery?.status === "RETURN_LOCATION_PENDING") {
+      return { title: "Owner confirmation needed", body: "The owner can confirm or change the return destination above before couriers receive this request.", action: null, tone: "amber" };
     }
     if (rental?.status === "RETURN_MATCHING") {
       return {
@@ -1080,6 +1086,7 @@ export default function RentDetails() {
         {/* MAIN BODY GRID */}
         <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
           <div className="space-y-5">
+            {delivery?.task_type === 'RENTAL_RETURN' && <ReturnDestination rentalId={rentalId} delivery={delivery} isOwner={isOwner} onSaved={load}/>}
             {blockedCopy && (
               <section
                 className={

@@ -72,7 +72,9 @@ export default function MarketplacePage() {
               .includes(query.toLowerCase()),
         )
         .sort((a, b) =>
-          sort === "price-low"
+          sort === "popular"
+            ? Number(b.paid_rentals_30d || 0) - Number(a.paid_rentals_30d || 0) || Number(b.viewers_7d || 0) - Number(a.viewers_7d || 0)
+            : sort === "price-low"
             ? price(a) - price(b)
             : sort === "price-high"
               ? price(b) - price(a)
@@ -99,6 +101,7 @@ export default function MarketplacePage() {
       <div className="page-shell">
         <header className="mb-7 flex flex-wrap items-start justify-between gap-4"><div><h1 className="page-title">Rent on campus</h1><p className="page-copy">Find what you need, choose your dates, and request a rental.</p></div><Link to="/account/rentals" className="secondary-button">My rentals <ArrowRight size={16}/></Link></header>
         <RecommendationStrip />
+        <p className="mb-5 text-xs leading-5 text-ink/60">Demand is shown on each item: paid bookings in the last 30 days and distinct viewers this week. Sample listings are excluded.</p>
         <div className="mb-7 grid grid-cols-3 gap-3 sm:grid-cols-6">
           {rentalCategories.map(([name, Icon]) => <button key={name} onClick={() => setCategory(category === name ? "All" : name)} aria-pressed={category === name} className={`flex flex-col items-center gap-3 rounded-xl border p-4 text-center transition ${category === name ? 'border-mesh-600 bg-mesh-50 text-mesh-800' : 'border-ink/10 bg-white text-ink/65 hover:border-mesh-300'}`}><Icon size={26} strokeWidth={1.5}/><span className="text-xs font-medium">{name}</span></button>)}
         </div>
@@ -138,6 +141,7 @@ export default function MarketplacePage() {
               onChange={(e) => setSort(e.target.value)}
             >
               <option value="newest">Newest</option>
+              <option value="popular">Campus demand</option>
               <option value="price-low">Price: low first</option>
               <option value="price-high">Price: high first</option>
             </select>
@@ -219,6 +223,11 @@ export default function MarketplacePage() {
                     {item.location || "Campus pickup"} ·{" "}
                     {item.condition || "Good"}
                   </p>
+                  {!item.demo_slug && <div className="mt-3 rounded-lg bg-mesh-50 px-3 py-2 text-xs leading-5">
+                    <b className="text-mesh-800">{Number(item.paid_rentals_30d) >= 3 ? 'In demand' : Number(item.viewers_7d) >= 5 ? 'Getting attention' : 'Campus activity'}</b>
+                    <p className="text-ink/65">{Number(item.paid_rentals_30d) || 0} paid bookings · last 30 days</p>
+                    <p className="text-ink/65">{Number(item.viewers_7d) || 0} viewers · last 7 days</p>
+                  </div>}
                   {item.demo_slug && <span className="mt-2 inline-block rounded bg-paper px-2 py-1 text-[10px] text-ink/50">Demo listing · Illustrative image</span>}
                   <div className="mt-5 grid grid-cols-[1fr_auto] gap-2">
                     <button

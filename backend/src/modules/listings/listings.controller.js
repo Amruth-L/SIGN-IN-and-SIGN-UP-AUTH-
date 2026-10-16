@@ -110,9 +110,28 @@ exports.createListing = async (req, res) => {
 exports.getListings = async (req, res) => {
   try {
     const listings = await pool.query(`
-      SELECT l.*, u.name as owner_name, u.email as owner_email 
-      FROM listings l 
-      JOIN users u ON l.owner_id = u.id 
+      WITH demand AS (
+        SELECT r.listing_id, COUNT(*)::int AS paid_rentals_30d
+        FROM rentals r JOIN users borrower ON borrower.id=r.borrower_id
+        JOIN listings item ON item.id=r.listing_id
+        WHERE r.created_at >= NOW()-INTERVAL '30 days'
+          AND r.status NOT IN ('CANCELLED','REJECTED')
+          AND r.borrower_id <> item.owner_id AND borrower.email NOT LIKE 'qa-%'
+          AND item.demo_slug IS NULL AND ${bookingPaymentReceivedSql('r')}
+        GROUP BY r.listing_id
+      ), interest AS (
+        SELECT i.listing_id, COUNT(DISTINCT i.user_id)::int AS viewers_7d
+        FROM listing_interactions i JOIN users viewer ON viewer.id=i.user_id
+        JOIN listings item ON item.id=i.listing_id
+        WHERE i.created_at >= NOW()-INTERVAL '7 days' AND i.interaction_type='VIEW'
+          AND i.user_id <> item.owner_id AND viewer.email NOT LIKE 'qa-%' AND item.demo_slug IS NULL
+        GROUP BY i.listing_id
+      )
+      SELECT l.*, u.name as owner_name, u.email as owner_email,
+        COALESCE(d.paid_rentals_30d,0) AS paid_rentals_30d, COALESCE(i.viewers_7d,0) AS viewers_7d
+      FROM listings l
+      JOIN users u ON l.owner_id = u.id
+      LEFT JOIN demand d ON d.listing_id=l.id LEFT JOIN interest i ON i.listing_id=l.id
       WHERE COALESCE(l.is_active, TRUE) = TRUE
       ORDER BY l.created_at DESC
     `);

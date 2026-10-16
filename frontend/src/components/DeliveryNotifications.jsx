@@ -11,6 +11,7 @@ export default function DeliveryNotifications() {
   const navigate = useNavigate();
   const [offers, setOffers] = useState([]);
   const [wishes, setWishes] = useState([]);
+  const [returns, setReturns] = useState([]);
   const [wishToast, setWishToast] = useState(null);
   const [open, setOpen] = useState(false);
   const [toast, setToast] = useState(null);
@@ -21,12 +22,14 @@ export default function DeliveryNotifications() {
   const panel = useRef(null);
   const load = useCallback(async () => {
     try {
-      const [delivery, mine, board] = await Promise.all([
+      const [delivery, mine, board, ownerInbox] = await Promise.all([
         api.get("/api/delivery/available"),
         api.get("/api/wishes"),
         api.get("/api/wishes?view=board"),
+        api.get("/api/rentals/my-listings-requests"),
       ]);
       const data = delivery.data;
+      setReturns((ownerInbox.data.requests || []).filter(request => request.return_actionable));
       const wishList = [
         ...mine.data.requests
           .filter((w) =>
@@ -87,6 +90,7 @@ export default function DeliveryNotifications() {
       "delivery:offer-unavailable",
       "delivery:assigned",
       "delivery:completed",
+      "rental:status",
       "wish:new",
       "wish:status",
     ].forEach((event) => socket.on(event, load));
@@ -125,7 +129,7 @@ export default function DeliveryNotifications() {
     setBusyId(offer.delivery_id);
     setError("");
     try {
-      await api.post(`/api/delivery/${offer.delivery_id}/${action}`);
+      await api.post(`/api/delivery/${offer.delivery_id}/${action}`, { offer_id: offer.offer_id });
       setToast(null);
       window.dispatchEvent(new Event("campusmesh:delivery-change"));
       await load();
@@ -149,7 +153,7 @@ export default function DeliveryNotifications() {
   return (
     <div ref={panel}>
       <button
-        aria-label={`Delivery notifications, ${pending.length + wishes.length} pending`}
+        aria-label={`Delivery notifications, ${pending.length + wishes.length + returns.length} pending`}
         aria-expanded={open}
         aria-controls="delivery-notifications"
         onClick={() => {
@@ -160,9 +164,9 @@ export default function DeliveryNotifications() {
         className="relative grid size-9 place-items-center rounded-lg hover:bg-paper"
       >
         <Bell size={20} />
-        {pending.length + wishes.length > 0 && (
+        {pending.length + wishes.length + returns.length > 0 && (
           <span className="absolute -right-1 -top-1 grid min-w-4 place-items-center rounded-full bg-mesh-600 px-1 text-[10px] font-semibold text-white">
-            {pending.length + wishes.length}
+            {pending.length + wishes.length + returns.length}
           </span>
         )}
       </button>
@@ -176,7 +180,7 @@ export default function DeliveryNotifications() {
             <h2 className="text-sm font-semibold">
               Notifications{" "}
               <span className="ml-1 text-mesh-700">
-                {pending.length + wishes.length}
+                {pending.length + wishes.length + returns.length}
               </span>
             </h2>
             <button
@@ -199,6 +203,10 @@ export default function DeliveryNotifications() {
                 </button>
               </p>
             )}
+            {returns.map(request => <Link key={request.id} to={`/rent-details/${request.id}`} onClick={() => setOpen(false)} className="block rounded-lg border border-amber-200 bg-amber-50 p-4">
+              <b className="text-sm">Return destination needed</b>
+              <p className="mt-1 text-xs">{request.borrower_name} is returning {request.listing_title}. Choose where to receive it before couriers are notified.</p>
+            </Link>)}
             {wishes.map((w) => (
               <Link
                 key={w.id}
@@ -240,15 +248,14 @@ export default function DeliveryNotifications() {
                 onDecline={(o) => respond(o, "decline")}
               />
             ))}
-            {!pending.length && !wishes.length && !error && (
+            {!pending.length && !wishes.length && !returns.length && !error && (
               <div className="px-5 py-8 text-center">
                 <Truck className="mx-auto text-ink/30" />
                 <p className="mt-3 text-sm font-medium">
                   No pending delivery requests
                 </p>
                 <p className="mt-2 text-xs leading-5 text-ink/60">
-                  Enable errand alerts in Wish Box, or go online with a delivery
-                  route.
+                  Enable errand alerts in Wish Box, or go online in the delivery dashboard.
                 </p>
               </div>
             )}
