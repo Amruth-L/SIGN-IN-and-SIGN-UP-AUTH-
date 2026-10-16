@@ -1,4 +1,5 @@
 const paymentService = require('./payment.service');
+const { requestTick } = require('../calls/call.worker');
 const pool = require('../../config/database');
 const razorpay = require('../../config/razorpay');
 const crypto = require('crypto');
@@ -100,6 +101,11 @@ exports.verifyDeposit = async (req, res) => {
       userId
     );
     res.status(200).json(verificationResult);
+    // Payment is committed before waking the queue. The worker independently
+    // checks full payment, consent, phone ownership and provider readiness.
+    // A calling problem must never turn a successful payment into an HTTP error.
+    try { requestTick(); }
+    catch { console.error('[PaymentController] Call worker wake deferred to scheduler.'); }
   } catch (error) {
     console.error('[PaymentController] verifyDeposit error:', error.message);
     res.status(500).json({ error: error.message || 'Failed to verify deposit payment.' });

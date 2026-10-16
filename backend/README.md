@@ -20,6 +20,61 @@ The existing Gmail path remains available with `EMAIL_PROVIDER=smtp`, `EMAIL_USE
 
 References: [SES API](https://docs.aws.amazon.com/ses/latest/dg/send-email-api.html), [SES sandbox and production access](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html).
 
+## Calling flow: start here
+
+The browser shows messages and saves preferences. The Node backend reads the database,
+queues eligible call jobs, and sends them through a telephone provider. Closing the PWA
+must not stop reminders; browser speech previews are not phone calls.
+
+| Event | Current behavior |
+| --- | --- |
+| Signup and email verification | An in-app welcome message; no SMS required. |
+| Successful sign-in | Optional greeting to the saved, verified phone. Repeated sign-ins are limited; no greeting on a page refresh. |
+| Confirmed rental | One booking call after owner acceptance and verified deposit payment (`FULLY_PAID`). The initial rental payment only submits a request. |
+| Active rental nearing its due date | Reminder 4 days before, 1 day before, on the due date, and 1 day overdue. Returned/cancelled rentals and stale due dates are excluded. |
+
+A phone in `users` is not enough: `call_preferences` must contain the verified calling
+number and the relevant opt-in. Phone verification is completed by the student inside
+CampusMesh after provider activation; they do not need their own Authkey account.
+Calls run from 09:00 to 19:00 India time, with a 30-minute gap and a maximum of three
+attempts per rolling day. There is at most one due reminder per rolling day.
+
+### Where to read or change the code
+
+- `src/modules/calls/call-policy.js`: reminder dates, call windows, rental stages and consent mapping; pure functions.
+- `src/modules/calls/call-scripts.js`: welcome, booking and due-date wording for each provider.
+- `src/modules/calls/call.config.js`: private environment configuration and provider readiness.
+- `src/modules/calls/call.service.js`: preferences, eligibility, durable job creation and dispatch. Keep eligibility checks both when queuing and before sending.
+- `src/modules/calls/call.worker.js`: background queue processing; wake requests coalesce and never block login/payment responses.
+- `src/modules/calls/authkey.client.js`: Authkey HTTP requests and sanitized errors.
+- `src/modules/calls/scheduler.routes.js`: authenticated external scheduler endpoint.
+- `src/modules/auth/onboarding.service.js`: records first sign-in and repeat-safe sign-in events.
+- `src/modules/payments/payment.controller.js`: wakes the worker after successful deposit verification. The payment remains successful if the wake fails; scheduled scans recover the job.
+
+### What is required before real phones can ring
+
+1. Authkey must activate the account/Voice API, approve the message/verification templates,
+   and supply usable voice credits. A pending free-credit application is not a funded balance.
+2. Set credentials privately on the backend. After activation has been confirmed, enable
+   `CALLS_PROVIDER=authkey`, `AUTHKEY_VOICE_APPROVED=true`, `CALLS_MODE=live` and
+   `CALLS_SCHEDULER_ENABLED=true`; retain the approved OTP/voice template IDs.
+3. The student opts in and verifies their own saved number through CampusMesh.
+4. Keep the authenticated external scheduler running. Render Free sleeps after inactivity,
+   so the in-process timer alone cannot guarantee reminders. The existing Supabase job
+   checks every 15 minutes; a successful job run still does not prove that a phone rang.
+5. Confirm one authorized real call with the recipient before claiming end-to-end delivery.
+   Authkey submission IDs show acceptance, not an answered call. Confirm the English voice
+   in Authkey separately; browser female-voice previews do not configure the telephone voice.
+
+For a zero-budget demonstration, the in-app messages and browser voice preview work
+without calling credits. Real telephone calls require an approved trial/grant or a funded
+provider account. Avoid repeated login greetings if conserving a small allowance; booking
+and return reminders are more useful. Turning off recurring greetings is a user preference,
+not something the server should silently change.
+
+The existing unit and isolated contract tests use fake providers. They verify scheduling,
+consent, deduplication and state changes without spending credits or calling students.
+
 ## Campus intelligence, support and reminder calls
 
 Run `npm run db:migrate` before starting the API. Migrations 004 and 005 add private support/call records and delivery estimate metadata; 006 adds one-time welcome calls; 010 adds Authkey provider tracking and private phone-verification challenges; 011 adds separate sign-in-call consent and a private event ledger. The Express API uses the server database connection; these private tables have RLS enabled with no browser-access policies.
