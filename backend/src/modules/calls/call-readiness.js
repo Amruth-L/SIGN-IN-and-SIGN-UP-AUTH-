@@ -43,11 +43,19 @@ function accountReadiness(status, preferences) {
     );
   return {
     state: blocked ? 'blocked' : status.withinCallWindow ? 'ready' : 'scheduled',
-    title: blocked
-      ? 'Your number is not ready for automatic calls'
-      : status.withinCallWindow
-        ? 'Your number is ready for eligible updates'
-        : 'Your next eligible call waits until 9 am',
+    title: status.activationPending
+      ? 'Automatic calling is awaiting activation'
+      : !status.configured
+        ? 'Automatic calling is not connected'
+        : !status.schedulerEnabled
+          ? 'Automatic calling is paused'
+          : blocked
+            ? reasons.some((item) => item.code.startsWith('PHONE_'))
+              ? 'Your number is not ready for automatic calls'
+              : 'Choose which automatic calls you want'
+            : status.withinCallWindow
+              ? 'Your number is ready for eligible updates'
+              : 'Your next eligible call waits until 9 am',
     reasons,
   };
 }
