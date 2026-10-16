@@ -25,7 +25,7 @@ router.use('/webhooks', express.urlencoded({ extended: false, limit: '20kb' }));
 // A signed provider-only probe allows testing Voice without fabricating a booking.
 router.post('/webhooks/probe', (req, res) => {
   const c = config();
-  if (!ready(c) || !authenticateWebhook(c, req))
+  if ((c.provider || 'twilio') !== 'twilio' || !ready(c) || !authenticateWebhook(c, req))
     return res.status(403).json({ error: 'Invalid provider signature.' });
   const response = new twilio.twiml.VoiceResponse();
   saySoft(
@@ -37,14 +37,16 @@ router.post('/webhooks/probe', (req, res) => {
   res.type('text/xml').send(response.toString());
 });
 router.post('/webhooks/:id/:kind', async (req, res) => {
-  const c = config();
+  // Accepted Twilio calls may finish after switching the outbound provider or
+  // pausing calls. Authenticate their callbacks and check the stored provider.
+  const c = { ...config(), provider: 'twilio', live: true };
   const authentication = ready(c) && authenticateWebhook(c, req);
   if (!authentication) return res.status(403).json({ error: 'Invalid provider signature.' });
   if (!/^[a-f0-9-]{36}$/i.test(req.params.id)) return res.status(400).end();
   // Trial fetches may omit call parameters too. The URL is bound to this job;
   // use only its already accepted provider SID, never a caller-supplied fallback.
   if (authentication === 'trial-url' && !req.body?.CallSid) {
-    const job = (await pool.query('SELECT provider_sid FROM automated_calls WHERE id=$1', [req.params.id]))
+    const job = (await pool.query("SELECT provider_sid FROM automated_calls WHERE id=$1 AND provider='twilio'", [req.params.id]))
       .rows[0];
     req.body = { ...req.body, CallSid: job?.provider_sid };
   }
@@ -64,7 +66,7 @@ router.post('/webhooks/:id/:kind', async (req, res) => {
     const seq = Number(req.body.SequenceNumber);
     if (mapped && Number.isInteger(seq))
       await pool.query(
-        `UPDATE automated_calls SET status=$2,provider_sid=COALESCE(provider_sid,$3),provider_sequence=$4,finished_at=CASE WHEN $2 IN ('COMPLETED','FAILED','CANCELLED') THEN NOW() ELSE finished_at END WHERE id=$1 AND (provider_sid IS NULL OR provider_sid=$3) AND provider_sequence<$4 AND status IN ('DISPATCHING','SENT','RINGING','ANSWERED','UNKNOWN')`,
+        `UPDATE automated_calls SET status=$2,provider_sid=COALESCE(provider_sid,$3),provider_sequence=$4,finished_at=CASE WHEN $2 IN ('COMPLETED','FAILED','CANCELLED') THEN NOW() ELSE finished_at END WHERE id=$1 AND provider='twilio' AND (provider_sid IS NULL OR provider_sid=$3) AND provider_sequence<$4 AND status IN ('DISPATCHING','SENT','RINGING','ANSWERED','UNKNOWN')`,
         [req.params.id, mapped, req.body.CallSid, seq],
       );
     return res.status(204).end();
@@ -76,7 +78,7 @@ router.use(auth);
 router.get('/', async (req, res) => {
   const preferences = await service.preferences(req.user.id);
   const { rows } = await pool.query(
-    'SELECT id,kind,status,script,outcome,last_error,created_at,started_at FROM automated_calls WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30',
+    'SELECT id,kind,status,provider,script,outcome,last_error,created_at,started_at FROM automated_calls WHERE user_id=$1 ORDER BY created_at DESC LIMIT 30',
     [req.user.id],
   );
   res.json({

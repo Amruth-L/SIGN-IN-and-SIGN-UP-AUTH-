@@ -22,7 +22,7 @@ References: [SES API](https://docs.aws.amazon.com/ses/latest/dg/send-email-api.h
 
 ## Campus intelligence, support and reminder calls
 
-Run `npm run db:migrate` before starting the API. Migrations 004 and 005 add private support/call records and delivery estimate metadata; 006 adds one-time welcome calls. The Express API uses the server database connection; these private tables have RLS enabled with no browser-access policies.
+Run `npm run db:migrate` before starting the API. Migrations 004 and 005 add private support/call records and delivery estimate metadata; 006 adds one-time welcome calls; 010 adds Authkey provider tracking and private phone-verification challenges. The Express API uses the server database connection; these private tables have RLS enabled with no browser-access policies.
 
 The frontend exposes `/insights`, `/support` and `/reminders`. The API starts its reminder worker once per minute with the server. **Default mode is preview: no provider account, SMS or telephone call is required.** `/api/calls/preview` generates text for current eligible rentals and welcome calls, with clearly labelled examples. Browser speech playback does not dial a phone.
 
@@ -32,7 +32,7 @@ Signup requires `phone_number` (an E.164 number or a 10-digit Indian mobile numb
 
 After phone verification, the worker can queue one `WELCOME` job per account (`welcome:<user-id>`). Repeated logins, worker ticks and concurrent workers cannot place a second welcome attempt. A job cancelled before its first attempt can resume after consent is restored; an attempted, failed or uncertain call is never automatically redialled. Consent, verified number and first-login age are rechecked before dispatch. Welcome eligibility expires seven days after the first successful login to avoid stale onboarding calls when a provider is connected later. Existing call windows and daily limits apply, so this is not a promise of an immediate call.
 
-The generic welcome plays immediately after answer, in the same soft female English voice, without a press-1 step. It introduces CampusMesh and thanks the user for joining. Press 9 disables all automated call categories. Reminder and recommendation opt-ins remain separate. A welcome-script browser preview is available without a provider.
+The generic welcome introduces CampusMesh and thanks the user for joining, without a press-1 step. With Twilio, it uses the configured female English voice and press 9 disables all automated call categories. Authkey uses one-way English speech; users turn calls off in Reminders and save their preferences. Its voice is configured in the approved Authkey template, not selected by the API adapter; keypad actions are not supported. A welcome-script browser preview is available without a provider.
 
 ### Matching and predictions
 
@@ -60,11 +60,34 @@ The API accepts up to five JPG/PNG/WebP photos, at most 5 MB and 40 megapixels e
 
 Run `PHOTO_STORAGE_E2E=1 PHOTO_TEST_BASE_URL=https://your-api.example node --test test/photo-storage.contract.test.js` from `backend/` for a real storage check. This opt-in test needs the API and local environment to use the same database, JWT secret and S3 bucket. It creates disposable accounts/listing, checks uploads, private storage, gallery, ownership, replacement and deletion, then removes its fixtures. It sends no email or phone calls. S3 usage is billed under your AWS account/free-tier eligibility.
 
-### Connecting calling later
+### Authkey student-project calling
 
-The prepared adapter uses Twilio Voice plus Twilio Verify for phone ownership. Keep `CALLS_MODE=preview` and `CALLS_SCHEDULER_ENABLED=false` while reviewing previews. When a provider account and an HTTPS deployment are ready, configure these values privately:
+The Authkey adapter is prepared, but the current account has zero voice credits and activation is pending. **Code integration alone does not make calling active.** Keep the approval gate off until Authkey approves the student application, credits the account, and confirms transactional voice access for consenting Indian mobile recipients. The [startup program](https://authkey.io/startup-india) requires approval; credits are limited, not permanent free calling. Promotional recommendation calls are disabled for this provider.
+
+Configure only on the backend/Render service:
 
 ```dotenv
+CALLS_PROVIDER=authkey
+AUTHKEY_API_KEY=
+AUTHKEY_VOICE_APPROVED=false
+AUTHKEY_OTP_TEMPLATE_ID=
+AUTHKEY_VOICE_TEMPLATE_ID=
+CALLS_MODE=preview
+CALLS_SCHEDULER_ENABLED=false
+```
+
+Keep the API key out of frontend variables, source control and logs. In Authkey, obtain approval for a Voice OTP template containing `{#2fa#}`, then set its numeric template ID as `AUTHKEY_OTP_TEMPLATE_ID`. Authkey generates the code. The optional `AUTHKEY_VOICE_TEMPLATE_ID` must be an approved voice template containing `{#message#}`; leaving it empty uses direct text-to-speech. Template IDs accept 1–20 digits. In the template form, choose **English (India)** (`en-IN`) and **Female** (`FEMALE`); leave keypress/repeat controls off. The console has no speed or soft-tone setting, so confirm the voice in an authorized test after approval. Confirm both templates and their permitted content with Authkey. See [Voice API](https://authkey.io/voice-api-docs) and [2FA API](https://authkey.io/2fa-api-docs).
+
+After credits and voice approval are confirmed, set `AUTHKEY_VOICE_APPROVED=true`, `CALLS_MODE=live` and `CALLS_SCHEDULER_ENABLED=true`, then redeploy. Students save their own `+91` mobile number, request a verification call in Reminders, and enter the code they hear. The CampusMesh challenge expires after five minutes. Resends wait 60 seconds, sends are capped at three per destination per hour across accounts, and each account gets at most eight send/check attempts per hour. Changing a number clears verification and its pending challenge. No administrator needs to mark every signup number verified. Once verified, enabled welcome and eligible booking/due-date calls use the existing scheduler and call limits below.
+
+Authkey currently provides one-way speech only: no press-9 opt-out, interactive support conversation, or guaranteed female/soft voice. Calls explain how to opt out in Reminders and keep item names/account details in the app. A `SENT` record means Authkey acknowledged submission with a `LogID`; it does not prove the phone rang or the student answered. Timeouts or unclear responses remain `UNKNOWN` and are never retried automatically. CampusMesh does not buy credits, enable recharge, or fall back to paid Twilio/SMS on failure. Configuration readiness does not check the provider's credit balance; inspect the account and confirm an authorized live test before claiming delivery works.
+
+### Twilio alternative
+
+Twilio uses Voice plus Verify for phone ownership. Keep `CALLS_MODE=preview` and `CALLS_SCHEDULER_ENABLED=false` while reviewing previews. When a Twilio account and an HTTPS deployment are ready, configure these values privately:
+
+```dotenv
+CALLS_PROVIDER=twilio
 TWILIO_ACCOUNT_SID=
 TWILIO_AUTH_TOKEN=
 TWILIO_FROM_NUMBER=
@@ -78,15 +101,17 @@ CALLS_SCHEDULER_ENABLED=false
 
 Set `CALLS_SCHEDULER_ENABLED=true` only when ready to place calls, then restart the API. Both live mode and scheduler enablement are required for outbound calls. The worker needs a running server; it is not suitable for a serverless process that sleeps between requests. Provider account/geographic restrictions and number availability must be checked with the chosen provider before launch.
 
-Calls run 09:00–19:00 Asia/Kolkata, at most three times per rolling 24 hours per user, spaced at least 30 minutes apart; one due reminder per rolling day; recommendation calls are limited to once per seven days. Rental reminders take priority and are eligible four days before, the day before, on the date, and one day after the agreed return date. Every attempt rechecks consent, verification and rental state. Returned rentals or changed due dates invalidate stale reminders. A unique job key prevents repeated scheduler ticks from duplicating reminders. Ambiguous provider failures are marked `UNKNOWN` and require manual reconciliation; they are never automatically redialled.
+Both providers run scheduled calls 09:00–19:00 Asia/Kolkata, at most three times per rolling 24 hours per user, spaced at least 30 minutes apart; one due reminder per rolling day. Twilio recommendation calls are limited to once per seven days. Rental reminders take priority and are eligible four days before, the day before, on the date, and one day after the agreed return date. Every attempt rechecks consent, verification and rental state. Returned rentals or changed due dates invalidate stale reminders. A unique job key prevents repeated scheduler ticks from duplicating reminders. Ambiguous provider failures are marked `UNKNOWN` and require manual reconciliation; they are never automatically redialled.
 
-Voice delivery uses female Indian English (`Polly.Aditi`). Full accounts use SSML at 90% speed and soft volume; trial accounts put text directly inside `Say` so trial sanitization cannot discard nested speech. Browser previews prefer an installed female English voice, at 0.9 speed and 0.85 volume; the exact preview sound depends on the device. See [Twilio speech controls](https://www.twilio.com/docs/voice/twiml/say/text-speech).
+Twilio voice delivery uses female Indian English (`Polly.Aditi`). Full accounts use SSML at 90% speed and soft volume; trial accounts put text directly inside `Say` so trial sanitization cannot discard nested speech. Browser previews prefer an installed female English voice, at 0.9 speed and 0.85 volume; the exact preview sound depends on the device and does not establish the Authkey call voice. See [Twilio speech controls](https://www.twilio.com/docs/voice/twiml/say/text-speech).
 
-Calls disclose that they are automated. Rental details require the recipient to press 1; the generic welcome plays immediately. Press 9 (or say “stop” during a speech prompt) to turn off all call categories. Follow-up English questions use the same support assistant, limited to three turns and a two-minute call. No audio recording is requested. Calls do not book items, collect payment information, approve extensions or change rental state. Recommendation calls refer to rentals because CampusMesh currently has no purchase checkout.
+Twilio calls disclose that they are automated. Rental details require the recipient to press 1; the generic welcome plays immediately. Press 9 (or say “stop” during a speech prompt) to turn off all call categories. Follow-up English questions use the same support assistant, limited to three turns and a two-minute call. No audio recording is requested. Neither provider books items, collects payment information, approves extensions or changes rental state. Twilio recommendation calls refer to rentals because CampusMesh currently has no purchase checkout.
 
 Provider references: [Voice calls](https://www.twilio.com/docs/voice/api/call-resource), [webhook signatures](https://www.twilio.com/docs/usage/security), [speech/DTMF Gather](https://www.twilio.com/docs/voice/twiml/gather), [phone verification](https://www.twilio.com/docs/verify/api/verification).
 
 ### Verification
+
+`node --test test/authkey-config.test.js test/authkey-client.test.js` checks configuration, readiness, provider separation and fake HTTP contracts without connecting to a database or placing calls. `AUTHKEY_E2E=1 node --test test/authkey-calls.contract.test.js` requires migrations 001–010 in a disposable schema and a `DATABASE_URL` scoped only to that schema (no `public` fallback). It refuses the default schema, uses fake Authkey calls, and checks phone ownership, welcome deduplication, reminder opt-out, destination limits, expiry and phone-change races. The test removes its fixtures; the runner should drop the disposable schema afterward. Never run it against the hosted application's schema.
 
 `WELCOME_E2E=1 node --test test/welcome-calls.contract.test.js` starts a temporary local API, creates a disposable signup, mocks email/SMS/Voice providers, checks concurrent first-login detection, phone verification, consent withdrawal and exactly one welcome attempt, then removes its records. Worker queries are scoped to the fixture. No real email, SMS or phone call is sent.
 

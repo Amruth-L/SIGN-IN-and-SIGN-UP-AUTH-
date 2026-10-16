@@ -27,7 +27,22 @@ export default function ReminderPage() {
     [preview, setPreview] = useState(null),
     [busy, setBusy] = useState(""),
     [notice, setNotice] = useState(""),
-    [code, setCode] = useState("");
+    [code, setCode] = useState(""),
+    [verificationRetry, setVerificationRetry] = useState(0);
+  const isAuthkey = data?.status.provider === "authkey";
+  const voiceVerification = data?.status.phoneVerificationChannel === "voice";
+  const recommendationsAvailable =
+    !isAuthkey && data?.status.recommendationsAvailable !== false;
+  const supportsInteractiveCalls =
+    !isAuthkey && data?.status.supportsInteractiveCalls !== false;
+  useEffect(() => {
+    if (verificationRetry <= 0) return;
+    const timer = window.setTimeout(
+      () => setVerificationRetry((seconds) => Math.max(0, seconds - 1)),
+      1000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [verificationRetry]);
   const load = useCallback(async () => {
     try {
       const { data } = await api.get("/api/calls");
@@ -35,7 +50,10 @@ export default function ReminderPage() {
       setForm({
         phone_e164: data.preferences.phone_e164 || "",
         reminders_enabled: data.preferences.reminders_enabled,
-        recommendations_enabled: data.preferences.recommendations_enabled,
+        recommendations_enabled:
+          data.status.provider !== "authkey" &&
+          data.status.recommendationsAvailable !== false &&
+          data.preferences.recommendations_enabled,
         welcome_enabled: data.preferences.welcome_enabled,
         booking_enabled: data.preferences.booking_enabled,
       });
@@ -53,7 +71,11 @@ export default function ReminderPage() {
     setNotice("");
     try {
       if (type === "save") {
-        await api.put("/api/calls/preferences", form);
+        await api.put("/api/calls/preferences", {
+          ...form,
+          recommendations_enabled:
+            recommendationsAvailable && form.recommendations_enabled,
+        });
         await load();
         setNotice(
           data?.status.mode === "preview"
@@ -68,9 +90,19 @@ export default function ReminderPage() {
           "/api/calls/verify-phone",
           type === "confirm" ? { code } : {},
         );
-        setNotice(
-          data.verified ? "Phone verified." : "Verification code sent by SMS.",
-        );
+        if (data.verified) {
+          setCode("");
+          setNotice(
+            "Phone verified. Your enabled welcome and rental reminder calls can now run automatically during calling hours.",
+          );
+        } else {
+          setVerificationRetry(Number(data.retryAfter) || 0);
+          setNotice(
+            data.channel === "voice" || voiceVerification
+              ? "Answer the verification call and enter the code you hear below."
+              : "Verification code sent by SMS. Enter it below.",
+          );
+        }
         await load();
       }
     } catch (e) {
@@ -176,7 +208,15 @@ export default function ReminderPage() {
               )}
             </div>
           </div>
-          {data.status.trialMode && (
+          {isAuthkey && data.status.activationPending && (
+            <p className="mb-5 rounded-xl bg-amber-50 p-4 text-sm leading-6 text-ink/80">
+              Calling setup is pending. CampusMesh is waiting for Authkey
+              activation and calling credits. Once connected, you can verify
+              your own number here; the project owner will not need to add each
+              student’s number manually.
+            </p>
+          )}
+          {!isAuthkey && data.status.trialMode && (
             <p className="mb-5 rounded-xl bg-paper p-4 text-sm leading-6 text-ink/65">
               Twilio trial: automatic calls work only for approved test
               recipients. Your number must first be verified in the Twilio
@@ -227,17 +267,25 @@ export default function ReminderPage() {
                 [
                   "recommendations_enabled",
                   "Item recommendations",
-                  "Occasional suggestions based on real campus demand and your interests. This is optional and separate from rental reminders.",
+                  recommendationsAvailable
+                    ? "Occasional suggestions based on real campus demand and your interests. This is optional and separate from rental reminders."
+                    : isAuthkey
+                      ? "Unavailable with this calling setup. Authkey startup credits cover transactional updates, not promotional recommendations."
+                      : "Item recommendation calls are unavailable with the current calling setup.",
                 ],
               ].map(([key, title, description]) => (
                 <label
                   key={key}
-                  className="flex cursor-pointer items-start gap-3 rounded-xl border border-ink/10 p-4"
+                  className={`flex items-start gap-3 rounded-xl border border-ink/10 p-4 ${key === "recommendations_enabled" && !recommendationsAvailable ? "bg-paper" : "cursor-pointer"}`}
                 >
                   <input
                     type="checkbox"
                     className="mt-1 size-4 accent-green-700"
                     checked={form[key]}
+                    disabled={
+                      key === "recommendations_enabled" &&
+                      !recommendationsAvailable
+                    }
                     onChange={(e) =>
                       setForm({ ...form, [key]: e.target.checked })
                     }
@@ -252,8 +300,10 @@ export default function ReminderPage() {
               ))}
               <p className="text-xs leading-5 text-ink/55">
                 Enabling a switch opts you in to that type of automated
-                CampusMesh call. Calls use your verified number. Disable a
-                switch here or press 9 during a call to opt out.
+                CampusMesh call. Calls use your verified number.{" "}
+                {supportsInteractiveCalls
+                  ? "Disable a switch here or press 9 during a call to opt out."
+                  : "To opt out, disable the switch here and save your preferences."}
               </p>
               <button disabled={!!busy} className="brand-button w-full">
                 {busy === "save" ? "Saving…" : "Save preferences"}
@@ -261,17 +311,27 @@ export default function ReminderPage() {
               {data.status.phoneVerificationConfigured &&
                 !data.preferences.phone_verified_at && (
                   <div className="border-t border-ink/10 pt-4">
+                    <p className="mb-3 text-xs leading-5 text-ink/65">
+                      {voiceVerification
+                        ? "Verify your number once by entering the code from an automated call. Enabled welcome and due-date calls then run automatically; no manual registration with the calling provider is needed."
+                        : "Verify your number once using an SMS code. Your enabled welcome and due-date calls then run automatically during calling hours."}
+                    </p>
                     <button
                       type="button"
                       className="secondary-button"
                       disabled={
                         !!busy ||
+                        verificationRetry > 0 ||
                         !form.phone_e164 ||
                         form.phone_e164 !== data.preferences.phone_e164
                       }
                       onClick={() => action("verify")}
                     >
-                      Send phone verification code
+                      {verificationRetry > 0
+                        ? `Resend in ${verificationRetry}s`
+                        : voiceVerification
+                          ? "Call me with a verification code"
+                          : "Send SMS verification code"}
                     </button>
                     {form.phone_e164 !== data.preferences.phone_e164 && (
                       <p className="mt-2 text-xs text-ink/55">
@@ -304,6 +364,14 @@ export default function ReminderPage() {
                     </button>
                   </div>
                 )}
+              {!data.status.phoneVerificationConfigured &&
+                !data.preferences.phone_verified_at && (
+                  <p className="border-t border-ink/10 pt-4 text-xs leading-5 text-ink/65">
+                    Phone verification setup is pending. You can save your
+                    preferences now; calls will start only after the service is
+                    connected and your number is verified.
+                  </p>
+                )}
             </form>
             <section className="space-y-4">
               <div className="panel p-5 sm:p-6">
@@ -312,9 +380,9 @@ export default function ReminderPage() {
                   <h2 className="text-lg font-semibold">Hear a preview</h2>
                 </div>
                 <p className="mt-3 text-sm leading-6 text-ink/60">
-                  Soft female voice · relaxed English delivery. Review what the
-                  assistant would say. Audio plays in this browser and never
-                  dials a phone.
+                  Listen to the script using a soft English browser voice.
+                  Audio stays in this browser and never dials a phone. The live
+                  call’s voice depends on the calling provider.
                 </p>
                 <button
                   className="secondary-button mt-4"
@@ -343,6 +411,11 @@ export default function ReminderPage() {
                           : [preview.bookingSample],
                       )
                       .filter(Boolean)
+                      .filter(
+                        (p) =>
+                          recommendationsAvailable ||
+                          p.kind !== "RECOMMENDATION",
+                      )
                       .map((p, i) => (
                         <article key={i} className="rounded-lg bg-paper p-4">
                           <span className="text-xs font-semibold text-mesh-700">
@@ -418,7 +491,11 @@ export default function ReminderPage() {
                               ? "Due-date reminder"
                               : "Recommendation"}
                       </b>
-                      <span>{c.status.toLowerCase()}</span>
+                      <span>
+                        {c.provider === "authkey" && c.status === "SENT"
+                          ? "Submitted to calling service"
+                          : c.status.toLowerCase()}
+                      </span>
                     </div>
                     <p className="mt-2 text-xs text-ink/55">
                       {new Date(c.created_at).toLocaleString("en-IN")}
@@ -426,6 +503,12 @@ export default function ReminderPage() {
                     </p>
                     {c.last_error && (
                       <p className="mt-2 text-xs text-ink/55">{c.last_error}</p>
+                    )}
+                    {c.provider === "authkey" && c.status === "SENT" && (
+                      <p className="mt-2 text-xs text-ink/55">
+                        The service accepted this call. Answer and playback
+                        have not been confirmed.
+                      </p>
                     )}
                   </article>
                 ))}

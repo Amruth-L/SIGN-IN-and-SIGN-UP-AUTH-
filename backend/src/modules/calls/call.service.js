@@ -8,6 +8,9 @@ const fail = (status, message) => {
 const { saySoft: speak } = require('./voice');
 const { webhookUrl } = require('./webhook-auth');
 const { accountReadiness, bookingReadiness } = require('./call-readiness');
+const { createAuthkeyClient, supportsPhone } = require('./authkey.client');
+const { verifyAuthkeyPhone } = require('./authkey-verification');
+const providerName = (c) => c.provider || 'twilio';
 const E164 = /^\+[1-9]\d{7,14}$/;
 const activeRentalStatuses = [
   'RENTAL_ACTIVE',
@@ -17,6 +20,7 @@ const activeRentalStatuses = [
 ];
 function config() {
   return {
+    provider: process.env.CALLS_PROVIDER || 'twilio',
     live: process.env.CALLS_MODE === 'live',
     trial: process.env.TWILIO_TRIAL_MODE === 'true',
     sid: process.env.TWILIO_ACCOUNT_SID,
@@ -25,9 +29,15 @@ function config() {
     verify: process.env.TWILIO_VERIFY_SERVICE_SID,
     base: process.env.PUBLIC_API_URL?.replace(/\/$/, ''),
     enabled: process.env.CALLS_SCHEDULER_ENABLED === 'true',
+    authkeyApiKey: process.env.AUTHKEY_API_KEY,
+    authkeyVoiceApproved: process.env.AUTHKEY_VOICE_APPROVED === 'true',
+    authkeyOtpTemplateId: process.env.AUTHKEY_OTP_TEMPLATE_ID,
+    authkeyVoiceTemplateId: process.env.AUTHKEY_VOICE_TEMPLATE_ID,
   };
 }
 function ready(c = config()) {
+  if (providerName(c) === 'authkey') return Boolean(c.live && /^[A-Za-z0-9_-]{8,512}$/.test(c.authkeyApiKey || '') && c.authkeyVoiceApproved && (!c.authkeyVoiceTemplateId || /^\d{1,20}$/.test(c.authkeyVoiceTemplateId)));
+  if (providerName(c) !== 'twilio') return false;
   return Boolean(
     c.live &&
     /^AC[\da-f]{32}$/i.test(c.sid || '') &&
@@ -101,10 +111,23 @@ function scriptFor(kind, data) {
     return `This is CampusMesh's automated assistant. Your rental of ${data.title} is ${data.stage === 'overdue' ? 'past its return date' : `due ${data.stage}`}. The agreed return date is ${spokenDate(data.end_date)}. Please open My rentals to arrange the return or request an extension. An extension needs approval. We will never ask for an account OTP or payment PIN on this call.`;
   return `This is CampusMesh's automated assistant. You opted in to rental recommendations. ${data.title} is listed at ${Number(data.rent_price)} rupees per day. ${data.reason}. You can review dates and availability in CampusMesh. No booking or payment will be made on this call.`;
 }
+function providerScript(kind, data, c) {
+  if (providerName(c) !== 'authkey') return scriptFor(kind, data);
+  // Authkey's simple TTS API has no authenticated IVR flow. Keep item names
+  // and account details in the app, and never advertise unsupported keypad actions.
+  const ending = ' You can turn off calls in Reminders in CampusMesh. Goodbye.';
+  if (kind === 'WELCOME') return scriptFor(kind, data) + ending;
+  if (kind === 'BOOKING_CONFIRMATION')
+    return `Hello! This is CampusMesh's automated assistant. Thank you for placing your rental order. Your booking is confirmed. Open My rentals for ${data.delivery_requested ? 'delivery tracking' : 'pickup details'}. Your agreed return date is ${spokenDate(data.end_date)}.` + ending;
+  if (kind === 'DUE_REMINDER')
+    return `Hello! This is CampusMesh's automated assistant. Your rental ${data.stage === 'overdue' ? 'is past its return date' : `is due ${data.stage}`}. The agreed return date is ${spokenDate(data.end_date)}. Please open My rentals to arrange the return or request an extension.` + ending;
+  return '';
+}
 function createCallService({
   db = pool,
   settings = config,
   providerFactory = (c) => twilio(c.sid, c.token),
+  authkeyFactory = createAuthkeyClient,
   clock = () => new Date(),
   recommend = recommendations,
   supportAnswer = answer,
@@ -114,16 +137,21 @@ function createCallService({
     const c = settings();
     return {
       mode: ready(c) ? 'live' : 'preview',
-      provider: 'twilio',
-      trialMode: Boolean(c.trial),
+      provider: providerName(c),
+      trialMode: providerName(c) === 'twilio' && Boolean(c.trial),
       configured: ready(c),
       schedulerEnabled: ready(c) && c.enabled,
-      phoneVerificationConfigured: Boolean(ready(c) && c.verify),
+      phoneVerificationConfigured: Boolean(ready(c) && (providerName(c) === 'authkey' ? /^\d{1,20}$/.test(c.authkeyOtpTemplateId || '') : c.verify)),
+      phoneVerificationChannel: providerName(c) === 'authkey' ? 'voice' : 'sms',
+      supportsInteractiveCalls: providerName(c) === 'twilio',
+      recommendationsAvailable: providerName(c) === 'twilio',
+      activationPending: providerName(c) === 'authkey' && !ready(c),
       language: 'English',
       window: '09:00–19:00 Asia/Kolkata',
       withinCallWindow: inCallWindow(clock()),
       limits:
-        'At least 30 minutes between calls, at most three per day. One reminder per day and one recommendation per seven days.',
+        'At least 30 minutes between calls, at most three per day. One reminder per day.' +
+        (providerName(c) === 'twilio' ? ' One recommendation per seven days.' : ''),
       welcome:
         'One welcome call after your first successful sign-in, with consent and a verified number. No repeat on later sign-ins.',
     };
@@ -156,6 +184,8 @@ function createCallService({
     });
   };
   const updatePreferences = async (userId, body) => {
+    if (providerName(settings()) === 'authkey' && body.recommendations_enabled === true)
+      fail(400, 'Recommendation calls are unavailable. This calling plan supports welcome and rental updates only.');
     if (
       typeof body.reminders_enabled !== 'boolean' ||
       typeof body.recommendations_enabled !== 'boolean' ||
@@ -184,6 +214,8 @@ function createCallService({
           body.booking_enabled ?? null,
         ],
       );
+      await c.query('DELETE FROM call_phone_verifications WHERE user_id=$1 AND phone_e164 IS DISTINCT FROM NULLIF($2,\'\')',
+        [userId, body.phone_e164]);
       await c.query(
         "INSERT INTO call_consent_events(user_id,reminders_enabled,recommendations_enabled,welcome_enabled,booking_enabled,consent_version) VALUES($1,$2,$3,$4,$5,'2026-10-15')",
         [
@@ -220,10 +252,15 @@ function createCallService({
   const verifyPhone = async (userId, code) => {
     const c = settings(),
       prefs = await preferences(userId);
+    if (providerName(c) === 'authkey') {
+      if (!status().phoneVerificationConfigured)
+        fail(503, 'Phone verification is waiting for calling activation. Please try again after setup is complete.');
+      return verifyAuthkeyPhone({ db, provider: authkeyFactory(c), clock }, userId, code);
+    }
     if (!ready(c) || !c.verify)
       fail(
         503,
-        'Phone verification becomes available after the calling provider is connected. Preview works without it.',
+        'Phone verification is not configured yet. Calling activation must be completed before you can verify your number.',
       );
     if (!E164.test(prefs.phone_e164 || '')) fail(400, 'Save your phone number first.');
     if (code !== undefined && !/^\d{4,8}$/.test(String(code)))
@@ -257,7 +294,7 @@ function createCallService({
       return { verified: true };
     }
     await service.verifications.create({ to: prefs.phone_e164, channel: 'sms' });
-    return { sent: true };
+    return { sent: true, channel: 'sms' };
   };
   const candidates = async (userId, prefs, preview = false) => {
     const result = [];
@@ -305,7 +342,7 @@ function createCallService({
           });
       }
     }
-    if (preview || prefs.recommendations_enabled) {
+    if (providerName(settings()) === 'twilio' && (preview || prefs.recommendations_enabled)) {
       const listing = (await recommend(userId, { db, includeDemo: false })).find((l) => l.evidence >= 5);
       if (listing) {
         const date = new Date(today + 'T00:00:00Z');
@@ -327,30 +364,30 @@ function createCallService({
       status: status(),
       previews: list.map((j) => ({
         ...j,
-        script: scriptFor(j.kind, j.payload),
+        script: providerScript(j.kind, j.payload, settings()),
         eligible: Boolean(prefs.phone_verified_at) && prefs[consentFor(j.kind)],
       })),
       sample: {
         example: true,
         kind: 'DUE_REMINDER',
-        script: scriptFor('DUE_REMINDER', {
+        script: providerScript('DUE_REMINDER', {
           title: 'a calculator',
           stage: 'in 4 days',
           end_date: new Date(Date.parse(localTime(clock()).day + 'T00:00:00Z') + 4 * 86400000)
             .toISOString()
             .slice(0, 10),
-        }),
+        }, settings()),
       },
       bookingSample: {
         example: true,
         kind: 'BOOKING_CONFIRMATION',
-        script: scriptFor('BOOKING_CONFIRMATION', {
+        script: providerScript('BOOKING_CONFIRMATION', {
           title: 'a calculator',
           delivery_requested: true,
           end_date: localTime(clock()).day,
-        }),
+        }, settings()),
       },
-      welcomeSample: { example: true, kind: 'WELCOME', script: scriptFor('WELCOME') },
+      welcomeSample: { example: true, kind: 'WELCOME', script: providerScript('WELCOME', {}, settings()) },
       note: 'Preview only. No phone is called, and no real reminder is created for a demo rental.',
     };
   };
@@ -363,10 +400,11 @@ function createCallService({
     ).rows;
     let queued = 0;
     for (const prefs of users) {
+      if (providerName(settings()) === 'authkey' && !supportsPhone(prefs.phone_e164)) continue;
       for (const j of await candidates(prefs.user_id, prefs)) {
         const r = await db.query(
-          `INSERT INTO automated_calls(user_id,rental_id,listing_id,kind,dedupe_key,payload,script) VALUES($1,$2,$3,$4,$5,$6,$7)
-           ON CONFLICT(dedupe_key) DO UPDATE SET status='QUEUED',payload=EXCLUDED.payload,script=EXCLUDED.script,outcome=NULL,scheduled_at=NOW()
+          `INSERT INTO automated_calls(user_id,rental_id,listing_id,kind,dedupe_key,payload,script,provider) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT(dedupe_key) DO UPDATE SET status='QUEUED',payload=EXCLUDED.payload,script=EXCLUDED.script,provider=EXCLUDED.provider,outcome=NULL,scheduled_at=NOW()
            WHERE automated_calls.kind IN ('WELCOME','BOOKING_CONFIRMATION','DUE_REMINDER') AND automated_calls.status='CANCELLED' AND automated_calls.started_at IS NULL`,
           [
             prefs.user_id,
@@ -375,7 +413,8 @@ function createCallService({
             j.kind,
             j.key,
             j.payload,
-            scriptFor(j.kind, j.payload),
+            providerScript(j.kind, j.payload, settings()),
+            providerName(settings()),
           ],
         );
         queued += r.rowCount;
@@ -384,6 +423,8 @@ function createCallService({
     return { queued };
   };
   const eligible = async (job, prefs, client) => {
+    if ((job.provider || providerName(settings())) === 'authkey' &&
+        (!supportsPhone(prefs?.phone_e164) || job.kind === 'RECOMMENDATION')) return false;
     if (!prefs?.phone_verified_at || !E164.test(prefs.phone_e164 || '') || !prefs[consentFor(job.kind)])
       return false;
     if (job.kind === 'WELCOME') {
@@ -442,6 +483,11 @@ function createCallService({
         await client.query('COMMIT');
         return { empty: true };
       }
+      if ((job.provider || 'twilio') !== providerName(c)) {
+        await client.query("UPDATE automated_calls SET status='CANCELLED',outcome='Calling provider changed before dispatch' WHERE id=$1", [job.id]);
+        await client.query('COMMIT');
+        return { cancelled: true };
+      }
       prefs = (
         await client.query('SELECT * FROM call_preferences WHERE user_id=$1 FOR UPDATE', [job.user_id])
       ).rows[0];
@@ -488,7 +534,9 @@ function createCallService({
       return { cancelled: true };
     }
     try {
-      const call = await providerFactory(c).calls.create({
+      const call = providerName(c) === 'authkey'
+        ? await authkeyFactory(c).sendVoice({ to: latest.phone_e164, text: providerScript(job.kind, job.payload, c) })
+        : await providerFactory(c).calls.create({
         to: latest.phone_e164,
         from: c.from,
         url: webhookUrl(c, job.id, 'voice'),
@@ -505,11 +553,11 @@ function createCallService({
       });
       await db.query(
         "UPDATE automated_calls SET provider_sid=COALESCE(provider_sid,$2),status=CASE WHEN status='DISPATCHING' THEN 'SENT' ELSE status END WHERE id=$1",
-        [job.id, call.sid],
+        [job.id, providerName(c) === 'authkey' ? call.id : call.sid],
       );
       return { sent: true };
     } catch (e) {
-      const definite = Number(e.status) >= 400 && Number(e.status) < 500;
+      const definite = providerName(c) === 'authkey' ? e.definite === true : Number(e.status) >= 400 && Number(e.status) < 500;
       await db.query('UPDATE automated_calls SET status=$2,last_error=$3 WHERE id=$1', [
         job.id,
         definite ? 'FAILED' : 'UNKNOWN',
@@ -524,7 +572,7 @@ function createCallService({
     const job = (await db.query('SELECT * FROM automated_calls WHERE id=$1', [id])).rows[0];
     const response = new twilio.twiml.VoiceResponse();
     if (
-      !job ||
+      !job || (job.provider || 'twilio') !== 'twilio' ||
       !['DISPATCHING', 'SENT', 'RINGING', 'ANSWERED'].includes(job.status) ||
       (job.provider_sid && job.provider_sid !== body.CallSid)
     ) {
@@ -648,5 +696,6 @@ module.exports = {
   inCallWindow,
   reminderStage,
   scriptFor,
+  providerScript,
   E164,
 };

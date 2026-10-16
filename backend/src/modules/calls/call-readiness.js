@@ -3,7 +3,9 @@ const reason = (code, message) => ({ code, message });
 
 function accountReadiness(status, preferences) {
   const reasons = [];
-  if (!status.configured)
+  if (status.activationPending)
+    reasons.push(reason('PROVIDER_ACTIVATION_PENDING', 'Automatic calls are waiting for service activation. Your preferences are saved.'));
+  else if (!status.configured)
     reasons.push(
       reason('PROVIDER_UNAVAILABLE', 'Phone calls are in preview mode. No real call will be placed.'),
     );
@@ -17,12 +19,16 @@ function accountReadiness(status, preferences) {
         status.trialMode
           ? 'Your mobile number is saved, but it is not approved for calls yet. Ask the project owner to verify it in Twilio and link it to your CampusMesh account.'
           : status.phoneVerificationConfigured
-            ? 'Verify your saved mobile number to receive calls.'
-            : 'Phone verification is not available yet. Contact support to finish calling setup.',
+            ? status.phoneVerificationChannel === 'voice'
+              ? 'Verify your mobile once with a code delivered by an automated call. Future eligible calls run automatically.'
+              : 'Verify your saved mobile number to receive calls.'
+            : 'Phone verification will be available here after calling setup is complete.',
       ),
     );
+  if (status.provider === 'authkey' && preferences.phone_e164 && !/^\+91[6-9]\d{9}$/.test(preferences.phone_e164))
+    reasons.push(reason('PHONE_UNSUPPORTED', 'This calling service supports Indian mobile numbers. Save +91 followed by your 10-digit mobile number.'));
   if (
-    !['welcome_enabled', 'booking_enabled', 'reminders_enabled', 'recommendations_enabled'].some(
+    !['welcome_enabled', 'booking_enabled', 'reminders_enabled', ...(status.recommendationsAvailable === false ? [] : ['recommendations_enabled'])].some(
       (key) => preferences[key],
     )
   )

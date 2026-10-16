@@ -326,7 +326,7 @@ const Signup: React.FC = () => {
               <input type="checkbox" className="mt-1 size-4 shrink-0 accent-green-700" checked={welcomeEnabled}
                 onChange={event => setWelcomeEnabled(event.target.checked)} />
               <span><strong className="block font-medium">Give me a welcome call</strong>
-                <span className="mt-1 block text-xs leading-5 text-ink/60">Optional. One automated call after your first sign-in and phone verification, in a soft female English voice. This does not enable reminders or promotional calls.</span>
+                <span className="mt-1 block text-xs leading-5 text-ink/60">Optional. One automated call in English after your first sign-in and phone verification, once calling is available. This does not enable reminders or promotional calls.</span>
               </span>
             </label>
 
