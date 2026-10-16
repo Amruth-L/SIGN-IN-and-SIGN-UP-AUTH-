@@ -1,5 +1,5 @@
 import TrustDetails from "../intelligence/TrustDetails";
-import { matchesRentalFilter } from "../../lib/rental-status";
+import { matchesRentalFilter, rentalProgress } from "../../lib/rental-status";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { io } from "socket.io-client";
@@ -118,7 +118,7 @@ function RentalsTab({ rentals }) {
                     <span
                       className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase ${statusStyle(rental.status)}`}
                     >
-                      {friendlyStatus(rental.status)}
+                      {rentalProgress(rental).awaitingOwner ? "Awaiting owner approval" : friendlyStatus(rental.status)}
                     </span>
                   </div>
                   <p className="mt-2 text-sm text-ink/50">
@@ -129,14 +129,7 @@ function RentalsTab({ rentals }) {
                   <span className={`mt-3 inline-flex rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase ${["PAID", "RENTAL_PAID", "FULLY_PAID"].includes(String(rental.payment_status || "").toUpperCase()) ? "bg-mesh-50 text-mesh-700" : "bg-amber-50 text-amber-700"}`}>
                     {["PAID", "RENTAL_PAID", "FULLY_PAID"].includes(String(rental.payment_status || "").toUpperCase()) ? "Payment received" : "Payment pending"}
                   </span>
-                  <div className="mt-4 flex items-center gap-1.5 text-xs font-bold text-ink/55">
-                    <span className="size-2 rounded-full bg-mesh-500" />
-                    Request <span className="h-px w-8 bg-ink/15" />
-                    <span className="size-2 rounded-full bg-mesh-500" />
-                    Handover <span className="h-px w-8 bg-ink/15" />
-                    <span className="size-2 rounded-full bg-ink/15" />
-                    Return
-                  </div>
+                  <RentalProgress rental={rental} />
                 </div>
                 <div className="flex items-center gap-2 md:flex-col md:items-end">
                   <strong className="text-mesh-700">
@@ -170,6 +163,25 @@ function RentalsTab({ rentals }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function RentalProgress({ rental }) {
+  const { steps, message } = rentalProgress(rental);
+  return (
+    <div className="mt-4">
+      <ol aria-label="Rental progress" className="flex flex-wrap gap-x-4 gap-y-3 text-xs font-semibold">
+        {steps.map((step, index) => (
+          <li key={step.id} aria-current={step.state === "current" ? "step" : undefined} className={`flex items-center gap-1.5 ${step.state === "complete" ? "text-mesh-700" : step.state === "current" ? "text-amber-800" : "text-ink/55"}`}>
+            <span aria-hidden="true" className={`grid size-5 place-items-center rounded-full border ${step.state === "complete" ? "border-mesh-600 bg-mesh-600 text-white" : step.state === "current" ? "border-amber-500 bg-amber-50 text-amber-800" : "border-ink/20 bg-white"}`}>
+              {step.state === "complete" ? <Check size={12} strokeWidth={3} /> : index + 1}
+            </span>
+            <span>{step.label}<span className="sr-only"> — {step.state === "complete" ? "complete" : step.state === "current" ? "awaiting action" : "pending"}</span></span>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-3 text-xs leading-5 text-ink/70">{message}</p>
     </div>
   );
 }
