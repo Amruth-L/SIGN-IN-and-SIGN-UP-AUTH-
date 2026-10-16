@@ -14,155 +14,252 @@ const isSimulationMode = () => {
 };
 
 class PaymentService {
+  constructor({ db = pool, gateway = razorpay, publish = emitUser, simulation = isSimulationMode, lookupTimeoutMs = 15000 } = {}) {
+    this.db = db;
+    this.gateway = gateway;
+    this.publish = publish;
+    this.simulation = simulation;
+    this.lookupTimeoutMs = lookupTimeoutMs;
+  }
+
+  async withRentalTransaction(bookingId, userId, action) {
+    const client = await this.db.connect();
+    const context = { client };
+    let result;
+    try {
+      await client.query('BEGIN');
+      // Creation, callback verification and recovery must serialize on the same
+      // rental. A second click must not produce another independently payable order.
+      const res = await client.query('SELECT * FROM rentals WHERE id = $1 FOR UPDATE', [bookingId]);
+      if (!res.rows.length) throw Object.assign(new Error('Booking not found.'), { status: 404 });
+      context.booking = res.rows[0];
+      if (context.booking.borrower_id !== userId) {
+        throw Object.assign(new Error('Unauthorized to pay for this booking.'), { status: 403 });
+      }
+      result = await action(context);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+    // A socket failure must not make a committed payment look unsuccessful.
+    if (context.rentalEvent) {
+      try {
+        this.publish(context.booking.owner_id, 'rental:request', context.rentalEvent);
+        this.publish(context.booking.borrower_id, 'rental:status', context.rentalEvent);
+      } catch {
+        console.error('[PaymentService] Rental payment committed; realtime notification unavailable.');
+      }
+    }
+    return result;
+  }
+
+  rentalPaymentResult(booking, extra = {}) {
+    return { rental_id: booking.id, booking_id: booking.id, status: booking.status, ...extra };
+  }
+
+  async paidRentalPayment({ client, booking }) {
+    const result = await client.query(
+      "SELECT id, transaction_id FROM payments WHERE rental_id = $1 AND payment_type = 'RENTAL' AND status = 'PAID' ORDER BY created_at LIMIT 1",
+      [booking.id],
+    );
+    return result.rows[0];
+  }
+
+  assertRentalPayable(booking) {
+    if (!['BOOKING_PAYMENT_PENDING', 'BOOKING_REQUESTED'].includes(booking.status)) {
+      throw Object.assign(new Error(`This booking cannot accept another rental payment (${booking.status}).`), { status: 409 });
+    }
+    const amount = Math.round(Number(booking.booking_amount) * 100);
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+      throw Object.assign(new Error('The booking amount is invalid. Please contact support.'), { status: 409 });
+    }
+    return amount;
+  }
+
+  async providerRead(context, read) {
+    // Read requests can finish safely after a timeout, but must not hold a rental
+    // lock indefinitely or make us create another payable order on uncertainty.
+    context.lookupDeadline ||= Date.now() + this.lookupTimeoutMs;
+    const remaining = context.lookupDeadline - Date.now();
+    if (remaining <= 0) throw new Error('Payment provider lookup timed out.');
+    let timer;
+    try {
+      return await Promise.race([
+        read(),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('Payment provider lookup timed out.')), remaining);
+        }),
+      ]);
+    } finally {
+      globalThis.clearTimeout(timer);
+    }
+  }
+
+  async inspectRentalOrders(context) {
+    const { client, booking } = context;
+    const result = await client.query(
+      "SELECT * FROM payments WHERE rental_id = $1 AND payment_type = 'RENTAL' AND status = 'PENDING' ORDER BY created_at DESC, id DESC",
+      [booking.id],
+    );
+    const amount = Math.round(Number(booking.booking_amount) * 100);
+    const captured = new Map();
+    let reusable, pending = false;
+    for (const record of result.rows) {
+      const orderId = record.transaction_id || '';
+      if (orderId.startsWith('sim_order_')) {
+        // Simulation records cannot prove payment or be reused with real keys.
+        if (this.simulation() && Math.round(Number(record.amount) * 100) === amount) reusable ||= record;
+        continue;
+      }
+      if (!/^order_[A-Za-z0-9]+$/.test(orderId) || Math.round(Number(record.amount) * 100) !== amount) {
+        throw Object.assign(new Error('The saved payment order does not match this booking. Please contact support before paying again.'), { status: 409 });
+      }
+      if (this.simulation()) {
+        throw Object.assign(new Error('Payment confirmation is not configured. Please retry later; do not pay again.'), { status: 503 });
+      }
+      let order, payments;
+      try {
+        order = await this.providerRead(context, () => this.gateway.orders.fetch(orderId));
+        payments = await this.providerRead(context, () => this.gateway.orders.fetchPayments(orderId));
+      } catch {
+        throw Object.assign(new Error('Could not check the existing payment. Please retry confirmation; do not pay again.'), { status: 503 });
+      }
+      if (order.id !== orderId || order.currency !== 'INR' || Number(order.amount) !== amount ||
+          (order.notes?.booking_id && order.notes.booking_id !== booking.id) ||
+          !Array.isArray(payments.items) || !['created', 'attempted', 'paid'].includes(order.status)) {
+        throw Object.assign(new Error('The provider payment order does not match this booking. Please contact support.'), { status: 409 });
+      }
+      let orderCaptured = false;
+      for (const payment of payments.items) {
+        if (!['captured', 'authorized', 'created'].includes(payment.status)) continue;
+        if (payment.order_id !== orderId || payment.currency !== 'INR' || Number(payment.amount) !== amount) {
+          throw Object.assign(new Error('The provider payment does not match the booking amount. Please contact support.'), { status: 409 });
+        }
+        if (payment.status !== 'captured') {
+          pending = true;
+          continue;
+        }
+        let verified;
+        try {
+          verified = await this.providerRead(context, () => this.gateway.payments.fetch(payment.id));
+        } catch {
+          throw Object.assign(new Error('Could not confirm the captured payment. Please retry confirmation; do not pay again.'), { status: 503 });
+        }
+        if (verified.id !== payment.id || verified.order_id !== orderId || verified.status !== 'captured' ||
+            verified.captured !== true || verified.currency !== 'INR' || Number(verified.amount) !== amount) {
+          throw Object.assign(new Error('Payment capture could not be confirmed. Please retry confirmation; do not pay again.'), { status: 409 });
+        }
+        captured.set(verified.id, { record, paymentId: verified.id });
+        orderCaptured = true;
+      }
+      if (order.status === 'paid' && !orderCaptured) pending = true;
+      if (order.status !== 'paid') reusable ||= record;
+    }
+    if (captured.size > 1) {
+      throw Object.assign(new Error('More than one captured payment needs review. Please contact support; do not pay again.'), { status: 409 });
+    }
+    return { captured: [...captured.values()][0], reusable, pending };
+  }
+
+  async settleRentalPayment(context, record, paymentId) {
+    const { client, booking } = context;
+    const amount = this.assertRentalPayable(booking);
+    if (Math.round(Number(record.amount) * 100) !== amount) {
+      throw Object.assign(new Error('The payment amount does not match this booking.'), { status: 409 });
+    }
+    const updated = await client.query(
+      "UPDATE payments SET transaction_id = $1, status = 'PAID' WHERE id = $2 AND status = 'PENDING' RETURNING id",
+      [paymentId, record.id],
+    );
+    if (!updated.rowCount) throw Object.assign(new Error('Payment order is no longer pending.'), { status: 409 });
+    await client.query(`
+      UPDATE rentals SET status = 'RENTAL_PAYMENT_COMPLETED', booking_status = 'PAYMENT_COMPLETED',
+        payment_status = 'RENTAL_PAID', updated_at = NOW() WHERE id = $1
+    `, [booking.id]);
+    await client.query(
+      `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+       VALUES ($1, 'RENTAL_PAYMENT_COMPLETED', $2, $3)`,
+      [booking.id, booking.borrower_id, { amount: Number(booking.booking_amount), gateway_order_id: record.transaction_id }],
+    );
+    booking.status = 'RENTAL_PAYMENT_COMPLETED';
+    context.rentalEvent = {
+      rental_id: booking.id, owner_id: booking.owner_id, renter_id: booking.borrower_id, status: booking.status,
+    };
+    return this.rentalPaymentResult(booking, {
+      paid: true, already_paid: true, message: 'Rental payment verified. Waiting for owner to accept.',
+    });
+  }
+
+  /** Recover a lost browser callback using only orders already bound to this rental. */
+  async reconcileRentalPayment(bookingId, userId) {
+    return this.withRentalTransaction(bookingId, userId, async (context) => {
+      if (await this.paidRentalPayment(context)) return this.rentalPaymentResult(context.booking, { paid: true, already_paid: true });
+      const checked = await this.inspectRentalOrders(context);
+      if (checked.captured) return this.settleRentalPayment(context, checked.captured.record, checked.captured.paymentId);
+      return this.rentalPaymentResult(context.booking, {
+        paid: false, ...(checked.pending ? { pending: true, awaiting_capture: true } : {}),
+      });
+    });
+  }
+
   /**
    * Create a Razorpay order for the rental fee (Step 1)
    */
   async createRentalOrder(bookingId, userId) {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Fetch the booking/rental
-      const res = await client.query(
-        'SELECT * FROM rentals WHERE id = $1',
-        [bookingId]
-      );
-      if (res.rows.length === 0) {
-        throw new Error('Booking not found.');
+    return this.withRentalTransaction(bookingId, userId, async (context) => {
+      const { client, booking } = context;
+      if (await this.paidRentalPayment(context)) return this.rentalPaymentResult(booking, { paid: true, already_paid: true });
+      const amountPaise = this.assertRentalPayable(booking);
+      const checked = await this.inspectRentalOrders(context);
+      if (checked.captured) return this.settleRentalPayment(context, checked.captured.record, checked.captured.paymentId);
+      if (checked.pending) {
+        throw Object.assign(new Error('Your payment is still being confirmed. Please retry confirmation; do not pay again.'), { status: 409 });
       }
-
-      const booking = res.rows[0];
-
-      if (booking.borrower_id !== userId) {
-        throw new Error('Unauthorized to pay for this booking.');
+      let orderId = checked.reusable?.transaction_id;
+      const simulated = this.simulation();
+      if (!orderId) {
+        if (simulated) {
+          orderId = `sim_order_${crypto.randomBytes(8).toString('hex')}`;
+        } else {
+          const order = await this.gateway.orders.create({
+            amount: amountPaise, currency: 'INR', receipt: `rent_${bookingId.slice(0, 8)}`,
+            notes: { booking_id: bookingId, payment_type: 'RENTAL' },
+          });
+          orderId = order.id;
+        }
+        await client.query(`
+          INSERT INTO payments (rental_id, payment_type, amount, transaction_id, status)
+          VALUES ($1, 'RENTAL', $2, $3, 'PENDING')
+        `, [bookingId, booking.booking_amount, orderId]);
       }
-
-      if (booking.status !== 'BOOKING_PAYMENT_PENDING' && booking.status !== 'BOOKING_REQUESTED') {
-        throw new Error(`Invalid booking status for rental payment: ${booking.status}`);
-      }
-
-      // Calculate amount in paise (1 INR = 100 paise)
-      const amountPaise = Math.round(parseFloat(booking.booking_amount) * 100);
-      const receipt = `rent_${bookingId.slice(0, 8)}`;
-
-      let orderId;
-      let simulated = false;
-
-      if (isSimulationMode()) {
-        orderId = `sim_order_${crypto.randomBytes(8).toString('hex')}`;
-        simulated = true;
-        console.log(`[PaymentService] Simulation Mode: Created rental order ${orderId} for ₹${booking.booking_amount}`);
-      } else {
-        const order = await razorpay.orders.create({
-          amount: amountPaise,
-          currency: 'INR',
-          receipt,
-          notes: { booking_id: bookingId, payment_type: 'RENTAL' }
-        });
-        orderId = order.id;
-      }
-
-      // Insert pending payment record
-      await client.query(`
-        INSERT INTO payments (rental_id, payment_type, amount, transaction_id, status)
-        VALUES ($1, 'RENTAL', $2, $3, 'PENDING')
-      `, [bookingId, booking.booking_amount, orderId]);
-
-      await client.query('COMMIT');
-
       return {
-        order_id: orderId,
-        amount: booking.booking_amount,
-        currency: 'INR',
-        razorpay_key: process.env.RAZORPAY_KEY_ID || 'SIMULATION_MODE',
-        simulated
+        order_id: orderId, amount: booking.booking_amount, currency: 'INR',
+        razorpay_key: process.env.RAZORPAY_KEY_ID || 'SIMULATION_MODE', simulated,
+        reused: Boolean(checked.reusable),
       };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    });
   }
 
-  /**
-   * Verify rental payment and update status (Step 3)
-   */
-  async verifyRentalPayment(bookingId, gatewayOrderId, gatewayPaymentId, gatewaySignature, userId) {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // Fetch the booking/rental
-      const res = await client.query(
-        'SELECT * FROM rentals WHERE id = $1',
-        [bookingId]
-      );
-      if (res.rows.length === 0) {
-        throw new Error('Booking not found.');
+  /** Signature and capture are checked by verify-payment middleware before this method. */
+  async verifyRentalPayment(bookingId, gatewayOrderId, gatewayPaymentId, _gatewaySignature, userId) {
+    return this.withRentalTransaction(bookingId, userId, async (context) => {
+      const paid = await this.paidRentalPayment(context);
+      if (paid) {
+        if (paid.transaction_id !== gatewayPaymentId) {
+          throw Object.assign(new Error('This booking already has a different completed payment. Please contact support.'), { status: 409 });
+        }
+        return this.rentalPaymentResult(context.booking, { paid: true, already_paid: true, message: 'Payment already processed.' });
       }
-
-      const booking = res.rows[0];
-
-      if (booking.borrower_id !== userId) {
-        throw new Error('Unauthorized.');
-      }
-
-      // Check if already paid to prevent duplicate processing
-      const payCheck = await client.query(
-        "SELECT id FROM payments WHERE rental_id = $1 AND payment_type = 'RENTAL' AND status = 'PAID'",
-        [bookingId]
+      const pending = await context.client.query(
+        "SELECT * FROM payments WHERE rental_id = $1 AND payment_type = 'RENTAL' AND transaction_id = $2 AND status = 'PENDING' ORDER BY created_at LIMIT 1",
+        [bookingId, gatewayOrderId],
       );
-      if (payCheck.rows.length > 0) {
-        await client.query('COMMIT');
-        return { message: 'Payment already processed.', status: booking.status };
-      }
-
-      // Update payment record to PAID
-      const paymentUpdate = await client.query(
-        "UPDATE payments SET transaction_id = $1, status = 'PAID' WHERE rental_id = $2 AND payment_type = 'RENTAL' AND transaction_id = $3 AND status = 'PENDING'",
-        [gatewayPaymentId, bookingId, gatewayOrderId],
-      );
-      if (!paymentUpdate.rowCount) throw new Error('Payment order not found or already processed.');
-
-      // Update booking status to RENTAL_PAYMENT_COMPLETED, reserve listing, notify owner
-      await client.query(`
-        UPDATE rentals SET
-          status = 'RENTAL_PAYMENT_COMPLETED',
-          booking_status = 'PAYMENT_COMPLETED',
-          payment_status = 'RENTAL_PAID',
-          updated_at = NOW()
-        WHERE id = $1
-      `, [bookingId]);
-
-      console.log(`[PaymentService] Rental verified for booking ${bookingId}. Status → RENTAL_PAYMENT_COMPLETED`);
-      await client.query(
-        `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
-         VALUES ($1, 'RENTAL_PAYMENT_COMPLETED', $2, $3)`,
-        [bookingId, userId, { amount: Number(booking.booking_amount || 0) }],
-      );
-
-      await client.query('COMMIT');
-
-      const rentalEvent = {
-        rental_id: bookingId,
-        owner_id: booking.owner_id,
-        renter_id: booking.borrower_id,
-        status: 'RENTAL_PAYMENT_COMPLETED',
-      };
-      emitUser(booking.owner_id, 'rental:request', rentalEvent);
-      emitUser(booking.borrower_id, 'rental:status', rentalEvent);
-
-      return {
-        message: 'Rental payment verified. Waiting for owner to accept.',
-        status: 'RENTAL_PAYMENT_COMPLETED'
-      };
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+      if (!pending.rows.length) throw Object.assign(new Error('Payment order not found or already processed.'), { status: 409 });
+      return this.settleRentalPayment(context, pending.rows[0], gatewayPaymentId);
+    });
   }
 
   /**
@@ -473,4 +570,5 @@ class PaymentService {
 }
 
 module.exports = new PaymentService();
+module.exports.createPaymentService = (options) => new PaymentService(options);
 

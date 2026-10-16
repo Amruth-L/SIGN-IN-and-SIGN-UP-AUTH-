@@ -670,6 +670,17 @@ export default function RentDetails() {
         tone: "amber",
       };
     }
+    if (["BOOKING_PAYMENT_PENDING", "BOOKING_REQUESTED"].includes(rental.status)) {
+      return {
+        title: "Booking payment is not confirmed yet",
+        body: isBorrower
+          ? "Already completed checkout? Check the existing payment before trying again. The owner can accept after payment is verified."
+          : "This checkout has not become a submitted request yet. Accept and Reject appear after the renter’s payment is verified.",
+        action: isBorrower ? "Check booking payment" : null,
+        actionFn: () => navigate(`/rental-payment/${rentalId}`),
+        tone: "amber",
+      };
+    }
     if (
       ["OWNER_PENDING", "RENTAL_PAYMENT_COMPLETED"].includes(rental.status)
     ) {
@@ -777,7 +788,7 @@ export default function RentDetails() {
       };
     }
     return null;
-  }, [delivery, isBorrower, isOwner, isCompleted, rental]);
+  }, [delivery, isBorrower, isOwner, isCompleted, rental, navigate, rentalId]);
 
   const copyId = async () => {
     await navigator.clipboard?.writeText(rentalId);

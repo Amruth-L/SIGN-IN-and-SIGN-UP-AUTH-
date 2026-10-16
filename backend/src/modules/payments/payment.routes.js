@@ -10,6 +10,7 @@ router.use(authMiddleware);
 // Stage 1: Booking/Rental Order Creation & Verification
 router.post('/create-rental-order', paymentController.createRentalOrder);
 router.post('/verify-rental', verifyPaymentSignature, paymentController.verifyRental);
+router.post('/reconcile-rental', paymentController.reconcileRental);
 router.post('/create-xerox-order', (req, res) => res.status(503).json({ error: 'Campus Print is coming soon.' }));
 router.post('/verify-xerox', verifyPaymentSignature, paymentController.verifyXerox);
 

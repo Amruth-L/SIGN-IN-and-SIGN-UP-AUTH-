@@ -1,9 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Calendar, AlertTriangle, Lock, CheckCircle2, ClipboardList, MapPin } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../lib/api';
-import { openRazorpayCheckout } from '../utils/RazorpayService';
 
 
 const formatCurrency = (n) => {
@@ -24,7 +22,6 @@ export default function RentSummary() {
   const { id } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, api } = useAuth();
 
   const queryParams = new URLSearchParams(location.search);
   const paramStart = queryParams.get('start_date');
@@ -38,6 +35,7 @@ export default function RentSummary() {
   const [startDate, setStartDate] = useState(paramStart || today());
   const [endDate, setEndDate] = useState(paramEnd || addDays(today(), 1));
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [breakdown, setBreakdown] = useState(null);
 
 
@@ -112,140 +110,42 @@ export default function RentSummary() {
     };
 
     fetchPricingBreakdown();
-  }, [startDate, endDate, listing]);
+  }, [startDate, endDate, listing, rentalConfiguration.delivery_requested]);
 
   const handleBook = async (e) => {
     e.preventDefault();
-    console.log('[Frontend Debug] handleBook triggered. Breakdown details:', breakdown);
-    if (!breakdown || submitting || breakdown.bookingAmount <= 0) {
-      console.warn('[Frontend Debug] handleBook validation failed. Breakdown missing or amount <= 0.');
-      return;
-    }
-    
+    if (!breakdown || submittingRef.current || !Number.isFinite(Number(breakdown.bookingAmount)) || breakdown.bookingAmount <= 0) return;
+
+    // The ref closes the double-click window before React updates the button.
+    submittingRef.current = true;
     setSubmitting(true);
     setError('');
-    
+
     try {
       const token = localStorage.getItem('token');
-      console.log('[Frontend Debug] Retrieve user token:', token ? 'Token exists' : 'Token missing');
-      
-      let rentalId = '';
-      let bookingAmount = breakdown.bookingAmount;
-      
-              console.log('[Frontend Debug] Requesting booking creation from backend...');
-        const res = await fetch(`${API_BASE_URL}/api/rentals/book`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            listing_id: id,
-            start_date: startDate,
-            end_date: endDate,
-            delivery_requested: Boolean(rentalConfiguration.delivery_requested),
-            drop_location_id: rentalConfiguration.drop_location_id || null,
-          }),
-        });
-        const data = await res.json();
-        console.log('[Frontend Debug] Booking creation response:', data);
-        if (!res.ok) throw new Error(data.error || 'Failed to create rental request.');
-        
-        rentalId = data.rental.id;
-        bookingAmount = Number(data.rental.booking_amount || breakdown.bookingAmount);
-      
-      console.log('[Frontend Debug] Requesting payment order details from backend...');
-      const orderRes = await fetch(`${API_BASE_URL}/api/payment/create-rental-order`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
-          body: JSON.stringify({ booking_id: rentalId })
-        });
-        const orderData = await orderRes.json();
-        console.log('[Frontend Debug] Payment order creation response:', orderData);
-        if (!orderRes.ok) throw new Error(orderData.error || 'Failed to create payment order.');
-
-      if (orderData.simulated) {
-        await api.post("/api/payment/verify-rental", {
-            booking_id: rentalId,
-            gateway_order_id: orderData.order_id,
-            gateway_payment_id: "sim_rental_" + Date.now(),
-            gateway_signature: "sim_sig",
-        });
-        navigate("/rent-details/" + rentalId, { state: { justBooked: true } });
-        return;
-      }
-
-      const paymentAmount = Number(orderData.amount || bookingAmount);
-      console.log('[Frontend Debug] Parsed paymentAmount in INR:', paymentAmount);
-      if (isNaN(paymentAmount) || paymentAmount <= 0) {
-        throw new Error('Invalid payment amount calculated by the system.');
-      }
-      
-      let razorpayKey = orderData.razorpay_key;
-      if (!razorpayKey || razorpayKey === 'SIMULATION_MODE' || razorpayKey === 'SIMULATION') {
-        razorpayKey = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TJCbHTYQTsOUNU';
-      }
-
-      // Step 3: Launch Razorpay checkout
-      console.log('[Frontend Debug] Launching Razorpay checkout with data:', {
-        simulated: orderData.simulated,
-        order_id: orderData.order_id,
-        amount: paymentAmount,
-        key: razorpayKey
+      const res = await fetch(`${API_BASE_URL}/api/rentals/book`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          listing_id: id,
+          start_date: startDate,
+          end_date: endDate,
+          delivery_requested: Boolean(rentalConfiguration.delivery_requested),
+          drop_location_id: rentalConfiguration.drop_location_id || null,
+        }),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to create rental request.');
+      if (!data.rental?.id) throw new Error('Could not load your booking. Check My rentals before trying again.');
 
-      const razorpayOptions = {
-        key: razorpayKey,
-        amount: paymentAmount,
-        currency: orderData.currency || 'INR',
-        name: 'CampusMesh',
-        description: 'Rental Payment',
-        prefill: {
-          name: user?.name,
-          email: user?.email
-        },
-        handler: async (resp) => {
-          console.log('[Frontend Debug] Razorpay payment completed successfully. Response:', resp);
-          try {
-            console.log('[Frontend Debug] Verifying signature with backend...');
-            const verifyRes = await fetch(`${API_BASE_URL}/api/payment/verify-rental`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`
-              },
-              body: JSON.stringify({
-                booking_id: rentalId,
-                gateway_order_id: resp.gateway_order_id || orderData.order_id,
-                gateway_payment_id: resp.gateway_payment_id,
-                gateway_signature: resp.gateway_signature || 'sim_sig'
-              })
-            });
-            const verifyData = await verifyRes.json();
-            console.log('[Frontend Debug] Verification response:', verifyData);
-            if (!verifyRes.ok) throw new Error(verifyData.error || 'Signature verification failed.');
-            
-            navigate(`/rent-details/${rentalId}`, { state: { justBooked: true } });
-          } catch (vErr) {
-            console.error('[Frontend Debug] Verification failed:', vErr);
-            navigate('/payment-failed', {
-              state: { error: vErr.message, retryPath: `/rent-summary/${id}` }
-            });
-          }
-        },
-        modalDismissHandler: () => {
-          console.log('[Frontend Debug] Razorpay checkout dismissed by user.');
-          setSubmitting(false);
-        }
-      };
-
-      razorpayOptions.order_id = orderData.order_id;
-
-      console.log('[Frontend Debug] Invoking openRazorpayCheckout with options:', razorpayOptions);
-      await openRazorpayCheckout(razorpayOptions);
-      console.log('[Frontend Debug] openRazorpayCheckout invoked successfully.');
+      // Keep every checkout retry on this booking, including dismissals and reloads.
+      navigate(`/rental-payment/${data.rental.id}`, {
+        replace: true,
+        state: { startCheckout: true },
+      });
     } catch (err) {
       setError(err.message);
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };

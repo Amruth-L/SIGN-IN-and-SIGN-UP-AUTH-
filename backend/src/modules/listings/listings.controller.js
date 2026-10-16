@@ -1,5 +1,6 @@
 const pool = require('../../config/database');
 const photos = require('./photo-storage');
+const { submittedRentalSql, bookingPaymentReceivedSql } = require('../rentals/booking-state');
 
 const galleryOf = listing => [...new Set([listing.image_url, ...(listing.image_urls || [])].filter(Boolean))];
 async function removeUnusedPhotos(urls) {
@@ -126,8 +127,9 @@ exports.getMyListings = async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT l.*, COUNT(r.id)::int AS request_count,
-        COUNT(r.id) FILTER (WHERE r.status IN ('OWNER_PENDING','RENTAL_PAYMENT_COMPLETED'))::int AS pending_request_count
-      FROM listings l LEFT JOIN rentals r ON r.listing_id=l.id
+        COUNT(r.id) FILTER (WHERE r.status IN ('OWNER_PENDING','RENTAL_PAYMENT_COMPLETED')
+          AND ${bookingPaymentReceivedSql('r')})::int AS pending_request_count
+      FROM listings l LEFT JOIN rentals r ON r.listing_id=l.id AND ${submittedRentalSql('r')}
       WHERE l.owner_id=$1 GROUP BY l.id ORDER BY l.created_at DESC`,
       [req.user.id],
     );
@@ -143,9 +145,10 @@ exports.getAvailability = async (req, res) => {
     const exists = await pool.query('SELECT id FROM listings WHERE id=$1', [req.params.id]);
     if (!exists.rowCount) return res.status(404).json({ error: 'Listing not found.' });
     const { rows } = await pool.query(
-      `SELECT start_date,end_date FROM rentals
-      WHERE listing_id=$1 AND status NOT IN ('COMPLETED','CANCELLED','REJECTED')
-      AND end_date >= CURRENT_DATE ORDER BY start_date`,
+      `SELECT start_date,end_date FROM rentals r
+      WHERE r.listing_id=$1 AND r.status NOT IN ('COMPLETED','CANCELLED','REJECTED','DEPOSIT_REFUNDED')
+      AND ${submittedRentalSql('r')}
+      AND r.end_date >= CURRENT_DATE ORDER BY r.start_date`,
       [req.params.id],
     );
     res.json({ listing_id: req.params.id, blocked_ranges: rows });

@@ -20,10 +20,10 @@ exports.createRentalOrder = async (req, res) => {
 
   try {
     const orderData = await paymentService.createRentalOrder(targetId, userId);
-    res.status(201).json(orderData);
+    res.status(orderData.already_paid ? 200 : 201).json(orderData);
   } catch (error) {
     console.error('[PaymentController] createRentalOrder error:', error.message);
-    res.status(500).json({ error: error.message || 'Failed to create rental payment order.' });
+    res.status(error.status || 500).json({ error: error.message || 'Failed to create rental payment order.' });
   }
 };
 
@@ -47,7 +47,20 @@ exports.verifyRental = async (req, res) => {
     res.status(200).json(verificationResult);
   } catch (error) {
     console.error('[PaymentController] verifyRental error:', error.message);
-    res.status(500).json({ error: error.message || 'Failed to verify rental payment.' });
+    res.status(error.status || 500).json({ error: error.message || 'Failed to verify rental payment.' });
+  }
+};
+
+exports.reconcileRental = async (req, res) => {
+  const targetId = req.body.booking_id || req.body.rental_id;
+  if (!targetId) return res.status(400).json({ error: 'booking_id is required.' });
+  try {
+    // The service accepts no browser-supplied order/payment IDs. It recovers only
+    // captured provider payments linked to this authenticated borrower's rental.
+    const result = await paymentService.reconcileRentalPayment(targetId, req.user.id);
+    return res.json(result);
+  } catch (error) {
+    return res.status(error.status || 500).json({ error: error.message || 'Could not confirm rental payment. Please retry.' });
   }
 };
 
@@ -264,7 +277,7 @@ exports.verifyCheckout = async (req, res) => {
     await client.query('BEGIN');
 
     // 1. Fetch pending order
-    const pendingRes = await client.query('SELECT * FROM pending_orders WHERE id = $1 AND user_id = $2', [gateway_order_id, userId]);
+    const pendingRes = await client.query('SELECT * FROM pending_orders WHERE id = $1 AND user_id = $2 FOR UPDATE', [gateway_order_id, userId]);
     if (pendingRes.rows.length === 0) {
       throw new Error('Pending order not found for this transaction.');
     }

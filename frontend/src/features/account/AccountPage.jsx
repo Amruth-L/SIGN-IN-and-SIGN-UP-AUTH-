@@ -222,12 +222,12 @@ function OwnerRequestQueue({ requests, summary, loading, connection, error, resp
     : requestFilter === "pending" ? pending : requests;
 
   return (
-    <section id="incoming-rental-requests" className="mb-6 scroll-mt-6 rounded-xl border border-mesh-900/10 bg-white p-5  sm:p-6">
+    <section id="incoming-rental-requests" className="mb-6 scroll-mt-44 rounded-xl border border-mesh-900/10 bg-white p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <span className="text-xs font-medium text-ink/65">Owner inbox</span>
           <h2 className="mt-1 text-xl font-semibold">Incoming rental requests</h2>
-          <p className="mt-1 max-w-2xl text-sm text-ink/50">Review who requested your item and the rental dates. Accept to continue with the deposit and handover.</p>
+          <p className="mt-1 max-w-2xl text-sm text-ink/65">Requests appear after the rental payment is confirmed. Accept a paid request to continue with the deposit and handover.</p>
         </div>
         <ConnectionBadge state={connection} />
       </div>
@@ -251,7 +251,7 @@ function OwnerRequestQueue({ requests, summary, loading, connection, error, resp
         <div className="mt-5 rounded-2xl border border-dashed border-ink/15 bg-paper/60 p-6 text-center">
           <Check className="mx-auto text-mesh-600" size={22} />
           <p className="mt-2 text-sm font-semibold">No requests in this view</p>
-          <p className="mt-1 text-xs text-ink/45">New rental requests appear here after the booking payment.</p>
+          <p className="mt-1 text-sm text-ink/60">Accept and Reject become available once the renter’s payment is verified. Unpaid checkout attempts are not submitted requests.</p>
         </div>
       ) : (
         <div className="mt-5 space-y-3">
@@ -280,8 +280,8 @@ function OwnerRequestQueue({ requests, summary, loading, connection, error, resp
                 </div>
                 <div className="flex shrink-0 flex-row gap-2 sm:flex-col">
                   {request.actionable && <>
-                    <button onClick={() => onRespond(request.id, "ACCEPTED")} disabled={!!responding[request.id]} className="rounded-xl bg-mesh-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-mesh-700 disabled:opacity-50">{responding[request.id] === "ACCEPTED" ? "Accepting…" : "Accept"}</button>
-                    <button onClick={() => onRespond(request.id, "REJECTED")} disabled={!!responding[request.id]} className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50">{responding[request.id] === "REJECTED" ? "Rejecting…" : "Reject"}</button>
+                    <button onClick={() => onRespond(request.id, "ACCEPTED")} disabled={!!responding[request.id]} className="min-h-11 rounded-xl bg-mesh-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-mesh-700 disabled:opacity-50">{responding[request.id] === "ACCEPTED" ? "Accepting…" : "Accept request"}</button>
+                    <button onClick={() => onRespond(request.id, "REJECTED")} disabled={!!responding[request.id]} className="min-h-11 rounded-xl border border-red-200 bg-white px-5 py-3 text-sm font-semibold text-red-700 transition hover:bg-red-50 disabled:opacity-50">{responding[request.id] === "REJECTED" ? "Rejecting…" : "Reject"}</button>
                   </>}
                   <Link to={`/rent-details/${request.id}`} className="rounded-xl border border-ink/10 bg-white px-3 py-2 text-center text-xs font-semibold text-ink/65 transition hover:border-mesh-300 hover:bg-mesh-50">Details</Link>
                 </div>

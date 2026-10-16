@@ -3,6 +3,7 @@ const { matchDelivery } = require('../delivery/matching.service');
 const { ensureOutboundDelivery } = require('../delivery/delivery-request.service');
 const { emitUser } = require('../../shared/realtime');
 const paymentService = require('../payments/payment.service');
+const { submittedRentalSql, bookingPaymentReceivedSql } = require('./booking-state');
 
 // POST /api/rentals/book
 exports.bookRental = async (req, res) => {
@@ -12,116 +13,115 @@ exports.bookRental = async (req, res) => {
   if (!listing_id || !start_date || !end_date) {
     return res.status(400).json({ error: 'listing_id, start_date, and end_date are required.' });
   }
-
+  const validDate = (value) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+  if (!validDate(start_date) || !validDate(end_date)) {
+    return res.status(400).json({ error: 'Choose valid rental dates in YYYY-MM-DD format.' });
+  }
+  if (typeof delivery_requested !== 'boolean') {
+    return res.status(400).json({ error: 'delivery_requested must be true or false.' });
+  }
+  const destination = delivery_requested ? drop_location_id : null;
+  let client;
   try {
-    // Load listing
-    const listingRes = await pool.query('SELECT * FROM listings WHERE id = $1', [listing_id]);
-    if (listingRes.rows.length === 0) {
+    client = await pool.connect();
+    await client.query('BEGIN');
+    // Serialize draft creation for a listing: two simultaneous checkout retries
+    // must observe the same committed rental instead of both inserting one.
+    const listingRes = await client.query('SELECT * FROM listings WHERE id = $1 FOR NO KEY UPDATE', [listing_id]);
+    const listing = listingRes.rows[0];
+    if (!listing) {
+      await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Listing not found.' });
     }
-    const listing = listingRes.rows[0];
-
     if (listing.owner_id === borrower_id) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'You cannot rent your own listing.' });
     }
 
-    // Calculate rental days
     const start = new Date(start_date);
     const end = new Date(end_date);
     start.setHours(0, 0, 0, 0);
     end.setHours(0, 0, 0, 0);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    if (start < today) {
-      return res.status(400).json({ error: 'start_date cannot be in the past.' });
+    if (start < today || end < start) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: start < today ? 'start_date cannot be in the past.' : 'end_date cannot be before start_date.' });
     }
-    if (end < start) {
-      return res.status(400).json({ error: 'end_date cannot be before start_date.' });
-    }
-    if (delivery_requested && (!listing.delivery_available || !drop_location_id)) {
+    if (delivery_requested && (!listing.delivery_available || !destination)) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Choose an available campus drop location for delivery.' });
     }
 
-    const rental_days = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) + 1;
-
-    const { calculatePricing } = require('../../shared/pricing-engine');
-    const pricing = calculatePricing({
-      dailyRent: listing.rent_price || listing.price || 0,
-      days: rental_days,
-      deliveryType: delivery_requested ? 'STANDARD' : 'SELF_PICKUP',
-      ownerLocation: listing.location || '',
-      itemValue: listing.price || 0,
-      customDeposit: listing.deposit,
-    });
-
-    const rental_fee = pricing.rentalFee;
-    const delivery_fee = pricing.deliveryFee;
-    const platform_fee = pricing.platformFee;
-    const booking_amount = pricing.totalAmount;
-    const deposit_amount = pricing.securityDeposit;
-
-    // Check if active rental already exists for this listing & dates
-    const conflictRes = await pool.query(
-      `
-      SELECT id FROM rentals
-      WHERE listing_id = $1
-        AND status NOT IN ('BOOKING_PAYMENT_PENDING', 'CANCELLED', 'COMPLETED', 'DEPOSIT_REFUNDED')
-        AND NOT (end_date < $2 OR start_date > $3)
-    `,
+    // Preserve the quote and any payment order already attached to a draft.
+    // Never recycle a paid record, or another borrower's/destination's checkout.
+    const existing = await client.query(
+      `SELECT r.* FROM rentals r
+       WHERE r.listing_id=$1 AND r.borrower_id=$2
+         AND r.start_date=$3 AND r.end_date=$4
+         AND r.delivery_requested=$5 AND r.drop_location_id IS NOT DISTINCT FROM $6::text
+         AND r.status IN ('BOOKING_PAYMENT_PENDING','BOOKING_REQUESTED')
+         AND r.payment_status='PENDING' AND r.owner_response='PENDING'
+         AND NOT EXISTS (SELECT 1 FROM payments p WHERE p.rental_id=r.id AND p.status='PAID')
+       ORDER BY r.created_at DESC, r.id DESC LIMIT 1 FOR UPDATE OF r`,
+      [listing_id, borrower_id, start_date, end_date, delivery_requested, destination],
+    );
+    // Check after acquiring the draft lock: payment recovery may have made it
+    // paid while this checkout was waiting. Do not create a replacement draft.
+    const conflictRes = await client.query(
+      `SELECT r.id FROM rentals r
+       WHERE r.listing_id = $1
+         AND r.status NOT IN ('CANCELLED', 'COMPLETED', 'DEPOSIT_REFUNDED')
+         AND ${submittedRentalSql('r')}
+         AND NOT (r.end_date < $2 OR r.start_date > $3)`,
       [listing_id, start_date, end_date],
     );
-
     if (conflictRes.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(409).json({ error: 'These rental dates conflict with an existing booking.' });
     }
 
-    // Create rental record
-    const rentalRes = await pool.query(
-      `
-      INSERT INTO rentals (
-        listing_id, borrower_id, owner_id, start_date, end_date, rental_days,
-        rental_fee, delivery_fee, platform_fee, booking_amount, deposit_amount,
-        status, booking_status, deposit_status, payment_status, owner_response, delivery_requested, drop_location_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-        'BOOKING_PAYMENT_PENDING', 'PENDING', 'PENDING', 'PENDING', 'PENDING', $12, $13)
-      RETURNING *
-    `,
-      [
-        listing_id,
-        borrower_id,
-        listing.owner_id,
-        start_date,
-        end_date,
-        rental_days,
-        rental_fee,
-        delivery_fee,
-        platform_fee,
-        booking_amount,
-        deposit_amount,
-        Boolean(delivery_requested),
-        drop_location_id,
-      ],
-    );
-
-    const rental = rentalRes.rows[0];
-    await pool.query(
-      `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
-       VALUES ($1, 'BOOKING_CREATED', $2, $3)`,
-      [rental.id, borrower_id, { deliveryRequested: Boolean(delivery_requested) }],
-    );
-
-    console.log(`[RentalController] Rental created: ${rental.id} for listing ${listing_id}`);
-
-    res.status(201).json({
+    let rental = existing.rows[0];
+    const reused = Boolean(rental);
+    if (!rental) {
+      const rental_days = Math.ceil((end - start) / 86400000) + 1;
+      const { calculatePricing } = require('../../shared/pricing-engine');
+      const pricing = calculatePricing({
+        dailyRent: listing.rent_price || listing.price || 0,
+        days: rental_days,
+        deliveryType: delivery_requested ? 'STANDARD' : 'SELF_PICKUP',
+        ownerLocation: listing.location || '',
+        itemValue: listing.price || 0,
+        customDeposit: listing.deposit,
+      });
+      const result = await client.query(
+        `INSERT INTO rentals (
+          listing_id, borrower_id, owner_id, start_date, end_date, rental_days,
+          rental_fee, delivery_fee, platform_fee, booking_amount, deposit_amount,
+          status, booking_status, deposit_status, payment_status, owner_response, delivery_requested, drop_location_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+          'BOOKING_PAYMENT_PENDING', 'PENDING', 'PENDING', 'PENDING', 'PENDING', $12, $13)
+        RETURNING *`,
+        [listing_id, borrower_id, listing.owner_id, start_date, end_date, rental_days,
+          pricing.rentalFee, pricing.deliveryFee, pricing.platformFee, pricing.totalAmount,
+          pricing.securityDeposit, delivery_requested, destination],
+      );
+      rental = result.rows[0];
+      await client.query(
+        `INSERT INTO transaction_events (rental_id, event_type, actor_user_id, metadata)
+         VALUES ($1, 'BOOKING_CREATED', $2, $3)`,
+        [rental.id, borrower_id, { deliveryRequested: delivery_requested }],
+      );
+    }
+    await client.query('COMMIT');
+    res.status(reused ? 200 : 201).json({
       rental,
-      breakdown: {
-        rental_fee,
-        delivery_fee,
-        platform_fee,
-        booking_amount,
-        deposit_amount,
-        rental_days,
-      },
+      reused,
+      breakdown: Object.fromEntries(
+        ['rental_fee', 'delivery_fee', 'platform_fee', 'booking_amount', 'deposit_amount', 'rental_days']
+          .map((key) => [key, Number(rental[key])]),
+      ),
       listing: {
         title: listing.title,
         image_url: listing.image_url,
@@ -131,8 +131,11 @@ exports.bookRental = async (req, res) => {
       },
     });
   } catch (error) {
+    if (client) try { await client.query('ROLLBACK'); } catch {}
     console.error('[RentalController] bookRental error:', error.message);
     res.status(500).json({ error: 'Failed to create rental booking.' });
+  } finally {
+    client?.release();
   }
 };
 
@@ -162,6 +165,16 @@ exports.respondToBooking = async (req, res) => {
     if (!['OWNER_PENDING', 'RENTAL_PAYMENT_COMPLETED'].includes(rental.status)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: `Cannot respond: rental is in status "${rental.status}".` });
+    }
+
+    const paid = await client.query(
+      `SELECT id FROM payments WHERE rental_id=$1 AND payment_type='RENTAL'
+       AND status='PAID' AND amount >= $2 LIMIT 1`,
+      [rental_id, rental.booking_amount],
+    );
+    if (!paid.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'The renter must complete the booking payment before you can respond.' });
     }
 
     if (response === 'REJECTED') {
@@ -712,6 +725,7 @@ exports.getOwnerRequests = async (req, res) => {
     const result = await pool.query(
       `
       SELECT r.*,
+        ${bookingPaymentReceivedSql('r')} AS rental_fee_paid,
         l.title AS listing_title, l.image_url AS listing_image, l.category AS listing_category,
         l.pickup_location_id AS listing_pickup_location_id,
         bu.name AS borrower_name, bu.email AS borrower_email, bu.hostel AS borrower_hostel,
@@ -742,6 +756,7 @@ exports.getOwnerRequests = async (req, res) => {
       ) dr ON TRUE
       LEFT JOIN users courier ON courier.id = dr.courier_id
       WHERE r.owner_id = $1
+        AND ${submittedRentalSql('r')}
       ORDER BY r.created_at DESC
       `,
       [owner_id],
@@ -749,7 +764,7 @@ exports.getOwnerRequests = async (req, res) => {
 
     const locationLabel = (building, floor, room) => [building, floor, room].filter(Boolean).join(' · ');
     const requests = result.rows.map((row) => {
-      const actionable = ['OWNER_PENDING', 'RENTAL_PAYMENT_COMPLETED'].includes(row.status);
+      const actionable = row.rental_fee_paid && ['OWNER_PENDING', 'RENTAL_PAYMENT_COMPLETED'].includes(row.status);
       const activeRental = ['DEPOSIT_PENDING', 'MATCHING_COURIER', 'NO_COURIER_AVAILABLE', 'COURIER_ASSIGNED', 'RENTAL_ACTIVE', 'RETURN_MATCHING', 'RETURN_COURIER_ASSIGNED', 'RETURN_IN_TRANSIT'].includes(row.status);
       const completedRental = ['COMPLETED', 'DEPOSIT_REFUNDED'].includes(row.status);
       const delivery = row.delivery_id ? {
@@ -774,6 +789,9 @@ exports.getOwnerRequests = async (req, res) => {
       let next_action = 'View rental details';
       if (actionable) {
         next_action = 'Review and respond to this booking';
+      } else if (['BOOKING_PAYMENT_PENDING', 'BOOKING_REQUESTED', 'OWNER_PENDING', 'RENTAL_PAYMENT_COMPLETED'].includes(row.status)) {
+        blocked_by = row.rental_fee_paid ? 'PAYMENT_RECONCILIATION' : 'BOOKING_PAYMENT';
+        next_action = row.rental_fee_paid ? 'Payment recorded; checking the booking status' : 'Waiting for the renter to complete booking payment';
       } else if (row.status === 'DEPOSIT_PENDING') {
         blocked_by = 'DEPOSIT';
         next_action = 'Waiting for renter to pay the refundable deposit';
