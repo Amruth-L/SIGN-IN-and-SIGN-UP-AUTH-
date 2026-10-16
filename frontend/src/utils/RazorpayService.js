@@ -88,6 +88,15 @@ export const openRazorpayCheckout = async ({
     }
   };
 
+  // Make the mock-bank success flow easy to find in the student demo.
+  // Live checkout keeps the merchant's normal payment-method configuration.
+  if (resolvedKey.startsWith('rzp_test_')) {
+    options.config = { display: {
+      blocks: { testbank: { name: 'Test payment — choose Success at the bank', instruments: [{ method: 'netbanking' }] } },
+      sequence: ['block.testbank'], preferences: { show_default_blocks: true },
+    } };
+  }
+
   // Only pass order_id if it's a real Razorpay order (not a simulated one)
   if (order_id && !order_id.startsWith('sim_')) {
     options.order_id = order_id;

@@ -19,6 +19,7 @@ router.post('/create-deposit-order', paymentController.createDepositOrder);
 router.post('/verify-deposit', verifyPaymentSignature, paymentController.verifyDeposit);
 
 // Stage 3: Cart Checkout Creation & Verification
+router.post('/reconcile-checkout', paymentController.reconcileCheckout);
 router.post('/create-checkout-order', paymentController.createCheckoutOrder);
 router.post('/verify-checkout', verifyPaymentSignature, paymentController.verifyCheckout);
 

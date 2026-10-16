@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../lib/api';
 import { canPayRental, rentalVerificationPayload, validateRentalOrder } from '../lib/rental-checkout';
 import { openRazorpayCheckout } from '../utils/RazorpayService';
+import TestPaymentNotice from '../components/TestPaymentNotice';
 import PaymentSummary from '../components/PaymentSummary';
 
 const API_BASE = API_BASE_URL;
@@ -18,6 +19,7 @@ export default function RentalPayment() {
   const [booking, setBooking] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [testMode, setTestMode] = useState(false);
   const [paying, setPaying] = useState(false);
   const [confirmationPending, setConfirmationPending] = useState(false);
   const payingRef = useRef(false);
@@ -142,6 +144,7 @@ export default function RentalPayment() {
         return;
       }
       validateRentalOrder(orderData);
+      setTestMode(orderData.razorpay_key.startsWith('rzp_test_'));
 
       await openRazorpayCheckout({
         key: orderData.razorpay_key,
@@ -178,7 +181,9 @@ export default function RentalPayment() {
         },
         modalDismissHandler: (gatewayError) => {
           if (gatewayError) {
-            setError('The payment did not complete. You can retry inside the payment window, or close it to check this booking.');
+            setError(gatewayError.reason === 'international_transaction_not_allowed'
+              ? 'Razorpay rejected an international card. In Test Mode, choose Netbanking and Success, or use the domestic test card shown below.'
+              : 'The payment did not complete. You can retry inside the payment window, or close it to check this booking.');
             return; // Razorpay keeps its window open on payment.failed; keep the in-flight guard.
           }
           if (receiptRef.current) return; // Confirmation is already running after a successful callback.
@@ -251,6 +256,7 @@ export default function RentalPayment() {
           depositAmount={booking.deposit_amount}
         />
 
+        {testMode && <TestPaymentNotice />}
         {error && <div className="my-4 rounded-lg border border-red-200 bg-red-50 p-3 text-red-600">⚠️ {error}</div>}
 
         <p className="mt-4 text-sm leading-6 text-ink/65">Your booking and rental dates are saved. If money was debited, check payment confirmation instead of paying again.</p>

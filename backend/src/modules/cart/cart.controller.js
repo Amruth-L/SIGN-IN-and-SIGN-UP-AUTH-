@@ -146,7 +146,7 @@ exports.updateCartDates = async (req, res) => {
     // 4. Update
     const updateRes = await pool.query(
       `UPDATE cart 
-       SET start_date = $1, end_date = $2, days = $3, subtotal = $4, created_at = NOW()
+       SET start_date = $1, end_date = $2, days = $3, subtotal = $4, platform_fee = GREATEST(5, ROUND($4::numeric * 0.05)), created_at = NOW()
        WHERE id = $5 AND user_id = $6
        RETURNING *`,
       [start_date, end_date, days, subtotal, id, user_id],
